@@ -1,0 +1,57 @@
+name: full_recon
+version: "1.0"
+description: "Complete reconnaissance — subdomains, DNS, tech fingerprinting, crawl, OSINT, secrets"
+tags: [recon, passive, active]
+rate_profile: normal
+
+steps:
+  - id: subdomain_enum
+    module: recon.subdomain
+    args:
+      sources: [crtsh, hackertarget, wayback, permutation]
+      bruteforce: false
+      threads: 50
+    output:
+      key: subdomains
+
+  - id: dns_analysis
+    module: recon.dns
+    depends_on: [subdomain_enum]
+    args:
+      zone_transfer: true
+      takeover_check: true
+
+  - id: tech_detect
+    module: recon.tech
+    args:
+      waf_detect: true
+      favicon_hash: true
+    output:
+      key: technologies
+
+  - id: web_crawl
+    module: recon.crawl
+    depends_on: [tech_detect]
+    args:
+      depth: 3
+      js_parse: true
+      forms: true
+      max_pages: 150
+    output:
+      key: crawl_data
+
+  - id: osint
+    module: recon.osint
+    parallel: true
+    args:
+      checks: [emails, s3_buckets, github_dorks]
+
+  - id: takeover_check
+    module: network.takeover
+    depends_on: [subdomain_enum]
+    parallel: true
+
+  - id: secrets_scan
+    module: cloud.secrets
+    depends_on: [web_crawl]
+    parallel: true

@@ -1,0 +1,1580 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+<meta charset='UTF-8'>
+<meta name='viewport' content='width=device-width,initial-scale=1'>
+<title>TALISMAN Report — bounty-q1</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f172a; color: #e2e8f0; }
+  .container { max-width: 1100px; margin: 0 auto; padding: 24px; }
+  .header { background: linear-gradient(135deg, #1e293b, #0f172a); border: 1px solid #334155; border-radius: 12px; padding: 32px; margin-bottom: 24px; }
+  .header h1 { font-size: 2rem; color: #38bdf8; margin-bottom: 8px; }
+  .header p { color: #94a3b8; }
+  .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 16px; margin-bottom: 24px; }
+  .stat { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 16px; text-align: center; }
+  .stat-num { font-size: 2rem; font-weight: 700; }
+  .stat-label { font-size: 0.8rem; color: #94a3b8; text-transform: uppercase; }
+  .chart { display: flex; align-items: flex-end; gap: 8px; height: 140px; margin-bottom: 24px; background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 16px; }
+  .bar-item { display: flex; flex-direction: column; align-items: center; gap: 4px; flex: 1; }
+  .bar { width: 100%; border-radius: 4px 4px 0 0; min-height: 4px; transition: height 0.3s; }
+  .bar-label { font-size: 0.7rem; color: #94a3b8; text-align: center; }
+  .finding { background: #1e293b; border: 1px solid #334155; border-radius: 8px; margin-bottom: 16px; overflow: hidden; }
+  .finding-header { display: flex; align-items: center; gap: 12px; padding: 16px; background: #0f172a; }
+  .badge { padding: 3px 10px; border-radius: 4px; font-size: 0.75rem; font-weight: 700; color: #fff; }
+  .finding-title { font-weight: 600; flex: 1; }
+  .finding-target { font-size: 0.8rem; color: #64748b; font-family: monospace; }
+  .finding-body { padding: 16px; }
+  .meta { width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 0.85rem; }
+  .meta td { padding: 6px 12px; border-bottom: 1px solid #334155; }
+  .meta td:first-child { color: #94a3b8; width: 120px; }
+  h4 { color: #38bdf8; margin: 16px 0 8px; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.05em; }
+  .code { background: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 12px; font-family: 'Fira Code', 'Courier New', monospace; font-size: 0.82rem; overflow-x: auto; white-space: pre-wrap; word-break: break-all; }
+  p { color: #cbd5e1; line-height: 1.6; }
+  .footer { text-align: center; color: #475569; padding: 32px; font-size: 0.85rem; }
+</style>
+</head>
+<body>
+<div class='container'>
+  <div class='header'>
+    <h1>🗡️ TALISMAN Security Report</h1>
+    <p>Session: <strong>bounty-q1</strong> &nbsp;·&nbsp; Generated: 2026-04-21T21:16:19.818119Z</p>
+    <p style='margin-top:8px'>Targets: 0 &nbsp;·&nbsp; Total findings: 67</p>
+  </div>
+  <div class='summary'>
+    <div class='stat'><div class='stat-num' style='color:#dc2626'>23</div><div class='stat-label'>critical</div></div><div class='stat'><div class='stat-num' style='color:#ea580c'>6</div><div class='stat-label'>high</div></div><div class='stat'><div class='stat-num' style='color:#d97706'>33</div><div class='stat-label'>medium</div></div><div class='stat'><div class='stat-num' style='color:#2563eb'>3</div><div class='stat-label'>low</div></div><div class='stat'><div class='stat-num' style='color:#6b7280'>2</div><div class='stat-label'>info</div></div>
+  </div>
+  <div class='chart'><div class="bar-item"><div class="bar" style="height:120px;background:#dc2626"></div><div class="bar-label">CRITICAL<br><strong>23</strong></div></div><div class="bar-item"><div class="bar" style="height:48px;background:#ea580c"></div><div class="bar-label">HIGH<br><strong>6</strong></div></div><div class="bar-item"><div class="bar" style="height:120px;background:#d97706"></div><div class="bar-label">MEDIUM<br><strong>33</strong></div></div><div class="bar-item"><div class="bar" style="height:24px;background:#2563eb"></div><div class="bar-label">LOW<br><strong>3</strong></div></div><div class="bar-item"><div class="bar" style="height:16px;background:#6b7280"></div><div class="bar-label">INFO<br><strong>2</strong></div></div></div>
+  
+<div class='finding' id='finding-1'>
+  <div class='finding-header' style='border-left:4px solid #dc2626'>
+    <span class='badge' style='background:#dc2626'>CRITICAL</span>
+    <span class='finding-title'>Command Injection (output_based) — param 'cmd' via GET</span>
+    <span class='finding-target'>https://etoro.com</span>
+  </div>
+  <div class='finding-body'>
+    <table class='meta'>
+      <tr><td>Module</td><td>cmdi</td></tr>
+      <tr><td>Confidence</td><td>confirmed</td></tr>
+      <tr><td>CVSS</td><td>10.0</td></tr>
+      <tr><td>CWE</td><td>CWE-78</td></tr>
+    </table>
+    <h4>Description</h4><p>OS command injection confirmed via output_based technique. Parameter 'cmd' is injected into a shell command. Payload: 1; id</p>
+    <h4>HTTP Request</h4><pre class='code'>GET https://etoro.com?cmd=1%3B%20id HTTP/1.1</pre>
+    <h4>Evidence</h4><pre class='code'>&lt;!doctype html&gt;
+&lt;html lang=&quot;en&quot; class=&quot; home&quot;&gt;
+&lt;head&gt;
+&lt;script type=&quot;text/javascript&quot;&gt;(window.NREUM||(NREUM={})).init={privacy:{cookies_enabled:true},ajax:{deny_list:[]},session_trace:{sampling_rate:0.0,mode:&quot;FIXED_RATE&quot;,enabled:true,error_sampling_rate:0.0},feature_flags:[&quot;soft_nav&quot;],distributed_tra</pre>
+    <h4>Reproduction</h4><p>Send: GET https://etoro.com?cmd=1%3B%20id</p>
+    <h4>Remediation</h4><p>1. Avoid passing user input to OS commands entirely.
+2. If unavoidable, use allowlists to validate input strictly.
+3. Use language-native APIs instead of shell commands (e.g., Python's subprocess with list args).
+4. Sanitize and escape all user input before use in shell context.</p>
+  </div>
+</div>
+<div class='finding' id='finding-2'>
+  <div class='finding-header' style='border-left:4px solid #dc2626'>
+    <span class='badge' style='background:#dc2626'>CRITICAL</span>
+    <span class='finding-title'>Command Injection (output_based) — param 'exec' via GET</span>
+    <span class='finding-target'>https://etoro.com</span>
+  </div>
+  <div class='finding-body'>
+    <table class='meta'>
+      <tr><td>Module</td><td>cmdi</td></tr>
+      <tr><td>Confidence</td><td>confirmed</td></tr>
+      <tr><td>CVSS</td><td>10.0</td></tr>
+      <tr><td>CWE</td><td>CWE-78</td></tr>
+    </table>
+    <h4>Description</h4><p>OS command injection confirmed via output_based technique. Parameter 'exec' is injected into a shell command. Payload: 1; id</p>
+    <h4>HTTP Request</h4><pre class='code'>GET https://etoro.com?exec=1%3B%20id HTTP/1.1</pre>
+    <h4>Evidence</h4><pre class='code'>&lt;!doctype html&gt;
+&lt;html lang=&quot;en&quot; class=&quot; home&quot;&gt;
+&lt;head&gt;
+&lt;script type=&quot;text/javascript&quot;&gt;(window.NREUM||(NREUM={})).init={privacy:{cookies_enabled:true},ajax:{deny_list:[]},session_trace:{sampling_rate:0.0,mode:&quot;FIXED_RATE&quot;,enabled:true,error_sampling_rate:0.0},feature_flags:[&quot;soft_nav&quot;],distributed_tra</pre>
+    <h4>Reproduction</h4><p>Send: GET https://etoro.com?exec=1%3B%20id</p>
+    <h4>Remediation</h4><p>1. Avoid passing user input to OS commands entirely.
+2. If unavoidable, use allowlists to validate input strictly.
+3. Use language-native APIs instead of shell commands (e.g., Python's subprocess with list args).
+4. Sanitize and escape all user input before use in shell context.</p>
+  </div>
+</div>
+<div class='finding' id='finding-3'>
+  <div class='finding-header' style='border-left:4px solid #dc2626'>
+    <span class='badge' style='background:#dc2626'>CRITICAL</span>
+    <span class='finding-title'>Command Injection (output_based) — param 'command' via GET</span>
+    <span class='finding-target'>https://etoro.com</span>
+  </div>
+  <div class='finding-body'>
+    <table class='meta'>
+      <tr><td>Module</td><td>cmdi</td></tr>
+      <tr><td>Confidence</td><td>confirmed</td></tr>
+      <tr><td>CVSS</td><td>10.0</td></tr>
+      <tr><td>CWE</td><td>CWE-78</td></tr>
+    </table>
+    <h4>Description</h4><p>OS command injection confirmed via output_based technique. Parameter 'command' is injected into a shell command. Payload: 1; id</p>
+    <h4>HTTP Request</h4><pre class='code'>GET https://etoro.com?command=1%3B%20id HTTP/1.1</pre>
+    <h4>Evidence</h4><pre class='code'>&lt;!doctype html&gt;
+&lt;html lang=&quot;en&quot; class=&quot; home&quot;&gt;
+&lt;head&gt;
+&lt;script type=&quot;text/javascript&quot;&gt;(window.NREUM||(NREUM={})).init={privacy:{cookies_enabled:true},ajax:{deny_list:[]},session_trace:{sampling_rate:0.0,mode:&quot;FIXED_RATE&quot;,enabled:true,error_sampling_rate:0.0},feature_flags:[&quot;soft_nav&quot;],distributed_tra</pre>
+    <h4>Reproduction</h4><p>Send: GET https://etoro.com?command=1%3B%20id</p>
+    <h4>Remediation</h4><p>1. Avoid passing user input to OS commands entirely.
+2. If unavoidable, use allowlists to validate input strictly.
+3. Use language-native APIs instead of shell commands (e.g., Python's subprocess with list args).
+4. Sanitize and escape all user input before use in shell context.</p>
+  </div>
+</div>
+<div class='finding' id='finding-4'>
+  <div class='finding-header' style='border-left:4px solid #dc2626'>
+    <span class='badge' style='background:#dc2626'>CRITICAL</span>
+    <span class='finding-title'>Command Injection (output_based) — param 'ping' via GET</span>
+    <span class='finding-target'>https://etoro.com</span>
+  </div>
+  <div class='finding-body'>
+    <table class='meta'>
+      <tr><td>Module</td><td>cmdi</td></tr>
+      <tr><td>Confidence</td><td>confirmed</td></tr>
+      <tr><td>CVSS</td><td>10.0</td></tr>
+      <tr><td>CWE</td><td>CWE-78</td></tr>
+    </table>
+    <h4>Description</h4><p>OS command injection confirmed via output_based technique. Parameter 'ping' is injected into a shell command. Payload: 1; id</p>
+    <h4>HTTP Request</h4><pre class='code'>GET https://etoro.com?ping=1%3B%20id HTTP/1.1</pre>
+    <h4>Evidence</h4><pre class='code'>&lt;!doctype html&gt;
+&lt;html lang=&quot;en&quot; class=&quot; home&quot;&gt;
+&lt;head&gt;
+&lt;script type=&quot;text/javascript&quot;&gt;(window.NREUM||(NREUM={})).init={privacy:{cookies_enabled:true},ajax:{deny_list:[]},session_trace:{sampling_rate:0.0,mode:&quot;FIXED_RATE&quot;,enabled:true,error_sampling_rate:0.0},feature_flags:[&quot;soft_nav&quot;],distributed_tra</pre>
+    <h4>Reproduction</h4><p>Send: GET https://etoro.com?ping=1%3B%20id</p>
+    <h4>Remediation</h4><p>1. Avoid passing user input to OS commands entirely.
+2. If unavoidable, use allowlists to validate input strictly.
+3. Use language-native APIs instead of shell commands (e.g., Python's subprocess with list args).
+4. Sanitize and escape all user input before use in shell context.</p>
+  </div>
+</div>
+<div class='finding' id='finding-5'>
+  <div class='finding-header' style='border-left:4px solid #dc2626'>
+    <span class='badge' style='background:#dc2626'>CRITICAL</span>
+    <span class='finding-title'>Command Injection (output_based) — param 'host' via GET</span>
+    <span class='finding-target'>https://etoro.com</span>
+  </div>
+  <div class='finding-body'>
+    <table class='meta'>
+      <tr><td>Module</td><td>cmdi</td></tr>
+      <tr><td>Confidence</td><td>confirmed</td></tr>
+      <tr><td>CVSS</td><td>10.0</td></tr>
+      <tr><td>CWE</td><td>CWE-78</td></tr>
+    </table>
+    <h4>Description</h4><p>OS command injection confirmed via output_based technique. Parameter 'host' is injected into a shell command. Payload: 1; id</p>
+    <h4>HTTP Request</h4><pre class='code'>GET https://etoro.com?host=1%3B%20id HTTP/1.1</pre>
+    <h4>Evidence</h4><pre class='code'>&lt;!doctype html&gt;
+&lt;html lang=&quot;en&quot; class=&quot; home&quot;&gt;
+&lt;head&gt;
+&lt;script type=&quot;text/javascript&quot;&gt;(window.NREUM||(NREUM={})).init={privacy:{cookies_enabled:true},ajax:{deny_list:[]},session_trace:{sampling_rate:0.0,mode:&quot;FIXED_RATE&quot;,enabled:true,error_sampling_rate:0.0},feature_flags:[&quot;soft_nav&quot;],distributed_tra</pre>
+    <h4>Reproduction</h4><p>Send: GET https://etoro.com?host=1%3B%20id</p>
+    <h4>Remediation</h4><p>1. Avoid passing user input to OS commands entirely.
+2. If unavoidable, use allowlists to validate input strictly.
+3. Use language-native APIs instead of shell commands (e.g., Python's subprocess with list args).
+4. Sanitize and escape all user input before use in shell context.</p>
+  </div>
+</div>
+<div class='finding' id='finding-6'>
+  <div class='finding-header' style='border-left:4px solid #dc2626'>
+    <span class='badge' style='background:#dc2626'>CRITICAL</span>
+    <span class='finding-title'>Command Injection (output_based) — param 'ip' via GET</span>
+    <span class='finding-target'>https://etoro.com</span>
+  </div>
+  <div class='finding-body'>
+    <table class='meta'>
+      <tr><td>Module</td><td>cmdi</td></tr>
+      <tr><td>Confidence</td><td>confirmed</td></tr>
+      <tr><td>CVSS</td><td>10.0</td></tr>
+      <tr><td>CWE</td><td>CWE-78</td></tr>
+    </table>
+    <h4>Description</h4><p>OS command injection confirmed via output_based technique. Parameter 'ip' is injected into a shell command. Payload: 1; id</p>
+    <h4>HTTP Request</h4><pre class='code'>GET https://etoro.com?ip=1%3B%20id HTTP/1.1</pre>
+    <h4>Evidence</h4><pre class='code'>&lt;!doctype html&gt;
+&lt;html lang=&quot;en&quot; class=&quot; home&quot;&gt;
+&lt;head&gt;
+&lt;script type=&quot;text/javascript&quot;&gt;(window.NREUM||(NREUM={})).init={privacy:{cookies_enabled:true},ajax:{deny_list:[]},session_trace:{sampling_rate:0.0,mode:&quot;FIXED_RATE&quot;,enabled:true,error_sampling_rate:0.0},feature_flags:[&quot;soft_nav&quot;],distributed_tra</pre>
+    <h4>Reproduction</h4><p>Send: GET https://etoro.com?ip=1%3B%20id</p>
+    <h4>Remediation</h4><p>1. Avoid passing user input to OS commands entirely.
+2. If unavoidable, use allowlists to validate input strictly.
+3. Use language-native APIs instead of shell commands (e.g., Python's subprocess with list args).
+4. Sanitize and escape all user input before use in shell context.</p>
+  </div>
+</div>
+<div class='finding' id='finding-7'>
+  <div class='finding-header' style='border-left:4px solid #dc2626'>
+    <span class='badge' style='background:#dc2626'>CRITICAL</span>
+    <span class='finding-title'>Command Injection (output_based) — param 'dir' via GET</span>
+    <span class='finding-target'>https://etoro.com</span>
+  </div>
+  <div class='finding-body'>
+    <table class='meta'>
+      <tr><td>Module</td><td>cmdi</td></tr>
+      <tr><td>Confidence</td><td>confirmed</td></tr>
+      <tr><td>CVSS</td><td>10.0</td></tr>
+      <tr><td>CWE</td><td>CWE-78</td></tr>
+    </table>
+    <h4>Description</h4><p>OS command injection confirmed via output_based technique. Parameter 'dir' is injected into a shell command. Payload: 1; id</p>
+    <h4>HTTP Request</h4><pre class='code'>GET https://etoro.com?dir=1%3B%20id HTTP/1.1</pre>
+    <h4>Evidence</h4><pre class='code'>&lt;!doctype html&gt;
+&lt;html lang=&quot;en&quot; class=&quot; home&quot;&gt;
+&lt;head&gt;
+&lt;script type=&quot;text/javascript&quot;&gt;(window.NREUM||(NREUM={})).init={privacy:{cookies_enabled:true},ajax:{deny_list:[]},session_trace:{sampling_rate:0.0,mode:&quot;FIXED_RATE&quot;,enabled:true,error_sampling_rate:0.0},feature_flags:[&quot;soft_nav&quot;],distributed_tra</pre>
+    <h4>Reproduction</h4><p>Send: GET https://etoro.com?dir=1%3B%20id</p>
+    <h4>Remediation</h4><p>1. Avoid passing user input to OS commands entirely.
+2. If unavoidable, use allowlists to validate input strictly.
+3. Use language-native APIs instead of shell commands (e.g., Python's subprocess with list args).
+4. Sanitize and escape all user input before use in shell context.</p>
+  </div>
+</div>
+<div class='finding' id='finding-8'>
+  <div class='finding-header' style='border-left:4px solid #dc2626'>
+    <span class='badge' style='background:#dc2626'>CRITICAL</span>
+    <span class='finding-title'>Command Injection (output_based) — param 'query' via GET</span>
+    <span class='finding-target'>https://etoro.com</span>
+  </div>
+  <div class='finding-body'>
+    <table class='meta'>
+      <tr><td>Module</td><td>cmdi</td></tr>
+      <tr><td>Confidence</td><td>confirmed</td></tr>
+      <tr><td>CVSS</td><td>10.0</td></tr>
+      <tr><td>CWE</td><td>CWE-78</td></tr>
+    </table>
+    <h4>Description</h4><p>OS command injection confirmed via output_based technique. Parameter 'query' is injected into a shell command. Payload: 1; id</p>
+    <h4>HTTP Request</h4><pre class='code'>GET https://etoro.com?query=1%3B%20id HTTP/1.1</pre>
+    <h4>Evidence</h4><pre class='code'>&lt;!doctype html&gt;
+&lt;html lang=&quot;en&quot; class=&quot; home&quot;&gt;
+&lt;head&gt;
+&lt;script type=&quot;text/javascript&quot;&gt;(window.NREUM||(NREUM={})).init={privacy:{cookies_enabled:true},ajax:{deny_list:[]},session_trace:{sampling_rate:0.0,mode:&quot;FIXED_RATE&quot;,enabled:true,error_sampling_rate:0.0},feature_flags:[&quot;soft_nav&quot;],distributed_tra</pre>
+    <h4>Reproduction</h4><p>Send: GET https://etoro.com?query=1%3B%20id</p>
+    <h4>Remediation</h4><p>1. Avoid passing user input to OS commands entirely.
+2. If unavoidable, use allowlists to validate input strictly.
+3. Use language-native APIs instead of shell commands (e.g., Python's subprocess with list args).
+4. Sanitize and escape all user input before use in shell context.</p>
+  </div>
+</div>
+<div class='finding' id='finding-9'>
+  <div class='finding-header' style='border-left:4px solid #dc2626'>
+    <span class='badge' style='background:#dc2626'>CRITICAL</span>
+    <span class='finding-title'>Command Injection (output_based) — param 'name' via GET</span>
+    <span class='finding-target'>https://etoro.com</span>
+  </div>
+  <div class='finding-body'>
+    <table class='meta'>
+      <tr><td>Module</td><td>cmdi</td></tr>
+      <tr><td>Confidence</td><td>confirmed</td></tr>
+      <tr><td>CVSS</td><td>10.0</td></tr>
+      <tr><td>CWE</td><td>CWE-78</td></tr>
+    </table>
+    <h4>Description</h4><p>OS command injection confirmed via output_based technique. Parameter 'name' is injected into a shell command. Payload: 1; id</p>
+    <h4>HTTP Request</h4><pre class='code'>GET https://etoro.com?name=1%3B%20id HTTP/1.1</pre>
+    <h4>Evidence</h4><pre class='code'>&lt;!doctype html&gt;
+&lt;html lang=&quot;en&quot; class=&quot; home&quot;&gt;
+&lt;head&gt;
+&lt;script type=&quot;text/javascript&quot;&gt;(window.NREUM||(NREUM={})).init={privacy:{cookies_enabled:true},ajax:{deny_list:[]},session_trace:{sampling_rate:0.0,mode:&quot;FIXED_RATE&quot;,enabled:true,error_sampling_rate:0.0},feature_flags:[&quot;soft_nav&quot;],distributed_tra</pre>
+    <h4>Reproduction</h4><p>Send: GET https://etoro.com?name=1%3B%20id</p>
+    <h4>Remediation</h4><p>1. Avoid passing user input to OS commands entirely.
+2. If unavoidable, use allowlists to validate input strictly.
+3. Use language-native APIs instead of shell commands (e.g., Python's subprocess with list args).
+4. Sanitize and escape all user input before use in shell context.</p>
+  </div>
+</div>
+<div class='finding' id='finding-10'>
+  <div class='finding-header' style='border-left:4px solid #dc2626'>
+    <span class='badge' style='background:#dc2626'>CRITICAL</span>
+    <span class='finding-title'>Command Injection (output_based) — param 'path' via GET</span>
+    <span class='finding-target'>https://etoro.com</span>
+  </div>
+  <div class='finding-body'>
+    <table class='meta'>
+      <tr><td>Module</td><td>cmdi</td></tr>
+      <tr><td>Confidence</td><td>confirmed</td></tr>
+      <tr><td>CVSS</td><td>10.0</td></tr>
+      <tr><td>CWE</td><td>CWE-78</td></tr>
+    </table>
+    <h4>Description</h4><p>OS command injection confirmed via output_based technique. Parameter 'path' is injected into a shell command. Payload: 1; id</p>
+    <h4>HTTP Request</h4><pre class='code'>GET https://etoro.com?path=1%3B%20id HTTP/1.1</pre>
+    <h4>Evidence</h4><pre class='code'>&lt;!doctype html&gt;
+&lt;html lang=&quot;en&quot; class=&quot; home&quot;&gt;
+&lt;head&gt;
+&lt;script type=&quot;text/javascript&quot;&gt;(window.NREUM||(NREUM={})).init={privacy:{cookies_enabled:true},ajax:{deny_list:[]},session_trace:{sampling_rate:0.0,mode:&quot;FIXED_RATE&quot;,enabled:true,error_sampling_rate:0.0},feature_flags:[&quot;soft_nav&quot;],distributed_tra</pre>
+    <h4>Reproduction</h4><p>Send: GET https://etoro.com?path=1%3B%20id</p>
+    <h4>Remediation</h4><p>1. Avoid passing user input to OS commands entirely.
+2. If unavoidable, use allowlists to validate input strictly.
+3. Use language-native APIs instead of shell commands (e.g., Python's subprocess with list args).
+4. Sanitize and escape all user input before use in shell context.</p>
+  </div>
+</div>
+<div class='finding' id='finding-11'>
+  <div class='finding-header' style='border-left:4px solid #dc2626'>
+    <span class='badge' style='background:#dc2626'>CRITICAL</span>
+    <span class='finding-title'>Command Injection (output_based) — param 'id' via GET</span>
+    <span class='finding-target'>https://etoro.com</span>
+  </div>
+  <div class='finding-body'>
+    <table class='meta'>
+      <tr><td>Module</td><td>cmdi</td></tr>
+      <tr><td>Confidence</td><td>confirmed</td></tr>
+      <tr><td>CVSS</td><td>10.0</td></tr>
+      <tr><td>CWE</td><td>CWE-78</td></tr>
+    </table>
+    <h4>Description</h4><p>OS command injection confirmed via output_based technique. Parameter 'id' is injected into a shell command. Payload: 1; id</p>
+    <h4>HTTP Request</h4><pre class='code'>GET https://etoro.com?id=1%3B%20id HTTP/1.1</pre>
+    <h4>Evidence</h4><pre class='code'>&lt;!doctype html&gt;
+&lt;html lang=&quot;en&quot; class=&quot; home&quot;&gt;
+&lt;head&gt;
+&lt;script type=&quot;text/javascript&quot;&gt;(window.NREUM||(NREUM={})).init={privacy:{cookies_enabled:true},ajax:{deny_list:[]},session_trace:{sampling_rate:0.0,mode:&quot;FIXED_RATE&quot;,enabled:true,error_sampling_rate:0.0},feature_flags:[&quot;soft_nav&quot;],distributed_tra</pre>
+    <h4>Reproduction</h4><p>Send: GET https://etoro.com?id=1%3B%20id</p>
+    <h4>Remediation</h4><p>1. Avoid passing user input to OS commands entirely.
+2. If unavoidable, use allowlists to validate input strictly.
+3. Use language-native APIs instead of shell commands (e.g., Python's subprocess with list args).
+4. Sanitize and escape all user input before use in shell context.</p>
+  </div>
+</div>
+<div class='finding' id='finding-12'>
+  <div class='finding-header' style='border-left:4px solid #dc2626'>
+    <span class='badge' style='background:#dc2626'>CRITICAL</span>
+    <span class='finding-title'>Command Injection (output_based) — param 'file' via GET</span>
+    <span class='finding-target'>https://etoro.com</span>
+  </div>
+  <div class='finding-body'>
+    <table class='meta'>
+      <tr><td>Module</td><td>cmdi</td></tr>
+      <tr><td>Confidence</td><td>confirmed</td></tr>
+      <tr><td>CVSS</td><td>10.0</td></tr>
+      <tr><td>CWE</td><td>CWE-78</td></tr>
+    </table>
+    <h4>Description</h4><p>OS command injection confirmed via output_based technique. Parameter 'file' is injected into a shell command. Payload: 1; id</p>
+    <h4>HTTP Request</h4><pre class='code'>GET https://etoro.com?file=1%3B%20id HTTP/1.1</pre>
+    <h4>Evidence</h4><pre class='code'>&lt;!doctype html&gt;
+&lt;html lang=&quot;en&quot; class=&quot; home&quot;&gt;
+&lt;head&gt;
+&lt;script type=&quot;text/javascript&quot;&gt;(window.NREUM||(NREUM={})).init={privacy:{cookies_enabled:true},ajax:{deny_list:[]},session_trace:{sampling_rate:0.0,mode:&quot;FIXED_RATE&quot;,enabled:true,error_sampling_rate:0.0},feature_flags:[&quot;soft_nav&quot;],distributed_tra</pre>
+    <h4>Reproduction</h4><p>Send: GET https://etoro.com?file=1%3B%20id</p>
+    <h4>Remediation</h4><p>1. Avoid passing user input to OS commands entirely.
+2. If unavoidable, use allowlists to validate input strictly.
+3. Use language-native APIs instead of shell commands (e.g., Python's subprocess with list args).
+4. Sanitize and escape all user input before use in shell context.</p>
+  </div>
+</div>
+<div class='finding' id='finding-13'>
+  <div class='finding-header' style='border-left:4px solid #dc2626'>
+    <span class='badge' style='background:#dc2626'>CRITICAL</span>
+    <span class='finding-title'>SSTI (unknown) — param 'name'</span>
+    <span class='finding-target'>https://etoro.com</span>
+  </div>
+  <div class='finding-body'>
+    <table class='meta'>
+      <tr><td>Module</td><td>ssti</td></tr>
+      <tr><td>Confidence</td><td>confirmed</td></tr>
+      <tr><td>CVSS</td><td>10.0</td></tr>
+      <tr><td>CWE</td><td>CWE-94</td></tr>
+    </table>
+    <h4>Description</h4><p>Server-Side Template Injection in 'name'. Engine: unknown. Expression '{{7*7}}' evaluated server-side to '49'.</p>
+    <h4>HTTP Request</h4><pre class='code'>GET https://etoro.com?name=%7B%7B7%2A7%7D%7D HTTP/1.1</pre>
+    <h4>Evidence</h4><pre class='code'>Expression '{{7*7}}' evaluated to '49'</pre>
+    <h4>Reproduction</h4><p>Send: GET with name={{7*7}}</p>
+    <h4>Remediation</h4><p>1. Never pass user input directly to template engines.
+2. Use sandboxed template evaluation with no access to builtins.
+3. Escape all user-supplied data before rendering.
+4. Consider logic-less templates (Mustache/Handlebars) for user content.</p>
+  </div>
+</div>
+<div class='finding' id='finding-14'>
+  <div class='finding-header' style='border-left:4px solid #dc2626'>
+    <span class='badge' style='background:#dc2626'>CRITICAL</span>
+    <span class='finding-title'>SSTI (unknown) — param 'template'</span>
+    <span class='finding-target'>https://etoro.com</span>
+  </div>
+  <div class='finding-body'>
+    <table class='meta'>
+      <tr><td>Module</td><td>ssti</td></tr>
+      <tr><td>Confidence</td><td>confirmed</td></tr>
+      <tr><td>CVSS</td><td>10.0</td></tr>
+      <tr><td>CWE</td><td>CWE-94</td></tr>
+    </table>
+    <h4>Description</h4><p>Server-Side Template Injection in 'template'. Engine: unknown. Expression '{{7*7}}' evaluated server-side to '49'.</p>
+    <h4>HTTP Request</h4><pre class='code'>GET https://etoro.com?template=%7B%7B7%2A7%7D%7D HTTP/1.1</pre>
+    <h4>Evidence</h4><pre class='code'>Expression '{{7*7}}' evaluated to '49'</pre>
+    <h4>Reproduction</h4><p>Send: GET with template={{7*7}}</p>
+    <h4>Remediation</h4><p>1. Never pass user input directly to template engines.
+2. Use sandboxed template evaluation with no access to builtins.
+3. Escape all user-supplied data before rendering.
+4. Consider logic-less templates (Mustache/Handlebars) for user content.</p>
+  </div>
+</div>
+<div class='finding' id='finding-15'>
+  <div class='finding-header' style='border-left:4px solid #dc2626'>
+    <span class='badge' style='background:#dc2626'>CRITICAL</span>
+    <span class='finding-title'>SSTI (unknown) — param 'message'</span>
+    <span class='finding-target'>https://etoro.com</span>
+  </div>
+  <div class='finding-body'>
+    <table class='meta'>
+      <tr><td>Module</td><td>ssti</td></tr>
+      <tr><td>Confidence</td><td>confirmed</td></tr>
+      <tr><td>CVSS</td><td>10.0</td></tr>
+      <tr><td>CWE</td><td>CWE-94</td></tr>
+    </table>
+    <h4>Description</h4><p>Server-Side Template Injection in 'message'. Engine: unknown. Expression '{{7*7}}' evaluated server-side to '49'.</p>
+    <h4>HTTP Request</h4><pre class='code'>GET https://etoro.com?message=%7B%7B7%2A7%7D%7D HTTP/1.1</pre>
+    <h4>Evidence</h4><pre class='code'>Expression '{{7*7}}' evaluated to '49'</pre>
+    <h4>Reproduction</h4><p>Send: GET with message={{7*7}}</p>
+    <h4>Remediation</h4><p>1. Never pass user input directly to template engines.
+2. Use sandboxed template evaluation with no access to builtins.
+3. Escape all user-supplied data before rendering.
+4. Consider logic-less templates (Mustache/Handlebars) for user content.</p>
+  </div>
+</div>
+<div class='finding' id='finding-16'>
+  <div class='finding-header' style='border-left:4px solid #dc2626'>
+    <span class='badge' style='background:#dc2626'>CRITICAL</span>
+    <span class='finding-title'>SSTI (unknown) — param 'subject'</span>
+    <span class='finding-target'>https://etoro.com</span>
+  </div>
+  <div class='finding-body'>
+    <table class='meta'>
+      <tr><td>Module</td><td>ssti</td></tr>
+      <tr><td>Confidence</td><td>confirmed</td></tr>
+      <tr><td>CVSS</td><td>10.0</td></tr>
+      <tr><td>CWE</td><td>CWE-94</td></tr>
+    </table>
+    <h4>Description</h4><p>Server-Side Template Injection in 'subject'. Engine: unknown. Expression '{{7*7}}' evaluated server-side to '49'.</p>
+    <h4>HTTP Request</h4><pre class='code'>GET https://etoro.com?subject=%7B%7B7%2A7%7D%7D HTTP/1.1</pre>
+    <h4>Evidence</h4><pre class='code'>Expression '{{7*7}}' evaluated to '49'</pre>
+    <h4>Reproduction</h4><p>Send: GET with subject={{7*7}}</p>
+    <h4>Remediation</h4><p>1. Never pass user input directly to template engines.
+2. Use sandboxed template evaluation with no access to builtins.
+3. Escape all user-supplied data before rendering.
+4. Consider logic-less templates (Mustache/Handlebars) for user content.</p>
+  </div>
+</div>
+<div class='finding' id='finding-17'>
+  <div class='finding-header' style='border-left:4px solid #dc2626'>
+    <span class='badge' style='background:#dc2626'>CRITICAL</span>
+    <span class='finding-title'>SSTI (unknown) — param 'greeting'</span>
+    <span class='finding-target'>https://etoro.com</span>
+  </div>
+  <div class='finding-body'>
+    <table class='meta'>
+      <tr><td>Module</td><td>ssti</td></tr>
+      <tr><td>Confidence</td><td>confirmed</td></tr>
+      <tr><td>CVSS</td><td>10.0</td></tr>
+      <tr><td>CWE</td><td>CWE-94</td></tr>
+    </table>
+    <h4>Description</h4><p>Server-Side Template Injection in 'greeting'. Engine: unknown. Expression '{{7*7}}' evaluated server-side to '49'.</p>
+    <h4>HTTP Request</h4><pre class='code'>GET https://etoro.com?greeting=%7B%7B7%2A7%7D%7D HTTP/1.1</pre>
+    <h4>Evidence</h4><pre class='code'>Expression '{{7*7}}' evaluated to '49'</pre>
+    <h4>Reproduction</h4><p>Send: GET with greeting={{7*7}}</p>
+    <h4>Remediation</h4><p>1. Never pass user input directly to template engines.
+2. Use sandboxed template evaluation with no access to builtins.
+3. Escape all user-supplied data before rendering.
+4. Consider logic-less templates (Mustache/Handlebars) for user content.</p>
+  </div>
+</div>
+<div class='finding' id='finding-18'>
+  <div class='finding-header' style='border-left:4px solid #dc2626'>
+    <span class='badge' style='background:#dc2626'>CRITICAL</span>
+    <span class='finding-title'>SSTI (unknown) — param 'text'</span>
+    <span class='finding-target'>https://etoro.com</span>
+  </div>
+  <div class='finding-body'>
+    <table class='meta'>
+      <tr><td>Module</td><td>ssti</td></tr>
+      <tr><td>Confidence</td><td>confirmed</td></tr>
+      <tr><td>CVSS</td><td>10.0</td></tr>
+      <tr><td>CWE</td><td>CWE-94</td></tr>
+    </table>
+    <h4>Description</h4><p>Server-Side Template Injection in 'text'. Engine: unknown. Expression '{{7*7}}' evaluated server-side to '49'.</p>
+    <h4>HTTP Request</h4><pre class='code'>GET https://etoro.com?text=%7B%7B7%2A7%7D%7D HTTP/1.1</pre>
+    <h4>Evidence</h4><pre class='code'>Expression '{{7*7}}' evaluated to '49'</pre>
+    <h4>Reproduction</h4><p>Send: GET with text={{7*7}}</p>
+    <h4>Remediation</h4><p>1. Never pass user input directly to template engines.
+2. Use sandboxed template evaluation with no access to builtins.
+3. Escape all user-supplied data before rendering.
+4. Consider logic-less templates (Mustache/Handlebars) for user content.</p>
+  </div>
+</div>
+<div class='finding' id='finding-19'>
+  <div class='finding-header' style='border-left:4px solid #dc2626'>
+    <span class='badge' style='background:#dc2626'>CRITICAL</span>
+    <span class='finding-title'>SSTI (unknown) — param 'content'</span>
+    <span class='finding-target'>https://etoro.com</span>
+  </div>
+  <div class='finding-body'>
+    <table class='meta'>
+      <tr><td>Module</td><td>ssti</td></tr>
+      <tr><td>Confidence</td><td>confirmed</td></tr>
+      <tr><td>CVSS</td><td>10.0</td></tr>
+      <tr><td>CWE</td><td>CWE-94</td></tr>
+    </table>
+    <h4>Description</h4><p>Server-Side Template Injection in 'content'. Engine: unknown. Expression '{{7*7}}' evaluated server-side to '49'.</p>
+    <h4>HTTP Request</h4><pre class='code'>GET https://etoro.com?content=%7B%7B7%2A7%7D%7D HTTP/1.1</pre>
+    <h4>Evidence</h4><pre class='code'>Expression '{{7*7}}' evaluated to '49'</pre>
+    <h4>Reproduction</h4><p>Send: GET with content={{7*7}}</p>
+    <h4>Remediation</h4><p>1. Never pass user input directly to template engines.
+2. Use sandboxed template evaluation with no access to builtins.
+3. Escape all user-supplied data before rendering.
+4. Consider logic-less templates (Mustache/Handlebars) for user content.</p>
+  </div>
+</div>
+<div class='finding' id='finding-20'>
+  <div class='finding-header' style='border-left:4px solid #dc2626'>
+    <span class='badge' style='background:#dc2626'>CRITICAL</span>
+    <span class='finding-title'>SSTI (unknown) — param 'body'</span>
+    <span class='finding-target'>https://etoro.com</span>
+  </div>
+  <div class='finding-body'>
+    <table class='meta'>
+      <tr><td>Module</td><td>ssti</td></tr>
+      <tr><td>Confidence</td><td>confirmed</td></tr>
+      <tr><td>CVSS</td><td>10.0</td></tr>
+      <tr><td>CWE</td><td>CWE-94</td></tr>
+    </table>
+    <h4>Description</h4><p>Server-Side Template Injection in 'body'. Engine: unknown. Expression '{{7*7}}' evaluated server-side to '49'.</p>
+    <h4>HTTP Request</h4><pre class='code'>GET https://etoro.com?body=%7B%7B7%2A7%7D%7D HTTP/1.1</pre>
+    <h4>Evidence</h4><pre class='code'>Expression '{{7*7}}' evaluated to '49'</pre>
+    <h4>Reproduction</h4><p>Send: GET with body={{7*7}}</p>
+    <h4>Remediation</h4><p>1. Never pass user input directly to template engines.
+2. Use sandboxed template evaluation with no access to builtins.
+3. Escape all user-supplied data before rendering.
+4. Consider logic-less templates (Mustache/Handlebars) for user content.</p>
+  </div>
+</div>
+<div class='finding' id='finding-21'>
+  <div class='finding-header' style='border-left:4px solid #dc2626'>
+    <span class='badge' style='background:#dc2626'>CRITICAL</span>
+    <span class='finding-title'>SSTI (unknown) — param 'page'</span>
+    <span class='finding-target'>https://etoro.com</span>
+  </div>
+  <div class='finding-body'>
+    <table class='meta'>
+      <tr><td>Module</td><td>ssti</td></tr>
+      <tr><td>Confidence</td><td>confirmed</td></tr>
+      <tr><td>CVSS</td><td>10.0</td></tr>
+      <tr><td>CWE</td><td>CWE-94</td></tr>
+    </table>
+    <h4>Description</h4><p>Server-Side Template Injection in 'page'. Engine: unknown. Expression '{{7*7}}' evaluated server-side to '49'.</p>
+    <h4>HTTP Request</h4><pre class='code'>GET https://etoro.com?page=%7B%7B7%2A7%7D%7D HTTP/1.1</pre>
+    <h4>Evidence</h4><pre class='code'>Expression '{{7*7}}' evaluated to '49'</pre>
+    <h4>Reproduction</h4><p>Send: GET with page={{7*7}}</p>
+    <h4>Remediation</h4><p>1. Never pass user input directly to template engines.
+2. Use sandboxed template evaluation with no access to builtins.
+3. Escape all user-supplied data before rendering.
+4. Consider logic-less templates (Mustache/Handlebars) for user content.</p>
+  </div>
+</div>
+<div class='finding' id='finding-22'>
+  <div class='finding-header' style='border-left:4px solid #dc2626'>
+    <span class='badge' style='background:#dc2626'>CRITICAL</span>
+    <span class='finding-title'>SSTI (unknown) — param 'page'</span>
+    <span class='finding-target'>https://etoro.com</span>
+  </div>
+  <div class='finding-body'>
+    <table class='meta'>
+      <tr><td>Module</td><td>ssti</td></tr>
+      <tr><td>Confidence</td><td>confirmed</td></tr>
+      <tr><td>CVSS</td><td>10.0</td></tr>
+      <tr><td>CWE</td><td>CWE-94</td></tr>
+    </table>
+    <h4>Description</h4><p>Server-Side Template Injection in 'page'. Engine: unknown. Expression '${7*7}' evaluated server-side to '49'.</p>
+    <h4>HTTP Request</h4><pre class='code'>POST https://etoro.com?page=%24%7B7%2A7%7D HTTP/1.1</pre>
+    <h4>Evidence</h4><pre class='code'>Expression '${7*7}' evaluated to '49'</pre>
+    <h4>Reproduction</h4><p>Send: POST with page=${7*7}</p>
+    <h4>Remediation</h4><p>1. Never pass user input directly to template engines.
+2. Use sandboxed template evaluation with no access to builtins.
+3. Escape all user-supplied data before rendering.
+4. Consider logic-less templates (Mustache/Handlebars) for user content.</p>
+  </div>
+</div>
+<div class='finding' id='finding-23'>
+  <div class='finding-header' style='border-left:4px solid #dc2626'>
+    <span class='badge' style='background:#dc2626'>CRITICAL</span>
+    <span class='finding-title'>SSTI (unknown) — param 'title'</span>
+    <span class='finding-target'>https://etoro.com</span>
+  </div>
+  <div class='finding-body'>
+    <table class='meta'>
+      <tr><td>Module</td><td>ssti</td></tr>
+      <tr><td>Confidence</td><td>confirmed</td></tr>
+      <tr><td>CVSS</td><td>10.0</td></tr>
+      <tr><td>CWE</td><td>CWE-94</td></tr>
+    </table>
+    <h4>Description</h4><p>Server-Side Template Injection in 'title'. Engine: unknown. Expression '{{7*7}}' evaluated server-side to '49'.</p>
+    <h4>HTTP Request</h4><pre class='code'>GET https://etoro.com?title=%7B%7B7%2A7%7D%7D HTTP/1.1</pre>
+    <h4>Evidence</h4><pre class='code'>Expression '{{7*7}}' evaluated to '49'</pre>
+    <h4>Reproduction</h4><p>Send: GET with title={{7*7}}</p>
+    <h4>Remediation</h4><p>1. Never pass user input directly to template engines.
+2. Use sandboxed template evaluation with no access to builtins.
+3. Escape all user-supplied data before rendering.
+4. Consider logic-less templates (Mustache/Handlebars) for user content.</p>
+  </div>
+</div>
+<div class='finding' id='finding-24'>
+  <div class='finding-header' style='border-left:4px solid #ea580c'>
+    <span class='badge' style='background:#ea580c'>HIGH</span>
+    <span class='finding-title'>IDOR — parameter 'id' allows access to ID 2</span>
+    <span class='finding-target'>https://etoro.com</span>
+  </div>
+  <div class='finding-body'>
+    <table class='meta'>
+      <tr><td>Module</td><td>idor</td></tr>
+      <tr><td>Confidence</td><td>likely</td></tr>
+      <tr><td>CVSS</td><td>8.1</td></tr>
+      <tr><td>CWE</td><td>CWE-639</td></tr>
+    </table>
+    <h4>Description</h4><p>Insecure Direct Object Reference in parameter 'id'. Changing ID from '1' to '2' returned a different but valid resource (status 200).</p>
+    <h4>HTTP Request</h4><pre class='code'>GET https://etoro.com?id=2 HTTP/1.1</pre>
+    <h4>Evidence</h4><pre class='code'>&lt;!doctype html&gt;
+&lt;html lang=&quot;en&quot; class=&quot; home&quot;&gt;
+&lt;head&gt;
+&lt;script type=&quot;text/javascript&quot;&gt;(window.NREUM||(NREUM={})).init={privacy:{cookies_enabled:true},ajax:{deny_list:[]},session_trace:{sampling_rate:0.0,mode:&quot;FIXED_RATE&quot;,enabled:true,error_sampling_rate:0.0},feature_flags:[&quot;soft_nav&quot;],distributed_tra</pre>
+    <h4>Reproduction</h4><p>Change id=1 to id=2</p>
+    <h4>Remediation</h4><p>1. Implement object-level authorization checks on every resource access.
+2. Use indirect references (UUIDs or opaque tokens) instead of sequential IDs.
+3. Validate that the authenticated user owns or has permission for the requested resource.</p>
+  </div>
+</div>
+<div class='finding' id='finding-25'>
+  <div class='finding-header' style='border-left:4px solid #ea580c'>
+    <span class='badge' style='background:#ea580c'>HIGH</span>
+    <span class='finding-title'>IDOR — parameter 'user_id' allows access to ID 2</span>
+    <span class='finding-target'>https://etoro.com</span>
+  </div>
+  <div class='finding-body'>
+    <table class='meta'>
+      <tr><td>Module</td><td>idor</td></tr>
+      <tr><td>Confidence</td><td>likely</td></tr>
+      <tr><td>CVSS</td><td>8.1</td></tr>
+      <tr><td>CWE</td><td>CWE-639</td></tr>
+    </table>
+    <h4>Description</h4><p>Insecure Direct Object Reference in parameter 'user_id'. Changing ID from '1' to '2' returned a different but valid resource (status 200).</p>
+    <h4>HTTP Request</h4><pre class='code'>GET https://etoro.com?user_id=2 HTTP/1.1</pre>
+    <h4>Evidence</h4><pre class='code'>&lt;!doctype html&gt;
+&lt;html lang=&quot;en&quot; class=&quot; home&quot;&gt;
+&lt;head&gt;
+&lt;script type=&quot;text/javascript&quot;&gt;(window.NREUM||(NREUM={})).init={privacy:{cookies_enabled:true},ajax:{deny_list:[]},session_trace:{sampling_rate:0.0,mode:&quot;FIXED_RATE&quot;,enabled:true,error_sampling_rate:0.0},feature_flags:[&quot;soft_nav&quot;],distributed_tra</pre>
+    <h4>Reproduction</h4><p>Change user_id=1 to user_id=2</p>
+    <h4>Remediation</h4><p>1. Implement object-level authorization checks on every resource access.
+2. Use indirect references (UUIDs or opaque tokens) instead of sequential IDs.
+3. Validate that the authenticated user owns or has permission for the requested resource.</p>
+  </div>
+</div>
+<div class='finding' id='finding-26'>
+  <div class='finding-header' style='border-left:4px solid #ea580c'>
+    <span class='badge' style='background:#ea580c'>HIGH</span>
+    <span class='finding-title'>IDOR — parameter 'account_id' allows access to ID 2</span>
+    <span class='finding-target'>https://etoro.com</span>
+  </div>
+  <div class='finding-body'>
+    <table class='meta'>
+      <tr><td>Module</td><td>idor</td></tr>
+      <tr><td>Confidence</td><td>likely</td></tr>
+      <tr><td>CVSS</td><td>8.1</td></tr>
+      <tr><td>CWE</td><td>CWE-639</td></tr>
+    </table>
+    <h4>Description</h4><p>Insecure Direct Object Reference in parameter 'account_id'. Changing ID from '1' to '2' returned a different but valid resource (status 200).</p>
+    <h4>HTTP Request</h4><pre class='code'>GET https://etoro.com?account_id=2 HTTP/1.1</pre>
+    <h4>Evidence</h4><pre class='code'>&lt;!doctype html&gt;
+&lt;html lang=&quot;en&quot; class=&quot; home&quot;&gt;
+&lt;head&gt;
+&lt;script type=&quot;text/javascript&quot;&gt;(window.NREUM||(NREUM={})).init={privacy:{cookies_enabled:true},ajax:{deny_list:[]},session_trace:{sampling_rate:0.0,mode:&quot;FIXED_RATE&quot;,enabled:true,error_sampling_rate:0.0},feature_flags:[&quot;soft_nav&quot;],distributed_tra</pre>
+    <h4>Reproduction</h4><p>Change account_id=1 to account_id=2</p>
+    <h4>Remediation</h4><p>1. Implement object-level authorization checks on every resource access.
+2. Use indirect references (UUIDs or opaque tokens) instead of sequential IDs.
+3. Validate that the authenticated user owns or has permission for the requested resource.</p>
+  </div>
+</div>
+<div class='finding' id='finding-27'>
+  <div class='finding-header' style='border-left:4px solid #ea580c'>
+    <span class='badge' style='background:#ea580c'>HIGH</span>
+    <span class='finding-title'>IDOR — parameter 'order_id' allows access to ID 2</span>
+    <span class='finding-target'>https://etoro.com</span>
+  </div>
+  <div class='finding-body'>
+    <table class='meta'>
+      <tr><td>Module</td><td>idor</td></tr>
+      <tr><td>Confidence</td><td>likely</td></tr>
+      <tr><td>CVSS</td><td>8.1</td></tr>
+      <tr><td>CWE</td><td>CWE-639</td></tr>
+    </table>
+    <h4>Description</h4><p>Insecure Direct Object Reference in parameter 'order_id'. Changing ID from '1' to '2' returned a different but valid resource (status 200).</p>
+    <h4>HTTP Request</h4><pre class='code'>GET https://etoro.com?order_id=2 HTTP/1.1</pre>
+    <h4>Evidence</h4><pre class='code'>&lt;!doctype html&gt;
+&lt;html lang=&quot;en&quot; class=&quot; home&quot;&gt;
+&lt;head&gt;
+&lt;script type=&quot;text/javascript&quot;&gt;(window.NREUM||(NREUM={})).init={privacy:{cookies_enabled:true},ajax:{deny_list:[]},session_trace:{sampling_rate:0.0,mode:&quot;FIXED_RATE&quot;,enabled:true,error_sampling_rate:0.0},feature_flags:[&quot;soft_nav&quot;],distributed_tra</pre>
+    <h4>Reproduction</h4><p>Change order_id=1 to order_id=2</p>
+    <h4>Remediation</h4><p>1. Implement object-level authorization checks on every resource access.
+2. Use indirect references (UUIDs or opaque tokens) instead of sequential IDs.
+3. Validate that the authenticated user owns or has permission for the requested resource.</p>
+  </div>
+</div>
+<div class='finding' id='finding-28'>
+  <div class='finding-header' style='border-left:4px solid #ea580c'>
+    <span class='badge' style='background:#ea580c'>HIGH</span>
+    <span class='finding-title'>IDOR — parameter 'invoice_id' allows access to ID 2</span>
+    <span class='finding-target'>https://etoro.com</span>
+  </div>
+  <div class='finding-body'>
+    <table class='meta'>
+      <tr><td>Module</td><td>idor</td></tr>
+      <tr><td>Confidence</td><td>likely</td></tr>
+      <tr><td>CVSS</td><td>8.1</td></tr>
+      <tr><td>CWE</td><td>CWE-639</td></tr>
+    </table>
+    <h4>Description</h4><p>Insecure Direct Object Reference in parameter 'invoice_id'. Changing ID from '1' to '2' returned a different but valid resource (status 200).</p>
+    <h4>HTTP Request</h4><pre class='code'>GET https://etoro.com?invoice_id=2 HTTP/1.1</pre>
+    <h4>Evidence</h4><pre class='code'>&lt;!doctype html&gt;
+&lt;html lang=&quot;en&quot; class=&quot; home&quot;&gt;
+&lt;head&gt;
+&lt;script type=&quot;text/javascript&quot;&gt;(window.NREUM||(NREUM={})).init={privacy:{cookies_enabled:true},ajax:{deny_list:[]},session_trace:{sampling_rate:0.0,mode:&quot;FIXED_RATE&quot;,enabled:true,error_sampling_rate:0.0},feature_flags:[&quot;soft_nav&quot;],distributed_tra</pre>
+    <h4>Reproduction</h4><p>Change invoice_id=1 to invoice_id=2</p>
+    <h4>Remediation</h4><p>1. Implement object-level authorization checks on every resource access.
+2. Use indirect references (UUIDs or opaque tokens) instead of sequential IDs.
+3. Validate that the authenticated user owns or has permission for the requested resource.</p>
+  </div>
+</div>
+<div class='finding' id='finding-29'>
+  <div class='finding-header' style='border-left:4px solid #ea580c'>
+    <span class='badge' style='background:#ea580c'>HIGH</span>
+    <span class='finding-title'>CRLF injection — HTTP response splitting</span>
+    <span class='finding-target'>https://etoro.com</span>
+  </div>
+  <div class='finding-body'>
+    <table class='meta'>
+      <tr><td>Module</td><td>server_misconfig</td></tr>
+      <tr><td>Confidence</td><td>confirmed</td></tr>
+      <tr><td>CVSS</td><td>6.1</td></tr>
+      <tr><td>CWE</td><td>CWE-93</td></tr>
+    </table>
+    <h4>Description</h4><p>URL parameters or headers allow injection of CRLF sequences, enabling response splitting, header injection, and potentially XSS.</p>
+    
+    
+    
+    <h4>Remediation</h4><p>Validate and sanitize all user input. Encode CRLF characters before including in HTTP headers.</p>
+  </div>
+</div>
+<div class='finding' id='finding-30'>
+  <div class='finding-header' style='border-left:4px solid #d97706'>
+    <span class='badge' style='background:#d97706'>MEDIUM</span>
+    <span class='finding-title'>Missing Strict-Transport-Security header</span>
+    <span class='finding-target'>https://example.com</span>
+  </div>
+  <div class='finding-body'>
+    <table class='meta'>
+      <tr><td>Module</td><td>headers</td></tr>
+      <tr><td>Confidence</td><td>confirmed</td></tr>
+      
+      <tr><td>CWE</td><td>CWE-319</td></tr>
+    </table>
+    <h4>Description</h4><p>Enforces HTTPS connections</p>
+    <h4>HTTP Request</h4><pre class='code'>GET https://example.com HTTP/1.1</pre>
+    
+    
+    <h4>Remediation</h4><p>Add: Strict-Transport-Security: max-age=31536000; includeSubDomains; preload</p>
+  </div>
+</div>
+<div class='finding' id='finding-31'>
+  <div class='finding-header' style='border-left:4px solid #d97706'>
+    <span class='badge' style='background:#d97706'>MEDIUM</span>
+    <span class='finding-title'>Missing X-Frame-Options header</span>
+    <span class='finding-target'>https://example.com</span>
+  </div>
+  <div class='finding-body'>
+    <table class='meta'>
+      <tr><td>Module</td><td>headers</td></tr>
+      <tr><td>Confidence</td><td>confirmed</td></tr>
+      
+      <tr><td>CWE</td><td>CWE-1021</td></tr>
+    </table>
+    <h4>Description</h4><p>Prevents clickjacking attacks</p>
+    <h4>HTTP Request</h4><pre class='code'>GET https://example.com HTTP/1.1</pre>
+    
+    
+    <h4>Remediation</h4><p>Add: X-Frame-Options: DENY</p>
+  </div>
+</div>
+<div class='finding' id='finding-32'>
+  <div class='finding-header' style='border-left:4px solid #d97706'>
+    <span class='badge' style='background:#d97706'>MEDIUM</span>
+    <span class='finding-title'>Missing Content-Security-Policy header</span>
+    <span class='finding-target'>https://example.com</span>
+  </div>
+  <div class='finding-body'>
+    <table class='meta'>
+      <tr><td>Module</td><td>headers</td></tr>
+      <tr><td>Confidence</td><td>confirmed</td></tr>
+      
+      <tr><td>CWE</td><td>CWE-79</td></tr>
+    </table>
+    <h4>Description</h4><p>Restricts resource loading to prevent XSS</p>
+    <h4>HTTP Request</h4><pre class='code'>GET https://example.com HTTP/1.1</pre>
+    
+    
+    <h4>Remediation</h4><p>Implement a strict CSP. Start with: Content-Security-Policy: default-src 'self'; script-src 'self'; object-src 'none'</p>
+  </div>
+</div>
+<div class='finding' id='finding-33'>
+  <div class='finding-header' style='border-left:4px solid #d97706'>
+    <span class='badge' style='background:#d97706'>MEDIUM</span>
+    <span class='finding-title'>Missing Content-Security-Policy header</span>
+    <span class='finding-target'>https://etoro.com</span>
+  </div>
+  <div class='finding-body'>
+    <table class='meta'>
+      <tr><td>Module</td><td>headers</td></tr>
+      <tr><td>Confidence</td><td>confirmed</td></tr>
+      
+      <tr><td>CWE</td><td>CWE-79</td></tr>
+    </table>
+    <h4>Description</h4><p>Restricts resource loading to prevent XSS</p>
+    <h4>HTTP Request</h4><pre class='code'>GET https://etoro.com HTTP/1.1</pre>
+    
+    
+    <h4>Remediation</h4><p>Implement a strict CSP. Start with: Content-Security-Policy: default-src 'self'; script-src 'self'; object-src 'none'</p>
+  </div>
+</div>
+<div class='finding' id='finding-34'>
+  <div class='finding-header' style='border-left:4px solid #d97706'>
+    <span class='badge' style='background:#d97706'>MEDIUM</span>
+    <span class='finding-title'>Open Redirect — param 'next'</span>
+    <span class='finding-target'>https://etoro.com</span>
+  </div>
+  <div class='finding-body'>
+    <table class='meta'>
+      <tr><td>Module</td><td>open_redirect</td></tr>
+      <tr><td>Confidence</td><td>confirmed</td></tr>
+      <tr><td>CVSS</td><td>6.1</td></tr>
+      <tr><td>CWE</td><td>CWE-601</td></tr>
+    </table>
+    <h4>Description</h4><p>Open redirect via 'next' parameter. Redirects to attacker-controlled domain: https://www.etoro.com/?next=https%3A%2F%2Fevil.com</p>
+    <h4>HTTP Request</h4><pre class='code'>GET https://etoro.com?next=https%3A%2F%2Fevil.com HTTP/1.1</pre>
+    <h4>Evidence</h4><pre class='code'>Location: https://www.etoro.com/?next=https%3A%2F%2Fevil.com</pre>
+    <h4>Reproduction</h4><p>Navigate to: https://etoro.com?next=https%3A%2F%2Fevil.com</p>
+    <h4>Remediation</h4><p>1. Validate redirect URLs against an allowlist of trusted domains.
+2. Use relative paths instead of absolute URLs for internal redirects.
+3. Display an interstitial warning page before external redirects.</p>
+  </div>
+</div>
+<div class='finding' id='finding-35'>
+  <div class='finding-header' style='border-left:4px solid #d97706'>
+    <span class='badge' style='background:#d97706'>MEDIUM</span>
+    <span class='finding-title'>Open Redirect — param 'jump'</span>
+    <span class='finding-target'>https://etoro.com</span>
+  </div>
+  <div class='finding-body'>
+    <table class='meta'>
+      <tr><td>Module</td><td>open_redirect</td></tr>
+      <tr><td>Confidence</td><td>confirmed</td></tr>
+      <tr><td>CVSS</td><td>6.1</td></tr>
+      <tr><td>CWE</td><td>CWE-601</td></tr>
+    </table>
+    <h4>Description</h4><p>Open redirect via 'jump' parameter. Redirects to attacker-controlled domain: https://www.etoro.com/?jump=https%3A%2F%2Fevil.com</p>
+    <h4>HTTP Request</h4><pre class='code'>GET https://etoro.com?jump=https%3A%2F%2Fevil.com HTTP/1.1</pre>
+    <h4>Evidence</h4><pre class='code'>Location: https://www.etoro.com/?jump=https%3A%2F%2Fevil.com</pre>
+    <h4>Reproduction</h4><p>Navigate to: https://etoro.com?jump=https%3A%2F%2Fevil.com</p>
+    <h4>Remediation</h4><p>1. Validate redirect URLs against an allowlist of trusted domains.
+2. Use relative paths instead of absolute URLs for internal redirects.
+3. Display an interstitial warning page before external redirects.</p>
+  </div>
+</div>
+<div class='finding' id='finding-36'>
+  <div class='finding-header' style='border-left:4px solid #d97706'>
+    <span class='badge' style='background:#d97706'>MEDIUM</span>
+    <span class='finding-title'>Open Redirect — param 'login_url'</span>
+    <span class='finding-target'>https://etoro.com</span>
+  </div>
+  <div class='finding-body'>
+    <table class='meta'>
+      <tr><td>Module</td><td>open_redirect</td></tr>
+      <tr><td>Confidence</td><td>confirmed</td></tr>
+      <tr><td>CVSS</td><td>6.1</td></tr>
+      <tr><td>CWE</td><td>CWE-601</td></tr>
+    </table>
+    <h4>Description</h4><p>Open redirect via 'login_url' parameter. Redirects to attacker-controlled domain: https://www.etoro.com/?login_url=https%3A%2F%2Fevil.com</p>
+    <h4>HTTP Request</h4><pre class='code'>GET https://etoro.com?login_url=https%3A%2F%2Fevil.com HTTP/1.1</pre>
+    <h4>Evidence</h4><pre class='code'>Location: https://www.etoro.com/?login_url=https%3A%2F%2Fevil.com</pre>
+    <h4>Reproduction</h4><p>Navigate to: https://etoro.com?login_url=https%3A%2F%2Fevil.com</p>
+    <h4>Remediation</h4><p>1. Validate redirect URLs against an allowlist of trusted domains.
+2. Use relative paths instead of absolute URLs for internal redirects.
+3. Display an interstitial warning page before external redirects.</p>
+  </div>
+</div>
+<div class='finding' id='finding-37'>
+  <div class='finding-header' style='border-left:4px solid #d97706'>
+    <span class='badge' style='background:#d97706'>MEDIUM</span>
+    <span class='finding-title'>Open Redirect — param 'go'</span>
+    <span class='finding-target'>https://etoro.com</span>
+  </div>
+  <div class='finding-body'>
+    <table class='meta'>
+      <tr><td>Module</td><td>open_redirect</td></tr>
+      <tr><td>Confidence</td><td>confirmed</td></tr>
+      <tr><td>CVSS</td><td>6.1</td></tr>
+      <tr><td>CWE</td><td>CWE-601</td></tr>
+    </table>
+    <h4>Description</h4><p>Open redirect via 'go' parameter. Redirects to attacker-controlled domain: https://www.etoro.com/?go=https%3A%2F%2Fevil.com</p>
+    <h4>HTTP Request</h4><pre class='code'>GET https://etoro.com?go=https%3A%2F%2Fevil.com HTTP/1.1</pre>
+    <h4>Evidence</h4><pre class='code'>Location: https://www.etoro.com/?go=https%3A%2F%2Fevil.com</pre>
+    <h4>Reproduction</h4><p>Navigate to: https://etoro.com?go=https%3A%2F%2Fevil.com</p>
+    <h4>Remediation</h4><p>1. Validate redirect URLs against an allowlist of trusted domains.
+2. Use relative paths instead of absolute URLs for internal redirects.
+3. Display an interstitial warning page before external redirects.</p>
+  </div>
+</div>
+<div class='finding' id='finding-38'>
+  <div class='finding-header' style='border-left:4px solid #d97706'>
+    <span class='badge' style='background:#d97706'>MEDIUM</span>
+    <span class='finding-title'>Open Redirect — param 'ref'</span>
+    <span class='finding-target'>https://etoro.com</span>
+  </div>
+  <div class='finding-body'>
+    <table class='meta'>
+      <tr><td>Module</td><td>open_redirect</td></tr>
+      <tr><td>Confidence</td><td>confirmed</td></tr>
+      <tr><td>CVSS</td><td>6.1</td></tr>
+      <tr><td>CWE</td><td>CWE-601</td></tr>
+    </table>
+    <h4>Description</h4><p>Open redirect via 'ref' parameter. Redirects to attacker-controlled domain: https://www.etoro.com/?ref=https%3A%2F%2Fevil.com</p>
+    <h4>HTTP Request</h4><pre class='code'>GET https://etoro.com?ref=https%3A%2F%2Fevil.com HTTP/1.1</pre>
+    <h4>Evidence</h4><pre class='code'>Location: https://www.etoro.com/?ref=https%3A%2F%2Fevil.com</pre>
+    <h4>Reproduction</h4><p>Navigate to: https://etoro.com?ref=https%3A%2F%2Fevil.com</p>
+    <h4>Remediation</h4><p>1. Validate redirect URLs against an allowlist of trusted domains.
+2. Use relative paths instead of absolute URLs for internal redirects.
+3. Display an interstitial warning page before external redirects.</p>
+  </div>
+</div>
+<div class='finding' id='finding-39'>
+  <div class='finding-header' style='border-left:4px solid #d97706'>
+    <span class='badge' style='background:#d97706'>MEDIUM</span>
+    <span class='finding-title'>Open Redirect — param 'out'</span>
+    <span class='finding-target'>https://etoro.com</span>
+  </div>
+  <div class='finding-body'>
+    <table class='meta'>
+      <tr><td>Module</td><td>open_redirect</td></tr>
+      <tr><td>Confidence</td><td>confirmed</td></tr>
+      <tr><td>CVSS</td><td>6.1</td></tr>
+      <tr><td>CWE</td><td>CWE-601</td></tr>
+    </table>
+    <h4>Description</h4><p>Open redirect via 'out' parameter. Redirects to attacker-controlled domain: https://www.etoro.com/?out=https%3A%2F%2Fevil.com</p>
+    <h4>HTTP Request</h4><pre class='code'>GET https://etoro.com?out=https%3A%2F%2Fevil.com HTTP/1.1</pre>
+    <h4>Evidence</h4><pre class='code'>Location: https://www.etoro.com/?out=https%3A%2F%2Fevil.com</pre>
+    <h4>Reproduction</h4><p>Navigate to: https://etoro.com?out=https%3A%2F%2Fevil.com</p>
+    <h4>Remediation</h4><p>1. Validate redirect URLs against an allowlist of trusted domains.
+2. Use relative paths instead of absolute URLs for internal redirects.
+3. Display an interstitial warning page before external redirects.</p>
+  </div>
+</div>
+<div class='finding' id='finding-40'>
+  <div class='finding-header' style='border-left:4px solid #d97706'>
+    <span class='badge' style='background:#d97706'>MEDIUM</span>
+    <span class='finding-title'>Open Redirect — param 'returnTo'</span>
+    <span class='finding-target'>https://etoro.com</span>
+  </div>
+  <div class='finding-body'>
+    <table class='meta'>
+      <tr><td>Module</td><td>open_redirect</td></tr>
+      <tr><td>Confidence</td><td>confirmed</td></tr>
+      <tr><td>CVSS</td><td>6.1</td></tr>
+      <tr><td>CWE</td><td>CWE-601</td></tr>
+    </table>
+    <h4>Description</h4><p>Open redirect via 'returnTo' parameter. Redirects to attacker-controlled domain: https://www.etoro.com/?returnTo=https%3A%2F%2Fevil.com</p>
+    <h4>HTTP Request</h4><pre class='code'>GET https://etoro.com?returnTo=https%3A%2F%2Fevil.com HTTP/1.1</pre>
+    <h4>Evidence</h4><pre class='code'>Location: https://www.etoro.com/?returnTo=https%3A%2F%2Fevil.com</pre>
+    <h4>Reproduction</h4><p>Navigate to: https://etoro.com?returnTo=https%3A%2F%2Fevil.com</p>
+    <h4>Remediation</h4><p>1. Validate redirect URLs against an allowlist of trusted domains.
+2. Use relative paths instead of absolute URLs for internal redirects.
+3. Display an interstitial warning page before external redirects.</p>
+  </div>
+</div>
+<div class='finding' id='finding-41'>
+  <div class='finding-header' style='border-left:4px solid #d97706'>
+    <span class='badge' style='background:#d97706'>MEDIUM</span>
+    <span class='finding-title'>Open Redirect — param 'redir'</span>
+    <span class='finding-target'>https://etoro.com</span>
+  </div>
+  <div class='finding-body'>
+    <table class='meta'>
+      <tr><td>Module</td><td>open_redirect</td></tr>
+      <tr><td>Confidence</td><td>confirmed</td></tr>
+      <tr><td>CVSS</td><td>6.1</td></tr>
+      <tr><td>CWE</td><td>CWE-601</td></tr>
+    </table>
+    <h4>Description</h4><p>Open redirect via 'redir' parameter. Redirects to attacker-controlled domain: https://www.etoro.com/?redir=https%3A%2F%2Fevil.com</p>
+    <h4>HTTP Request</h4><pre class='code'>GET https://etoro.com?redir=https%3A%2F%2Fevil.com HTTP/1.1</pre>
+    <h4>Evidence</h4><pre class='code'>Location: https://www.etoro.com/?redir=https%3A%2F%2Fevil.com</pre>
+    <h4>Reproduction</h4><p>Navigate to: https://etoro.com?redir=https%3A%2F%2Fevil.com</p>
+    <h4>Remediation</h4><p>1. Validate redirect URLs against an allowlist of trusted domains.
+2. Use relative paths instead of absolute URLs for internal redirects.
+3. Display an interstitial warning page before external redirects.</p>
+  </div>
+</div>
+<div class='finding' id='finding-42'>
+  <div class='finding-header' style='border-left:4px solid #d97706'>
+    <span class='badge' style='background:#d97706'>MEDIUM</span>
+    <span class='finding-title'>Open Redirect — param 'dest'</span>
+    <span class='finding-target'>https://etoro.com</span>
+  </div>
+  <div class='finding-body'>
+    <table class='meta'>
+      <tr><td>Module</td><td>open_redirect</td></tr>
+      <tr><td>Confidence</td><td>confirmed</td></tr>
+      <tr><td>CVSS</td><td>6.1</td></tr>
+      <tr><td>CWE</td><td>CWE-601</td></tr>
+    </table>
+    <h4>Description</h4><p>Open redirect via 'dest' parameter. Redirects to attacker-controlled domain: https://www.etoro.com/?dest=https%3A%2F%2Fevil.com</p>
+    <h4>HTTP Request</h4><pre class='code'>GET https://etoro.com?dest=https%3A%2F%2Fevil.com HTTP/1.1</pre>
+    <h4>Evidence</h4><pre class='code'>Location: https://www.etoro.com/?dest=https%3A%2F%2Fevil.com</pre>
+    <h4>Reproduction</h4><p>Navigate to: https://etoro.com?dest=https%3A%2F%2Fevil.com</p>
+    <h4>Remediation</h4><p>1. Validate redirect URLs against an allowlist of trusted domains.
+2. Use relative paths instead of absolute URLs for internal redirects.
+3. Display an interstitial warning page before external redirects.</p>
+  </div>
+</div>
+<div class='finding' id='finding-43'>
+  <div class='finding-header' style='border-left:4px solid #d97706'>
+    <span class='badge' style='background:#d97706'>MEDIUM</span>
+    <span class='finding-title'>Open Redirect — param 'link'</span>
+    <span class='finding-target'>https://etoro.com</span>
+  </div>
+  <div class='finding-body'>
+    <table class='meta'>
+      <tr><td>Module</td><td>open_redirect</td></tr>
+      <tr><td>Confidence</td><td>confirmed</td></tr>
+      <tr><td>CVSS</td><td>6.1</td></tr>
+      <tr><td>CWE</td><td>CWE-601</td></tr>
+    </table>
+    <h4>Description</h4><p>Open redirect via 'link' parameter. Redirects to attacker-controlled domain: https://www.etoro.com/?link=https%3A%2F%2Fevil.com</p>
+    <h4>HTTP Request</h4><pre class='code'>GET https://etoro.com?link=https%3A%2F%2Fevil.com HTTP/1.1</pre>
+    <h4>Evidence</h4><pre class='code'>Location: https://www.etoro.com/?link=https%3A%2F%2Fevil.com</pre>
+    <h4>Reproduction</h4><p>Navigate to: https://etoro.com?link=https%3A%2F%2Fevil.com</p>
+    <h4>Remediation</h4><p>1. Validate redirect URLs against an allowlist of trusted domains.
+2. Use relative paths instead of absolute URLs for internal redirects.
+3. Display an interstitial warning page before external redirects.</p>
+  </div>
+</div>
+<div class='finding' id='finding-44'>
+  <div class='finding-header' style='border-left:4px solid #d97706'>
+    <span class='badge' style='background:#d97706'>MEDIUM</span>
+    <span class='finding-title'>Open Redirect — param 'return'</span>
+    <span class='finding-target'>https://etoro.com</span>
+  </div>
+  <div class='finding-body'>
+    <table class='meta'>
+      <tr><td>Module</td><td>open_redirect</td></tr>
+      <tr><td>Confidence</td><td>confirmed</td></tr>
+      <tr><td>CVSS</td><td>6.1</td></tr>
+      <tr><td>CWE</td><td>CWE-601</td></tr>
+    </table>
+    <h4>Description</h4><p>Open redirect via 'return' parameter. Redirects to attacker-controlled domain: https://www.etoro.com/?return=https%3A%2F%2Fevil.com</p>
+    <h4>HTTP Request</h4><pre class='code'>GET https://etoro.com?return=https%3A%2F%2Fevil.com HTTP/1.1</pre>
+    <h4>Evidence</h4><pre class='code'>Location: https://www.etoro.com/?return=https%3A%2F%2Fevil.com</pre>
+    <h4>Reproduction</h4><p>Navigate to: https://etoro.com?return=https%3A%2F%2Fevil.com</p>
+    <h4>Remediation</h4><p>1. Validate redirect URLs against an allowlist of trusted domains.
+2. Use relative paths instead of absolute URLs for internal redirects.
+3. Display an interstitial warning page before external redirects.</p>
+  </div>
+</div>
+<div class='finding' id='finding-45'>
+  <div class='finding-header' style='border-left:4px solid #d97706'>
+    <span class='badge' style='background:#d97706'>MEDIUM</span>
+    <span class='finding-title'>Open Redirect — param 'u'</span>
+    <span class='finding-target'>https://etoro.com</span>
+  </div>
+  <div class='finding-body'>
+    <table class='meta'>
+      <tr><td>Module</td><td>open_redirect</td></tr>
+      <tr><td>Confidence</td><td>confirmed</td></tr>
+      <tr><td>CVSS</td><td>6.1</td></tr>
+      <tr><td>CWE</td><td>CWE-601</td></tr>
+    </table>
+    <h4>Description</h4><p>Open redirect via 'u' parameter. Redirects to attacker-controlled domain: https://www.etoro.com/?u=https%3A%2F%2Fevil.com</p>
+    <h4>HTTP Request</h4><pre class='code'>GET https://etoro.com?u=https%3A%2F%2Fevil.com HTTP/1.1</pre>
+    <h4>Evidence</h4><pre class='code'>Location: https://www.etoro.com/?u=https%3A%2F%2Fevil.com</pre>
+    <h4>Reproduction</h4><p>Navigate to: https://etoro.com?u=https%3A%2F%2Fevil.com</p>
+    <h4>Remediation</h4><p>1. Validate redirect URLs against an allowlist of trusted domains.
+2. Use relative paths instead of absolute URLs for internal redirects.
+3. Display an interstitial warning page before external redirects.</p>
+  </div>
+</div>
+<div class='finding' id='finding-46'>
+  <div class='finding-header' style='border-left:4px solid #d97706'>
+    <span class='badge' style='background:#d97706'>MEDIUM</span>
+    <span class='finding-title'>Open Redirect — param 'referrer'</span>
+    <span class='finding-target'>https://etoro.com</span>
+  </div>
+  <div class='finding-body'>
+    <table class='meta'>
+      <tr><td>Module</td><td>open_redirect</td></tr>
+      <tr><td>Confidence</td><td>confirmed</td></tr>
+      <tr><td>CVSS</td><td>6.1</td></tr>
+      <tr><td>CWE</td><td>CWE-601</td></tr>
+    </table>
+    <h4>Description</h4><p>Open redirect via 'referrer' parameter. Redirects to attacker-controlled domain: https://www.etoro.com/?referrer=https%3A%2F%2Fevil.com</p>
+    <h4>HTTP Request</h4><pre class='code'>GET https://etoro.com?referrer=https%3A%2F%2Fevil.com HTTP/1.1</pre>
+    <h4>Evidence</h4><pre class='code'>Location: https://www.etoro.com/?referrer=https%3A%2F%2Fevil.com</pre>
+    <h4>Reproduction</h4><p>Navigate to: https://etoro.com?referrer=https%3A%2F%2Fevil.com</p>
+    <h4>Remediation</h4><p>1. Validate redirect URLs against an allowlist of trusted domains.
+2. Use relative paths instead of absolute URLs for internal redirects.
+3. Display an interstitial warning page before external redirects.</p>
+  </div>
+</div>
+<div class='finding' id='finding-47'>
+  <div class='finding-header' style='border-left:4px solid #d97706'>
+    <span class='badge' style='background:#d97706'>MEDIUM</span>
+    <span class='finding-title'>Open Redirect — param 'redirect_uri'</span>
+    <span class='finding-target'>https://etoro.com</span>
+  </div>
+  <div class='finding-body'>
+    <table class='meta'>
+      <tr><td>Module</td><td>open_redirect</td></tr>
+      <tr><td>Confidence</td><td>confirmed</td></tr>
+      <tr><td>CVSS</td><td>6.1</td></tr>
+      <tr><td>CWE</td><td>CWE-601</td></tr>
+    </table>
+    <h4>Description</h4><p>Open redirect via 'redirect_uri' parameter. Redirects to attacker-controlled domain: https://www.etoro.com/?redirect_uri=https%3A%2F%2Fevil.com</p>
+    <h4>HTTP Request</h4><pre class='code'>GET https://etoro.com?redirect_uri=https%3A%2F%2Fevil.com HTTP/1.1</pre>
+    <h4>Evidence</h4><pre class='code'>Location: https://www.etoro.com/?redirect_uri=https%3A%2F%2Fevil.com</pre>
+    <h4>Reproduction</h4><p>Navigate to: https://etoro.com?redirect_uri=https%3A%2F%2Fevil.com</p>
+    <h4>Remediation</h4><p>1. Validate redirect URLs against an allowlist of trusted domains.
+2. Use relative paths instead of absolute URLs for internal redirects.
+3. Display an interstitial warning page before external redirects.</p>
+  </div>
+</div>
+<div class='finding' id='finding-48'>
+  <div class='finding-header' style='border-left:4px solid #d97706'>
+    <span class='badge' style='background:#d97706'>MEDIUM</span>
+    <span class='finding-title'>Open Redirect — param 'view'</span>
+    <span class='finding-target'>https://etoro.com</span>
+  </div>
+  <div class='finding-body'>
+    <table class='meta'>
+      <tr><td>Module</td><td>open_redirect</td></tr>
+      <tr><td>Confidence</td><td>confirmed</td></tr>
+      <tr><td>CVSS</td><td>6.1</td></tr>
+      <tr><td>CWE</td><td>CWE-601</td></tr>
+    </table>
+    <h4>Description</h4><p>Open redirect via 'view' parameter. Redirects to attacker-controlled domain: https://www.etoro.com/?view=https%3A%2F%2Fevil.com</p>
+    <h4>HTTP Request</h4><pre class='code'>GET https://etoro.com?view=https%3A%2F%2Fevil.com HTTP/1.1</pre>
+    <h4>Evidence</h4><pre class='code'>Location: https://www.etoro.com/?view=https%3A%2F%2Fevil.com</pre>
+    <h4>Reproduction</h4><p>Navigate to: https://etoro.com?view=https%3A%2F%2Fevil.com</p>
+    <h4>Remediation</h4><p>1. Validate redirect URLs against an allowlist of trusted domains.
+2. Use relative paths instead of absolute URLs for internal redirects.
+3. Display an interstitial warning page before external redirects.</p>
+  </div>
+</div>
+<div class='finding' id='finding-49'>
+  <div class='finding-header' style='border-left:4px solid #d97706'>
+    <span class='badge' style='background:#d97706'>MEDIUM</span>
+    <span class='finding-title'>Open Redirect — param 'url'</span>
+    <span class='finding-target'>https://etoro.com</span>
+  </div>
+  <div class='finding-body'>
+    <table class='meta'>
+      <tr><td>Module</td><td>open_redirect</td></tr>
+      <tr><td>Confidence</td><td>confirmed</td></tr>
+      <tr><td>CVSS</td><td>6.1</td></tr>
+      <tr><td>CWE</td><td>CWE-601</td></tr>
+    </table>
+    <h4>Description</h4><p>Open redirect via 'url' parameter. Redirects to attacker-controlled domain: https://www.etoro.com/?url=https%3A%2F%2Fevil.com</p>
+    <h4>HTTP Request</h4><pre class='code'>GET https://etoro.com?url=https%3A%2F%2Fevil.com HTTP/1.1</pre>
+    <h4>Evidence</h4><pre class='code'>Location: https://www.etoro.com/?url=https%3A%2F%2Fevil.com</pre>
+    <h4>Reproduction</h4><p>Navigate to: https://etoro.com?url=https%3A%2F%2Fevil.com</p>
+    <h4>Remediation</h4><p>1. Validate redirect URLs against an allowlist of trusted domains.
+2. Use relative paths instead of absolute URLs for internal redirects.
+3. Display an interstitial warning page before external redirects.</p>
+  </div>
+</div>
+<div class='finding' id='finding-50'>
+  <div class='finding-header' style='border-left:4px solid #d97706'>
+    <span class='badge' style='background:#d97706'>MEDIUM</span>
+    <span class='finding-title'>Open Redirect — param 'goto'</span>
+    <span class='finding-target'>https://etoro.com</span>
+  </div>
+  <div class='finding-body'>
+    <table class='meta'>
+      <tr><td>Module</td><td>open_redirect</td></tr>
+      <tr><td>Confidence</td><td>confirmed</td></tr>
+      <tr><td>CVSS</td><td>6.1</td></tr>
+      <tr><td>CWE</td><td>CWE-601</td></tr>
+    </table>
+    <h4>Description</h4><p>Open redirect via 'goto' parameter. Redirects to attacker-controlled domain: https://www.etoro.com/?goto=https%3A%2F%2Fevil.com</p>
+    <h4>HTTP Request</h4><pre class='code'>GET https://etoro.com?goto=https%3A%2F%2Fevil.com HTTP/1.1</pre>
+    <h4>Evidence</h4><pre class='code'>Location: https://www.etoro.com/?goto=https%3A%2F%2Fevil.com</pre>
+    <h4>Reproduction</h4><p>Navigate to: https://etoro.com?goto=https%3A%2F%2Fevil.com</p>
+    <h4>Remediation</h4><p>1. Validate redirect URLs against an allowlist of trusted domains.
+2. Use relative paths instead of absolute URLs for internal redirects.
+3. Display an interstitial warning page before external redirects.</p>
+  </div>
+</div>
+<div class='finding' id='finding-51'>
+  <div class='finding-header' style='border-left:4px solid #d97706'>
+    <span class='badge' style='background:#d97706'>MEDIUM</span>
+    <span class='finding-title'>Open Redirect — param 'forward'</span>
+    <span class='finding-target'>https://etoro.com</span>
+  </div>
+  <div class='finding-body'>
+    <table class='meta'>
+      <tr><td>Module</td><td>open_redirect</td></tr>
+      <tr><td>Confidence</td><td>confirmed</td></tr>
+      <tr><td>CVSS</td><td>6.1</td></tr>
+      <tr><td>CWE</td><td>CWE-601</td></tr>
+    </table>
+    <h4>Description</h4><p>Open redirect via 'forward' parameter. Redirects to attacker-controlled domain: https://www.etoro.com/?forward=https%3A%2F%2Fevil.com</p>
+    <h4>HTTP Request</h4><pre class='code'>GET https://etoro.com?forward=https%3A%2F%2Fevil.com HTTP/1.1</pre>
+    <h4>Evidence</h4><pre class='code'>Location: https://www.etoro.com/?forward=https%3A%2F%2Fevil.com</pre>
+    <h4>Reproduction</h4><p>Navigate to: https://etoro.com?forward=https%3A%2F%2Fevil.com</p>
+    <h4>Remediation</h4><p>1. Validate redirect URLs against an allowlist of trusted domains.
+2. Use relative paths instead of absolute URLs for internal redirects.
+3. Display an interstitial warning page before external redirects.</p>
+  </div>
+</div>
+<div class='finding' id='finding-52'>
+  <div class='finding-header' style='border-left:4px solid #d97706'>
+    <span class='badge' style='background:#d97706'>MEDIUM</span>
+    <span class='finding-title'>Open Redirect — param 'callback'</span>
+    <span class='finding-target'>https://etoro.com</span>
+  </div>
+  <div class='finding-body'>
+    <table class='meta'>
+      <tr><td>Module</td><td>open_redirect</td></tr>
+      <tr><td>Confidence</td><td>confirmed</td></tr>
+      <tr><td>CVSS</td><td>6.1</td></tr>
+      <tr><td>CWE</td><td>CWE-601</td></tr>
+    </table>
+    <h4>Description</h4><p>Open redirect via 'callback' parameter. Redirects to attacker-controlled domain: https://www.etoro.com/?callback=https%3A%2F%2Fevil.com</p>
+    <h4>HTTP Request</h4><pre class='code'>GET https://etoro.com?callback=https%3A%2F%2Fevil.com HTTP/1.1</pre>
+    <h4>Evidence</h4><pre class='code'>Location: https://www.etoro.com/?callback=https%3A%2F%2Fevil.com</pre>
+    <h4>Reproduction</h4><p>Navigate to: https://etoro.com?callback=https%3A%2F%2Fevil.com</p>
+    <h4>Remediation</h4><p>1. Validate redirect URLs against an allowlist of trusted domains.
+2. Use relative paths instead of absolute URLs for internal redirects.
+3. Display an interstitial warning page before external redirects.</p>
+  </div>
+</div>
+<div class='finding' id='finding-53'>
+  <div class='finding-header' style='border-left:4px solid #d97706'>
+    <span class='badge' style='background:#d97706'>MEDIUM</span>
+    <span class='finding-title'>Open Redirect — param 'redirect'</span>
+    <span class='finding-target'>https://etoro.com</span>
+  </div>
+  <div class='finding-body'>
+    <table class='meta'>
+      <tr><td>Module</td><td>open_redirect</td></tr>
+      <tr><td>Confidence</td><td>confirmed</td></tr>
+      <tr><td>CVSS</td><td>6.1</td></tr>
+      <tr><td>CWE</td><td>CWE-601</td></tr>
+    </table>
+    <h4>Description</h4><p>Open redirect via 'redirect' parameter. Redirects to attacker-controlled domain: https://www.etoro.com/?redirect=https%3A%2F%2Fevil.com</p>
+    <h4>HTTP Request</h4><pre class='code'>GET https://etoro.com?redirect=https%3A%2F%2Fevil.com HTTP/1.1</pre>
+    <h4>Evidence</h4><pre class='code'>Location: https://www.etoro.com/?redirect=https%3A%2F%2Fevil.com</pre>
+    <h4>Reproduction</h4><p>Navigate to: https://etoro.com?redirect=https%3A%2F%2Fevil.com</p>
+    <h4>Remediation</h4><p>1. Validate redirect URLs against an allowlist of trusted domains.
+2. Use relative paths instead of absolute URLs for internal redirects.
+3. Display an interstitial warning page before external redirects.</p>
+  </div>
+</div>
+<div class='finding' id='finding-54'>
+  <div class='finding-header' style='border-left:4px solid #d97706'>
+    <span class='badge' style='background:#d97706'>MEDIUM</span>
+    <span class='finding-title'>Open Redirect — param 'target'</span>
+    <span class='finding-target'>https://etoro.com</span>
+  </div>
+  <div class='finding-body'>
+    <table class='meta'>
+      <tr><td>Module</td><td>open_redirect</td></tr>
+      <tr><td>Confidence</td><td>confirmed</td></tr>
+      <tr><td>CVSS</td><td>6.1</td></tr>
+      <tr><td>CWE</td><td>CWE-601</td></tr>
+    </table>
+    <h4>Description</h4><p>Open redirect via 'target' parameter. Redirects to attacker-controlled domain: https://www.etoro.com/?target=https%3A%2F%2Fevil.com</p>
+    <h4>HTTP Request</h4><pre class='code'>GET https://etoro.com?target=https%3A%2F%2Fevil.com HTTP/1.1</pre>
+    <h4>Evidence</h4><pre class='code'>Location: https://www.etoro.com/?target=https%3A%2F%2Fevil.com</pre>
+    <h4>Reproduction</h4><p>Navigate to: https://etoro.com?target=https%3A%2F%2Fevil.com</p>
+    <h4>Remediation</h4><p>1. Validate redirect URLs against an allowlist of trusted domains.
+2. Use relative paths instead of absolute URLs for internal redirects.
+3. Display an interstitial warning page before external redirects.</p>
+  </div>
+</div>
+<div class='finding' id='finding-55'>
+  <div class='finding-header' style='border-left:4px solid #d97706'>
+    <span class='badge' style='background:#d97706'>MEDIUM</span>
+    <span class='finding-title'>Open Redirect — param 'continue'</span>
+    <span class='finding-target'>https://etoro.com</span>
+  </div>
+  <div class='finding-body'>
+    <table class='meta'>
+      <tr><td>Module</td><td>open_redirect</td></tr>
+      <tr><td>Confidence</td><td>confirmed</td></tr>
+      <tr><td>CVSS</td><td>6.1</td></tr>
+      <tr><td>CWE</td><td>CWE-601</td></tr>
+    </table>
+    <h4>Description</h4><p>Open redirect via 'continue' parameter. Redirects to attacker-controlled domain: https://www.etoro.com/?continue=https%3A%2F%2Fevil.com</p>
+    <h4>HTTP Request</h4><pre class='code'>GET https://etoro.com?continue=https%3A%2F%2Fevil.com HTTP/1.1</pre>
+    <h4>Evidence</h4><pre class='code'>Location: https://www.etoro.com/?continue=https%3A%2F%2Fevil.com</pre>
+    <h4>Reproduction</h4><p>Navigate to: https://etoro.com?continue=https%3A%2F%2Fevil.com</p>
+    <h4>Remediation</h4><p>1. Validate redirect URLs against an allowlist of trusted domains.
+2. Use relative paths instead of absolute URLs for internal redirects.
+3. Display an interstitial warning page before external redirects.</p>
+  </div>
+</div>
+<div class='finding' id='finding-56'>
+  <div class='finding-header' style='border-left:4px solid #d97706'>
+    <span class='badge' style='background:#d97706'>MEDIUM</span>
+    <span class='finding-title'>Open Redirect — param 'success_url'</span>
+    <span class='finding-target'>https://etoro.com</span>
+  </div>
+  <div class='finding-body'>
+    <table class='meta'>
+      <tr><td>Module</td><td>open_redirect</td></tr>
+      <tr><td>Confidence</td><td>confirmed</td></tr>
+      <tr><td>CVSS</td><td>6.1</td></tr>
+      <tr><td>CWE</td><td>CWE-601</td></tr>
+    </table>
+    <h4>Description</h4><p>Open redirect via 'success_url' parameter. Redirects to attacker-controlled domain: https://www.etoro.com/?success_url=https%3A%2F%2Fevil.com</p>
+    <h4>HTTP Request</h4><pre class='code'>GET https://etoro.com?success_url=https%3A%2F%2Fevil.com HTTP/1.1</pre>
+    <h4>Evidence</h4><pre class='code'>Location: https://www.etoro.com/?success_url=https%3A%2F%2Fevil.com</pre>
+    <h4>Reproduction</h4><p>Navigate to: https://etoro.com?success_url=https%3A%2F%2Fevil.com</p>
+    <h4>Remediation</h4><p>1. Validate redirect URLs against an allowlist of trusted domains.
+2. Use relative paths instead of absolute URLs for internal redirects.
+3. Display an interstitial warning page before external redirects.</p>
+  </div>
+</div>
+<div class='finding' id='finding-57'>
+  <div class='finding-header' style='border-left:4px solid #d97706'>
+    <span class='badge' style='background:#d97706'>MEDIUM</span>
+    <span class='finding-title'>Open Redirect — param 'path'</span>
+    <span class='finding-target'>https://etoro.com</span>
+  </div>
+  <div class='finding-body'>
+    <table class='meta'>
+      <tr><td>Module</td><td>open_redirect</td></tr>
+      <tr><td>Confidence</td><td>confirmed</td></tr>
+      <tr><td>CVSS</td><td>6.1</td></tr>
+      <tr><td>CWE</td><td>CWE-601</td></tr>
+    </table>
+    <h4>Description</h4><p>Open redirect via 'path' parameter. Redirects to attacker-controlled domain: https://www.etoro.com/?path=https%3A%2F%2Fevil.com</p>
+    <h4>HTTP Request</h4><pre class='code'>GET https://etoro.com?path=https%3A%2F%2Fevil.com HTTP/1.1</pre>
+    <h4>Evidence</h4><pre class='code'>Location: https://www.etoro.com/?path=https%3A%2F%2Fevil.com</pre>
+    <h4>Reproduction</h4><p>Navigate to: https://etoro.com?path=https%3A%2F%2Fevil.com</p>
+    <h4>Remediation</h4><p>1. Validate redirect URLs against an allowlist of trusted domains.
+2. Use relative paths instead of absolute URLs for internal redirects.
+3. Display an interstitial warning page before external redirects.</p>
+  </div>
+</div>
+<div class='finding' id='finding-58'>
+  <div class='finding-header' style='border-left:4px solid #d97706'>
+    <span class='badge' style='background:#d97706'>MEDIUM</span>
+    <span class='finding-title'>Open Redirect — param 'cancel_url'</span>
+    <span class='finding-target'>https://etoro.com</span>
+  </div>
+  <div class='finding-body'>
+    <table class='meta'>
+      <tr><td>Module</td><td>open_redirect</td></tr>
+      <tr><td>Confidence</td><td>confirmed</td></tr>
+      <tr><td>CVSS</td><td>6.1</td></tr>
+      <tr><td>CWE</td><td>CWE-601</td></tr>
+    </table>
+    <h4>Description</h4><p>Open redirect via 'cancel_url' parameter. Redirects to attacker-controlled domain: https://www.etoro.com/?cancel_url=https%3A%2F%2Fevil.com</p>
+    <h4>HTTP Request</h4><pre class='code'>GET https://etoro.com?cancel_url=https%3A%2F%2Fevil.com HTTP/1.1</pre>
+    <h4>Evidence</h4><pre class='code'>Location: https://www.etoro.com/?cancel_url=https%3A%2F%2Fevil.com</pre>
+    <h4>Reproduction</h4><p>Navigate to: https://etoro.com?cancel_url=https%3A%2F%2Fevil.com</p>
+    <h4>Remediation</h4><p>1. Validate redirect URLs against an allowlist of trusted domains.
+2. Use relative paths instead of absolute URLs for internal redirects.
+3. Display an interstitial warning page before external redirects.</p>
+  </div>
+</div>
+<div class='finding' id='finding-59'>
+  <div class='finding-header' style='border-left:4px solid #d97706'>
+    <span class='badge' style='background:#d97706'>MEDIUM</span>
+    <span class='finding-title'>Open Redirect — param 'r'</span>
+    <span class='finding-target'>https://etoro.com</span>
+  </div>
+  <div class='finding-body'>
+    <table class='meta'>
+      <tr><td>Module</td><td>open_redirect</td></tr>
+      <tr><td>Confidence</td><td>confirmed</td></tr>
+      <tr><td>CVSS</td><td>6.1</td></tr>
+      <tr><td>CWE</td><td>CWE-601</td></tr>
+    </table>
+    <h4>Description</h4><p>Open redirect via 'r' parameter. Redirects to attacker-controlled domain: https://www.etoro.com/?r=https%3A%2F%2Fevil.com</p>
+    <h4>HTTP Request</h4><pre class='code'>GET https://etoro.com?r=https%3A%2F%2Fevil.com HTTP/1.1</pre>
+    <h4>Evidence</h4><pre class='code'>Location: https://www.etoro.com/?r=https%3A%2F%2Fevil.com</pre>
+    <h4>Reproduction</h4><p>Navigate to: https://etoro.com?r=https%3A%2F%2Fevil.com</p>
+    <h4>Remediation</h4><p>1. Validate redirect URLs against an allowlist of trusted domains.
+2. Use relative paths instead of absolute URLs for internal redirects.
+3. Display an interstitial warning page before external redirects.</p>
+  </div>
+</div>
+<div class='finding' id='finding-60'>
+  <div class='finding-header' style='border-left:4px solid #d97706'>
+    <span class='badge' style='background:#d97706'>MEDIUM</span>
+    <span class='finding-title'>Open Redirect — param 'return_to'</span>
+    <span class='finding-target'>https://etoro.com</span>
+  </div>
+  <div class='finding-body'>
+    <table class='meta'>
+      <tr><td>Module</td><td>open_redirect</td></tr>
+      <tr><td>Confidence</td><td>confirmed</td></tr>
+      <tr><td>CVSS</td><td>6.1</td></tr>
+      <tr><td>CWE</td><td>CWE-601</td></tr>
+    </table>
+    <h4>Description</h4><p>Open redirect via 'return_to' parameter. Redirects to attacker-controlled domain: https://www.etoro.com/?return_to=https%3A%2F%2Fevil.com</p>
+    <h4>HTTP Request</h4><pre class='code'>GET https://etoro.com?return_to=https%3A%2F%2Fevil.com HTTP/1.1</pre>
+    <h4>Evidence</h4><pre class='code'>Location: https://www.etoro.com/?return_to=https%3A%2F%2Fevil.com</pre>
+    <h4>Reproduction</h4><p>Navigate to: https://etoro.com?return_to=https%3A%2F%2Fevil.com</p>
+    <h4>Remediation</h4><p>1. Validate redirect URLs against an allowlist of trusted domains.
+2. Use relative paths instead of absolute URLs for internal redirects.
+3. Display an interstitial warning page before external redirects.</p>
+  </div>
+</div>
+<div class='finding' id='finding-61'>
+  <div class='finding-header' style='border-left:4px solid #d97706'>
+    <span class='badge' style='background:#d97706'>MEDIUM</span>
+    <span class='finding-title'>Open Redirect — param 'redirect_url'</span>
+    <span class='finding-target'>https://etoro.com</span>
+  </div>
+  <div class='finding-body'>
+    <table class='meta'>
+      <tr><td>Module</td><td>open_redirect</td></tr>
+      <tr><td>Confidence</td><td>confirmed</td></tr>
+      <tr><td>CVSS</td><td>6.1</td></tr>
+      <tr><td>CWE</td><td>CWE-601</td></tr>
+    </table>
+    <h4>Description</h4><p>Open redirect via 'redirect_url' parameter. Redirects to attacker-controlled domain: https://www.etoro.com/?redirect_url=https%3A%2F%2Fevil.com</p>
+    <h4>HTTP Request</h4><pre class='code'>GET https://etoro.com?redirect_url=https%3A%2F%2Fevil.com HTTP/1.1</pre>
+    <h4>Evidence</h4><pre class='code'>Location: https://www.etoro.com/?redirect_url=https%3A%2F%2Fevil.com</pre>
+    <h4>Reproduction</h4><p>Navigate to: https://etoro.com?redirect_url=https%3A%2F%2Fevil.com</p>
+    <h4>Remediation</h4><p>1. Validate redirect URLs against an allowlist of trusted domains.
+2. Use relative paths instead of absolute URLs for internal redirects.
+3. Display an interstitial warning page before external redirects.</p>
+  </div>
+</div>
+<div class='finding' id='finding-62'>
+  <div class='finding-header' style='border-left:4px solid #d97706'>
+    <span class='badge' style='background:#d97706'>MEDIUM</span>
+    <span class='finding-title'>Open Redirect — param 'destination'</span>
+    <span class='finding-target'>https://etoro.com</span>
+  </div>
+  <div class='finding-body'>
+    <table class='meta'>
+      <tr><td>Module</td><td>open_redirect</td></tr>
+      <tr><td>Confidence</td><td>confirmed</td></tr>
+      <tr><td>CVSS</td><td>6.1</td></tr>
+      <tr><td>CWE</td><td>CWE-601</td></tr>
+    </table>
+    <h4>Description</h4><p>Open redirect via 'destination' parameter. Redirects to attacker-controlled domain: https://www.etoro.com/?destination=https%3A%2F%2Fevil.com</p>
+    <h4>HTTP Request</h4><pre class='code'>GET https://etoro.com?destination=https%3A%2F%2Fevil.com HTTP/1.1</pre>
+    <h4>Evidence</h4><pre class='code'>Location: https://www.etoro.com/?destination=https%3A%2F%2Fevil.com</pre>
+    <h4>Reproduction</h4><p>Navigate to: https://etoro.com?destination=https%3A%2F%2Fevil.com</p>
+    <h4>Remediation</h4><p>1. Validate redirect URLs against an allowlist of trusted domains.
+2. Use relative paths instead of absolute URLs for internal redirects.
+3. Display an interstitial warning page before external redirects.</p>
+  </div>
+</div>
+<div class='finding' id='finding-63'>
+  <div class='finding-header' style='border-left:4px solid #2563eb'>
+    <span class='badge' style='background:#2563eb'>LOW</span>
+    <span class='finding-title'>Missing X-Content-Type-Options header</span>
+    <span class='finding-target'>https://example.com</span>
+  </div>
+  <div class='finding-body'>
+    <table class='meta'>
+      <tr><td>Module</td><td>headers</td></tr>
+      <tr><td>Confidence</td><td>confirmed</td></tr>
+      
+      <tr><td>CWE</td><td>CWE-693</td></tr>
+    </table>
+    <h4>Description</h4><p>Prevents MIME-type sniffing</p>
+    <h4>HTTP Request</h4><pre class='code'>GET https://example.com HTTP/1.1</pre>
+    
+    
+    <h4>Remediation</h4><p>Add: X-Content-Type-Options: nosniff</p>
+  </div>
+</div>
+<div class='finding' id='finding-64'>
+  <div class='finding-header' style='border-left:4px solid #2563eb'>
+    <span class='badge' style='background:#2563eb'>LOW</span>
+    <span class='finding-title'>Missing Referrer-Policy header</span>
+    <span class='finding-target'>https://example.com</span>
+  </div>
+  <div class='finding-body'>
+    <table class='meta'>
+      <tr><td>Module</td><td>headers</td></tr>
+      <tr><td>Confidence</td><td>confirmed</td></tr>
+      
+      <tr><td>CWE</td><td>CWE-200</td></tr>
+    </table>
+    <h4>Description</h4><p>Controls referrer information sent with requests</p>
+    <h4>HTTP Request</h4><pre class='code'>GET https://example.com HTTP/1.1</pre>
+    
+    
+    <h4>Remediation</h4><p>Add: Referrer-Policy: strict-origin-when-cross-origin</p>
+  </div>
+</div>
+<div class='finding' id='finding-65'>
+  <div class='finding-header' style='border-left:4px solid #2563eb'>
+    <span class='badge' style='background:#2563eb'>LOW</span>
+    <span class='finding-title'>Missing Referrer-Policy header</span>
+    <span class='finding-target'>https://etoro.com</span>
+  </div>
+  <div class='finding-body'>
+    <table class='meta'>
+      <tr><td>Module</td><td>headers</td></tr>
+      <tr><td>Confidence</td><td>confirmed</td></tr>
+      
+      <tr><td>CWE</td><td>CWE-200</td></tr>
+    </table>
+    <h4>Description</h4><p>Controls referrer information sent with requests</p>
+    <h4>HTTP Request</h4><pre class='code'>GET https://etoro.com HTTP/1.1</pre>
+    
+    
+    <h4>Remediation</h4><p>Add: Referrer-Policy: strict-origin-when-cross-origin</p>
+  </div>
+</div>
+<div class='finding' id='finding-66'>
+  <div class='finding-header' style='border-left:4px solid #6b7280'>
+    <span class='badge' style='background:#6b7280'>INFO</span>
+    <span class='finding-title'>Information disclosure via Server</span>
+    <span class='finding-target'>https://example.com</span>
+  </div>
+  <div class='finding-body'>
+    <table class='meta'>
+      <tr><td>Module</td><td>headers</td></tr>
+      <tr><td>Confidence</td><td>confirmed</td></tr>
+      
+      
+    </table>
+    <h4>Description</h4><p>Reveals server version (information leakage): cloudflare</p>
+    
+    <h4>Evidence</h4><pre class='code'>Server: cloudflare</pre>
+    
+    
+  </div>
+</div>
+<div class='finding' id='finding-67'>
+  <div class='finding-header' style='border-left:4px solid #6b7280'>
+    <span class='badge' style='background:#6b7280'>INFO</span>
+    <span class='finding-title'>Information disclosure via Server</span>
+    <span class='finding-target'>https://etoro.com</span>
+  </div>
+  <div class='finding-body'>
+    <table class='meta'>
+      <tr><td>Module</td><td>headers</td></tr>
+      <tr><td>Confidence</td><td>confirmed</td></tr>
+      
+      
+    </table>
+    <h4>Description</h4><p>Reveals server version (information leakage): cloudflare</p>
+    
+    <h4>Evidence</h4><pre class='code'>Server: cloudflare</pre>
+    
+    
+  </div>
+</div>
+  <div class='footer'>Generated by TALISMAN v1.0.0 — for authorized security testing only</div>
+</div>
+</body>
+</html>

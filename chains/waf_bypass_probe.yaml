@@ -1,0 +1,24 @@
+name: waf_bypass_probe
+version: "1.0"
+description: "Detect WAF, find origin IP, generate vendor-specific bypass payloads"
+tags: [waf, bypass, evasion]
+rate_profile: stealth
+
+steps:
+  - id: waf_fingerprint
+    module: waf.detector
+    args:
+      full_fingerprint: true
+
+  - id: xss_bypass
+    module: waf.bypass
+    depends_on: [waf_fingerprint]
+    args:
+      vuln_type: xss
+
+  - id: sqli_bypass
+    module: waf.bypass
+    depends_on: [waf_fingerprint]
+    parallel: true
+    args:
+      vuln_type: sqli

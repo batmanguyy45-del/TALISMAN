@@ -1,0 +1,36 @@
+name: wordpress_full
+version: "1.0"
+description: "Full WordPress security audit — version, plugins, users, XML-RPC, REST API"
+tags: [cms, wordpress, web]
+rate_profile: stealth
+
+steps:
+  - id: wp_core
+    module: cms.wordpress
+    args:
+      detect_version: true
+      sensitive_paths: true
+
+  - id: wp_users
+    module: cms.wordpress.plugins
+    depends_on: [wp_core]
+
+  - id: wp_plugins
+    module: cms.wordpress.plugins
+    depends_on: [wp_core]
+    args:
+      method: aggressive
+
+  - id: wp_xmlrpc
+    module: cms.wordpress.xmlrpc
+    args:
+      pingback_ssrf: true
+      multicall_check: true
+
+  - id: secret_scan
+    module: cloud.secrets
+    parallel: true
+
+  - id: waf_check
+    module: waf.detector
+    parallel: true

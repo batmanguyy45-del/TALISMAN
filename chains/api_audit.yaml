@@ -1,0 +1,34 @@
+name: api_audit
+version: "1.0"
+description: "Full API security audit — GraphQL, JWT, REST, IDOR, mass assignment"
+tags: [api, rest, graphql, jwt]
+rate_profile: normal
+
+steps:
+  - id: path_fuzz
+    module: scanner.headers
+    args:
+      full_audit: true
+
+  - id: graphql_audit
+    module: api.graphql
+
+  - id: secrets_scan
+    module: cloud.secrets
+    parallel: true
+
+  - id: xss_api
+    module: scanner.xss
+    parallel: true
+
+  - id: sqli_api
+    module: scanner.sqli
+    parallel: true
+
+  - id: ssrf_api
+    module: scanner.ssrf
+    parallel: true
+
+  - id: idor_api
+    module: scanner.idor
+    parallel: true

@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  talisman:
+    build: .
+    image: talisman:latest
+    container_name: talisman
+    volumes:
+      - talisman_data:/root/.talisman
+      - ./reports:/reports
+      - ./config:/app/config
+    environment:
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+      - SHODAN_API_KEY=${SHODAN_API_KEY:-}
+      - DISCORD_WEBHOOK=${DISCORD_WEBHOOK:-}
+    network_mode: host      # Full network access for scanning
+    cap_add:
+      - NET_RAW             # For raw socket operations (nmap, masscan)
+    stdin_open: true
+    tty: true
+
+volumes:
+  talisman_data:
+    driver: local
