@@ -1,0 +1,48 @@
+# TALISMAN Default Configuration
+# Override with: ~/.talisman/config.yaml or TALISMAN_* env vars
+
+api_keys:
+  shodan: ""              # SHODAN_API_KEY
+  censys_id: ""           # CENSYS_ID
+  censys_secret: ""       # CENSYS_SECRET
+  securitytrails: ""      # SECURITYTRAILS_KEY
+  github_token: ""        # GITHUB_TOKEN
+  wpscan_api_key: ""      # WPSCAN_API_KEY
+  fofa_email: ""
+  fofa_key: ""
+
+oast:
+  provider: interactsh    # interactsh | burp_collaborator | custom
+  server: oast.pro
+  self_hosted_url: ""
+
+proxy:
+  url: ""
+  type: none              # none | burp | mitmproxy | custom
+  rotate_list: ""
+
+tools:
+  nuclei_path: nuclei
+  subfinder_path: subfinder
+  amass_path: amass
+  ffuf_path: ffuf
+  httpx_path: httpx
+  nmap_path: nmap
+  masscan_path: masscan
+
+notifications:
+  discord_webhook: ""     # DISCORD_WEBHOOK
+  slack_webhook: ""       # SLACK_WEBHOOK
+  notify_on: [chain_complete, critical_finding]
+
+defaults:
+  rate_profile: normal
+  threads: 50
+  timeout: 30
+  verify_ssl: false
+  follow_redirects: true
+  max_retries: 3
+  wordlists_dir: ~/.talisman/wordlists/
+  templates_dir: ~/.talisman/templates/
+  sessions_dir: ~/.talisman/sessions/
+  reports_dir: ./reports/

@@ -1,0 +1,15 @@
+# Example scope file — pass with --scope flag
+include:
+  - "*.example.com"
+  - "example.com"
+  - "192.168.1.0/24"
+
+exclude:
+  - "mail.example.com"
+  - "*.prod.example.com"
+
+restrictions:
+  max_requests_per_second: 50
+  avoid_writes: false
+  avoid_destructive: true
+  respect_robots_txt: false

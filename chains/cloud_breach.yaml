@@ -1,0 +1,21 @@
+name: cloud_breach
+version: "1.0"
+description: "Cloud security assessment — S3, CloudFront, metadata endpoints, secrets"
+tags: [cloud, aws, gcp, azure]
+rate_profile: normal
+
+steps:
+  - id: s3_enum
+    module: cloud.aws
+    args:
+      s3_enum: true
+      cloudfront_bypass: true
+
+  - id: secrets_scan
+    module: cloud.secrets
+
+  - id: osint
+    module: recon.osint
+    parallel: true
+    args:
+      checks: [s3_buckets]

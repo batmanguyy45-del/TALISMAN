@@ -1,0 +1,459 @@
+Metadata-Version: 2.4
+Name: talisman-recon
+Version: 1.0.0
+Summary: TALISMAN — Threat Analysis, Lateral Intelligence & Security Management for Advanced Networks
+Author: MR MARCUS TAYK
+License: MIT
+Keywords: security,bugbounty,pentest,recon,scanner
+Classifier: Development Status :: 5 - Production/Stable
+Classifier: Environment :: Console
+Classifier: Intended Audience :: Information Technology
+Classifier: Topic :: Security
+Classifier: Programming Language :: Python :: 3.11
+Requires-Python: >=3.11
+Description-Content-Type: text/markdown
+Requires-Dist: typer[all]>=0.12.0
+Requires-Dist: rich>=13.7.0
+Requires-Dist: httpx[http2]>=0.27.0
+Requires-Dist: aiodns>=3.2.0
+Requires-Dist: dnspython>=2.6.0
+Requires-Dist: pyyaml>=6.0.1
+Requires-Dist: sqlalchemy>=2.0.0
+Requires-Dist: aiosqlite>=0.20.0
+Requires-Dist: jinja2>=3.1.4
+Requires-Dist: beautifulsoup4>=4.12.0
+Requires-Dist: lxml>=5.2.0
+Requires-Dist: tldextract>=5.1.0
+Requires-Dist: cryptography>=42.0.0
+Requires-Dist: pyjwt[crypto]>=2.8.0
+Requires-Dist: python-dateutil>=2.9.0
+Requires-Dist: click>=8.1.0
+Requires-Dist: anyio>=4.4.0
+Requires-Dist: certifi>=2024.2.2
+Requires-Dist: charset-normalizer>=3.3.0
+Requires-Dist: idna>=3.7
+Requires-Dist: packaging>=24.0
+Requires-Dist: psutil>=5.9.0
+Requires-Dist: colorama>=0.4.6
+Requires-Dist: tabulate>=0.9.0
+Requires-Dist: Levenshtein>=0.25.0
+Requires-Dist: mmh3>=4.1.0
+Requires-Dist: orjson>=3.10.0
+Requires-Dist: aiofiles>=23.2.0
+Requires-Dist: tenacity>=8.3.0
+Requires-Dist: structlog>=24.1.0
+Requires-Dist: netaddr>=1.2.0
+Requires-Dist: urllib3>=2.2.0
+Provides-Extra: ai
+Requires-Dist: anthropic>=0.28.0; extra == "ai"
+Requires-Dist: openai>=1.30.0; extra == "ai"
+Provides-Extra: cloud
+Requires-Dist: boto3>=1.34.0; extra == "cloud"
+Requires-Dist: botocore>=1.34.0; extra == "cloud"
+Requires-Dist: google-cloud-storage>=2.16.0; extra == "cloud"
+Requires-Dist: azure-storage-blob>=12.20.0; extra == "cloud"
+Requires-Dist: azure-identity>=1.17.0; extra == "cloud"
+Provides-Extra: browser
+Requires-Dist: playwright>=1.44.0; extra == "browser"
+Provides-Extra: reports
+Requires-Dist: weasyprint>=62.0; extra == "reports"
+Requires-Dist: markdown>=3.6; extra == "reports"
+Requires-Dist: pygments>=2.18.0; extra == "reports"
+Provides-Extra: dev
+Requires-Dist: pytest>=8.2.0; extra == "dev"
+Requires-Dist: pytest-asyncio>=0.23.0; extra == "dev"
+Requires-Dist: pytest-cov>=5.0.0; extra == "dev"
+Requires-Dist: pytest-mock>=3.14.0; extra == "dev"
+Requires-Dist: respx>=0.21.0; extra == "dev"
+Requires-Dist: black>=24.4.0; extra == "dev"
+Requires-Dist: ruff>=0.4.0; extra == "dev"
+Requires-Dist: mypy>=1.10.0; extra == "dev"
+Provides-Extra: all
+Requires-Dist: anthropic>=0.28.0; extra == "all"
+Requires-Dist: openai>=1.30.0; extra == "all"
+Requires-Dist: boto3>=1.34.0; extra == "all"
+Requires-Dist: botocore>=1.34.0; extra == "all"
+Requires-Dist: google-cloud-storage>=2.16.0; extra == "all"
+Requires-Dist: azure-storage-blob>=12.20.0; extra == "all"
+Requires-Dist: azure-identity>=1.17.0; extra == "all"
+Requires-Dist: playwright>=1.44.0; extra == "all"
+Requires-Dist: weasyprint>=62.0; extra == "all"
+Requires-Dist: markdown>=3.6; extra == "all"
+Requires-Dist: pygments>=2.18.0; extra == "all"
+
+<div align="center">
+
+```
+████████╗ █████╗ ██╗     ██╗███████╗███╗   ███╗ █████╗ ███╗   ██╗
+╚══██╔══╝██╔══██╗██║     ██║██╔════╝████╗ ████║██╔══██╗████╗  ██║
+   ██║   ███████║██║     ██║███████╗██╔████╔██║███████║██╔██╗ ██║
+   ██║   ██╔══██║██║     ██║╚════██║██║╚██╔╝██║██╔══██║██║╚██╗██║
+   ██║   ██║  ██║███████╗██║███████║██║ ╚═╝ ██║██║  ██║██║ ╚████║
+   ╚═╝   ╚═╝  ╚═╝╚══════╝╚═╝╚══════╝╚═╝     ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝
+```
+
+**Threat Analysis, Lateral Intelligence & Security Management for Advanced Networks**
+
+*Advanced Bug Bounty & Professional Security Research Platform*
+
+![Python](https://img.shields.io/badge/Python-3.11+-blue)
+![License](https://img.shields.io/badge/License-MIT-green)
+![Version](https://img.shields.io/badge/Version-1.0.0-orange)
+
+> ⚠️ **AUTHORIZED USE ONLY** — Use TALISMAN exclusively on systems you own or have explicit written permission to test.
+
+</div>
+
+---
+
+## What TALISMAN Does
+
+TALISMAN is an industrial-grade security research platform built for professional bug bounty hunters, red teamers, and security engineers. It chains tools, automates entire assessment workflows, and removes ~65% of manual researcher burden — letting you focus on what machines can't do: creative chaining and business logic exploitation.
+
+### Feature Matrix
+
+| Capability | TALISMAN | Burp Suite | Nuclei | Manual |
+|---|---|---|---|---|
+| Automated chain orchestration | ✅ YAML DAG | ❌ | ❌ | ❌ |
+| Session persistence & resume | ✅ SQLite | ⚠️ Limited | ❌ | ❌ |
+| WAF fingerprint + vendor bypass | ✅ 12 vendors | ⚠️ Manual | ❌ | ⚠️ |
+| WordPress deep audit | ✅ Full | ❌ | ⚠️ Templates | ❌ |
+| AD/Kerberos attacks | ✅ Built-in | ❌ | ❌ | ⚠️ |
+| Scope enforcement (all modules) | ✅ Engine-level | ⚠️ | ❌ | ❌ |
+| HTML/Markdown/JSON reports | ✅ Platform-ready | ⚠️ | ❌ | ❌ |
+| Cloudflare origin discovery | ✅ Multi-method | ❌ | ❌ | ⚠️ |
+| OOB/OAST integration | ✅ All modules | ⚠️ Collaborator | ❌ | ❌ |
+
+---
+
+## Installation
+
+### From Source (Recommended)
+```bash
+git clone https://github.com/yourhandle/talisman
+cd talisman
+pip install -e ".[all]"
+talisman init
+```
+
+### Docker
+```bash
+docker-compose up -d
+docker exec -it talisman talisman --help
+```
+
+### Quick pip
+```bash
+pip install talisman-recon
+talisman init
+```
+
+---
+
+## Quick Start — 3-Command Bug Bounty Setup
+
+```bash
+# 1. Initialize
+talisman init
+
+# 2. Full automated assessment (autopilot)
+talisman autopilot -t example.com --session bounty-q1 --profile normal
+
+# 3. Generate professional report
+talisman report generate bounty-q1 --format html,markdown
+```
+
+---
+
+## Command Reference
+
+### Reconnaissance
+```bash
+# Subdomain enumeration — passive + active
+talisman recon subdomain -t example.com -s bounty-q1 --bruteforce
+
+# Deep DNS analysis + zone transfer attempt
+talisman recon dns -t example.com --zone-transfer
+
+# Technology fingerprinting + WAF detection
+talisman recon tech -t https://example.com
+
+# Web crawler — JS endpoint extraction
+talisman recon crawl -t https://example.com --depth 4 --js-parse
+
+# OSINT — emails, S3 buckets, GitHub dorks
+talisman recon osint -t example.com --github-token $GITHUB_TOKEN
+```
+
+### Vulnerability Scanning
+```bash
+# Run ALL scanners
+talisman scan all -t https://example.com -s bounty-q1
+
+# Individual scanners
+talisman scan xss   -t "https://example.com/search?q=FUZZ" --waf-bypass
+talisman scan sqli  -t "https://example.com/item?id=1"
+talisman scan ssrf  -t https://example.com --oast oastify.com
+talisman scan cmdi  -t https://example.com --oast oastify.com
+talisman scan ssti  -t "https://example.com/greet?name=FUZZ"
+talisman scan lfi   -t "https://example.com/page?file=FUZZ"
+talisman scan xxe   -t https://example.com/upload
+talisman scan smuggle -t https://example.com
+talisman scan cors  -t https://example.com
+talisman scan headers -t https://example.com
+talisman scan cache -t https://example.com
+talisman scan idor  -t "https://example.com/api/users/123"
+talisman scan auth  -t https://example.com
+talisman scan redirect -t "https://example.com/go?url=FUZZ"
+talisman scan proto -t https://example.com
+```
+
+### WAF Bypass
+```bash
+# Detect WAF vendor
+talisman waf detect -t https://example.com
+
+# Find real origin behind Cloudflare
+talisman waf origin -t example.com --shodan-key $SHODAN_KEY
+
+# Generate vendor-specific bypass payloads
+talisman waf bypass -t https://example.com --waf Cloudflare --type xss
+```
+
+### WordPress
+```bash
+# Full WordPress audit
+talisman cms wordpress -t https://wordpress-site.com --full --oast oastify.com
+```
+
+### API Security
+```bash
+# GraphQL audit — introspection, injection, batching
+talisman api graphql -t https://api.example.com --auth "Bearer TOKEN"
+
+# JWT attacks — alg confusion, none, kid, brute force
+talisman api jwt -t https://api.example.com \
+  --token "eyJhbGci..." \
+  --endpoint https://api.example.com/admin
+```
+
+### Cloud Security
+```bash
+# AWS S3 + CloudFront audit
+talisman cloud aws -t example.com --s3 --cf-bypass
+
+# Secret scanning
+talisman cloud secrets -t https://example.com
+```
+
+### Misconfiguration
+```bash
+talisman misconfig spring     -t https://api.example.com
+talisman misconfig kubernetes -t k8s-cluster.example.com --api-port 6443
+talisman misconfig database   -t example.com
+talisman misconfig server     -t https://example.com
+```
+
+### Active Directory
+```bash
+# Full AD enumeration
+talisman ad recon -t 192.168.1.10 --domain corp.local --dc-ip 192.168.1.10 \
+  --user testuser --password Pass123
+
+# Kerberoasting + AS-REP roasting
+talisman ad kerberos -t 192.168.1.10 --domain corp.local --dc-ip 192.168.1.10 \
+  --user testuser --password Pass123
+
+# SMB audit — shares, signing, null session, GPP credentials
+talisman ad smb -t 192.168.1.10 --user testuser --password Pass123 --domain corp.local
+```
+
+### Fuzzing
+```bash
+# Path/directory brute force
+talisman fuzz paths -t https://example.com --wordlist wordlists/raft-large.txt \
+  --extensions php,asp,aspx,bak,txt --threads 50
+```
+
+### Chain Orchestrator
+```bash
+# List all chains
+talisman chain list
+
+# Run built-in chains
+talisman chain run full_recon       -t example.com -s bounty-q1
+talisman chain run web_vuln_scan    -t https://example.com -s bounty-q1
+talisman chain run wordpress_full   -t https://wp-site.com -s bounty-q1 --oast oastify.com
+talisman chain run api_audit        -t https://api.example.com -s bounty-q1
+talisman chain run cloud_breach     -t example.com -s bounty-q1
+talisman chain run waf_bypass_probe -t https://example.com -s bounty-q1
+talisman chain run windows_ad       -t 192.168.1.10 -s ad-bounty --profile stealth
+
+# Dry run (show what would execute)
+talisman chain run full_recon -t example.com --dry-run
+```
+
+### Session Management
+```bash
+talisman session list
+talisman session summary bounty-q1
+talisman session findings bounty-q1 --severity critical,high
+talisman session findings bounty-q1 --format json
+```
+
+### Reports
+```bash
+# Generate all report formats
+talisman report generate bounty-q1 --format html,markdown,json --output ./reports/
+
+# Filter by severity
+talisman report generate bounty-q1 --severity critical,high
+```
+
+### Autopilot
+```bash
+# Full automated assessment — recon + scan + report
+talisman autopilot -t example.com \
+  --session bounty-q1 \
+  --profile normal \
+  --oast oastify.com \
+  --scope scope.yaml \
+  --report
+```
+
+---
+
+## Chain YAML Format
+
+```yaml
+name: my_custom_chain
+version: "1.0"
+description: "Custom assessment workflow"
+tags: [web, api]
+rate_profile: stealth   # aggressive | normal | stealth | passive
+
+steps:
+  - id: tech_detect
+    module: recon.tech
+    args:
+      waf_detect: true
+
+  - id: xss_scan
+    module: scanner.xss
+    depends_on: [tech_detect]
+    args:
+      waf_bypass: true
+    on_error: continue   # stop | continue | warn
+
+  - id: sqli_scan
+    module: scanner.sqli
+    depends_on: [tech_detect]
+    parallel: true       # Run in parallel with other parallel steps
+    args:
+      techniques: [error, boolean, time]
+```
+
+**Available modules in chains:**
+`recon.subdomain`, `recon.dns`, `recon.tech`, `recon.crawl`, `recon.osint`,
+`scanner.xss`, `scanner.sqli`, `scanner.ssrf`, `scanner.cmdi`, `scanner.ssti`,
+`scanner.lfi`, `scanner.xxe`, `scanner.cors`, `scanner.headers`, `scanner.idor`,
+`scanner.smuggle`, `scanner.cache`, `scanner.auth`, `scanner.redirect`, `scanner.proto`,
+`waf.detector`, `waf.bypass`, `api.graphql`, `api.jwt`,
+`cloud.aws`, `cloud.secrets`, `misconfig.spring`, `misconfig.kubernetes`,
+`misconfig.database`, `misconfig.server`, `network.takeover`,
+`cms.wordpress`, `cms.wordpress.plugins`, `cms.wordpress.xmlrpc`,
+`ad.recon`, `ad.kerberos`, `ad.smb`
+
+---
+
+## Scope File Format
+
+```yaml
+# scope.yaml
+include:
+  - "*.example.com"
+  - "example.com"
+  - "192.168.1.0/24"
+
+exclude:
+  - "mail.example.com"
+  - "*.prod.example.com"
+
+restrictions:
+  max_requests_per_second: 50
+  avoid_writes: false
+  avoid_destructive: true
+  respect_robots_txt: false
+```
+
+---
+
+## Rate Profiles
+
+| Profile | Req/s | Delay | Concurrent | Use Case |
+|---|---|---|---|---|
+| `aggressive` | 200 | 0–50ms | 50 | Internal networks, low-risk targets |
+| `normal` | 50 | 100–300ms | 20 | Standard bug bounty |
+| `stealth` | 10 | 500ms–2s | 5 | WAF-protected, production |
+| `passive` | 5 | 1s–5s | 2 | Highly sensitive / monitored |
+
+---
+
+## Environment Variables
+
+```bash
+export GITHUB_TOKEN=ghp_xxx          # GitHub dorking
+export SHODAN_API_KEY=xxx            # Shodan enrichment
+export DISCORD_WEBHOOK=https://...   # Notifications
+export TALISMAN_AI_KEY=sk-ant-xxx    # AI features
+```
+
+---
+
+## Docker Usage
+
+```bash
+# Build
+docker-compose build
+
+# Run a scan
+docker run --rm -v $(pwd)/reports:/reports talisman \
+  autopilot -t example.com -s docker-session
+
+# Interactive
+docker run --rm -it -v $(pwd)/reports:/reports talisman bash
+```
+
+---
+
+## Architecture
+
+```
+talisman/
+├── engine/           # Core: orchestrator, session, scope, rate limiter
+├── modules/
+│   ├── recon/        # Subdomain, DNS, crawl, tech, OSINT
+│   ├── scanner/      # XSS, SQLi, SSRF, CMDi, SSTI, LFI, XXE, ...
+│   ├── fuzzer/       # Path fuzzer, param fuzzer
+│   ├── api/          # JWT, GraphQL, OAuth, Swagger
+│   ├── cloud/        # AWS, GCP, Azure, secrets
+│   ├── waf/          # Detection, bypass, vendor modules
+│   ├── cms/          # WordPress deep audit
+│   ├── misconfiguration/ # Spring, K8s, databases, servers
+│   ├── activedirectory/  # LDAP, Kerberos, SMB
+│   └── network/      # Takeover, SSL/TLS
+├── output/           # HTML/Markdown/JSON report engine
+├── intelligence/     # CVE correlation, scoring
+├── chains/           # YAML workflow definitions
+└── utils/            # HTTP client, payload engine, logger
+```
+
+---
+
+## Legal
+
+TALISMAN is designed for authorized security testing only. Unauthorized use against systems you do not own or have explicit permission to test is illegal and unethical. The authors accept no liability for misuse. Always obtain proper written authorization before testing.
+
+---
+
+*Built for professionals, by professionals. TALISMAN v1.0.0*

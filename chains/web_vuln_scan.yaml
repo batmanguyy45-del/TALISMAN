@@ -1,0 +1,63 @@
+name: web_vuln_scan
+version: "1.0"
+description: "Comprehensive web vulnerability scan — all OWASP Top 10 + beyond"
+tags: [web, scanner, vuln]
+rate_profile: normal
+
+steps:
+  - id: tech_detect
+    module: recon.tech
+    args:
+      waf_detect: true
+
+  - id: header_audit
+    module: scanner.headers
+    parallel: true
+
+  - id: cors_scan
+    module: scanner.cors
+    parallel: true
+
+  - id: xss_scan
+    module: scanner.xss
+    args:
+      waf_bypass: false
+
+  - id: sqli_scan
+    module: scanner.sqli
+    args:
+      techniques: [error, boolean, time]
+
+  - id: ssrf_scan
+    module: scanner.ssrf
+
+  - id: cmdi_scan
+    module: scanner.cmdi
+
+  - id: ssti_scan
+    module: scanner.ssti
+
+  - id: lfi_scan
+    module: scanner.lfi
+
+  - id: redirect_scan
+    module: scanner.open_redirect
+    parallel: true
+
+  - id: cache_scan
+    module: scanner.cache_poison
+    parallel: true
+
+  - id: idor_scan
+    module: scanner.idor
+
+  - id: proto_scan
+    module: scanner.proto
+    parallel: true
+
+  - id: smuggle_scan
+    module: scanner.smuggle
+
+  - id: misconfig_scan
+    module: misconfig.server
+    parallel: true
