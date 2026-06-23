@@ -58,6 +58,18 @@ steps:
   - id: smuggle_scan
     module: scanner.smuggle
 
+  - id: nosqli_scan
+    module: scanner.nosqli
+    parallel: true
+
+  - id: deserialize_scan
+    module: scanner.deserialize
+    parallel: true
+
+  - id: websocket_scan
+    module: scanner.websocket
+    parallel: true
+
   - id: misconfig_scan
     module: misconfig.server
     parallel: true

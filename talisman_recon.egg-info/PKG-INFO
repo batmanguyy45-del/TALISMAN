@@ -12,6 +12,7 @@ Classifier: Topic :: Security
 Classifier: Programming Language :: Python :: 3.11
 Requires-Python: >=3.11
 Description-Content-Type: text/markdown
+License-File: LICENSE
 Requires-Dist: typer[all]>=0.12.0
 Requires-Dist: rich>=13.7.0
 Requires-Dist: httpx[http2]>=0.27.0
@@ -80,6 +81,7 @@ Requires-Dist: playwright>=1.44.0; extra == "all"
 Requires-Dist: weasyprint>=62.0; extra == "all"
 Requires-Dist: markdown>=3.6; extra == "all"
 Requires-Dist: pygments>=2.18.0; extra == "all"
+Dynamic: license-file
 
 <div align="center">
 

@@ -1,5 +1,3 @@
-<div align="center">
-
 ```
 ████████╗ █████╗ ██╗     ██╗███████╗███╗   ███╗ █████╗ ███╗   ██╗
 ╚══██╔══╝██╔══██╗██║     ██║██╔════╝████╗ ████║██╔══██╗████╗  ██║
@@ -9,37 +7,35 @@
    ╚═╝   ╚═╝  ╚═╝╚══════╝╚═╝╚══════╝╚═╝     ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝
 ```
 
-**Threat Analysis, Lateral Intelligence & Security Management for Advanced Networks**
+**TALISMAN** -- Threat Analysis, Lateral Intelligence and Security Management for Advanced Networks
 
-*Advanced Bug Bounty & Professional Security Research Platform*
+*Advanced Bug Bounty and Professional Security Research Platform*
 
-![Python](https://img.shields.io/badge/Python-3.11+-blue)
-![License](https://img.shields.io/badge/License-MIT-green)
-![Version](https://img.shields.io/badge/Version-1.0.0-orange)
+[![Python](https://img.shields.io/badge/Python-3.11+-blue)](https://python.org)
+[![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
+[![Version](https://img.shields.io/badge/Version-1.0.0-orange)](https://github.com/yourhandle/talisman)
 
-> ⚠️ **AUTHORIZED USE ONLY** — Use TALISMAN exclusively on systems you own or have explicit written permission to test.
-
-</div>
+> AUTHORIZED USE ONLY -- Use TALISMAN exclusively on systems you own or have explicit written permission to test.
 
 ---
 
-## What TALISMAN Does
+## Overview
 
-TALISMAN is an industrial-grade security research platform built for professional bug bounty hunters, red teamers, and security engineers. It chains tools, automates entire assessment workflows, and removes ~65% of manual researcher burden — letting you focus on what machines can't do: creative chaining and business logic exploitation.
+TALISMAN is an industrial-grade security research platform built for professional bug bounty hunters, red teamers, and security engineers. It chains tools, automates entire assessment workflows, and removes approximately 65% of manual researcher burden -- allowing focus on creative chaining and business logic exploitation.
 
 ### Feature Matrix
 
 | Capability | TALISMAN | Burp Suite | Nuclei | Manual |
 |---|---|---|---|---|
-| Automated chain orchestration | ✅ YAML DAG | ❌ | ❌ | ❌ |
-| Session persistence & resume | ✅ SQLite | ⚠️ Limited | ❌ | ❌ |
-| WAF fingerprint + vendor bypass | ✅ 12 vendors | ⚠️ Manual | ❌ | ⚠️ |
-| WordPress deep audit | ✅ Full | ❌ | ⚠️ Templates | ❌ |
-| AD/Kerberos attacks | ✅ Built-in | ❌ | ❌ | ⚠️ |
-| Scope enforcement (all modules) | ✅ Engine-level | ⚠️ | ❌ | ❌ |
-| HTML/Markdown/JSON reports | ✅ Platform-ready | ⚠️ | ❌ | ❌ |
-| Cloudflare origin discovery | ✅ Multi-method | ❌ | ❌ | ⚠️ |
-| OOB/OAST integration | ✅ All modules | ⚠️ Collaborator | ❌ | ❌ |
+| Automated chain orchestration | YAML DAG | No | No | No |
+| Session persistence and resume | SQLite | Limited | No | No |
+| WAF fingerprint and vendor bypass | 12 vendors | Manual | No | Manual |
+| WordPress deep audit | Full | No | Templates | No |
+| AD/Kerberos attacks | Built-in | No | No | Manual |
+| Scope enforcement (all modules) | Engine-level | Limited | No | No |
+| HTML/Markdown/JSON reports | Platform-ready | Limited | No | No |
+| Cloudflare origin discovery | Multi-method | No | No | Manual |
+| OOB/OAST integration | All modules | Collaborator | No | No |
 
 ---
 
@@ -59,7 +55,7 @@ docker-compose up -d
 docker exec -it talisman talisman --help
 ```
 
-### Quick pip
+### Quick Pip
 ```bash
 pip install talisman-recon
 talisman init
@@ -67,16 +63,16 @@ talisman init
 
 ---
 
-## Quick Start — 3-Command Bug Bounty Setup
+## Quick Start
 
 ```bash
-# 1. Initialize
+# Initialize
 talisman init
 
-# 2. Full automated assessment (autopilot)
+# Full automated assessment
 talisman autopilot -t example.com --session bounty-q1 --profile normal
 
-# 3. Generate professional report
+# Generate professional report
 talisman report generate bounty-q1 --format html,markdown
 ```
 
@@ -86,25 +82,25 @@ talisman report generate bounty-q1 --format html,markdown
 
 ### Reconnaissance
 ```bash
-# Subdomain enumeration — passive + active
+# Subdomain enumeration -- passive and active
 talisman recon subdomain -t example.com -s bounty-q1 --bruteforce
 
-# Deep DNS analysis + zone transfer attempt
+# Deep DNS analysis and zone transfer attempt
 talisman recon dns -t example.com --zone-transfer
 
-# Technology fingerprinting + WAF detection
+# Technology fingerprinting and WAF detection
 talisman recon tech -t https://example.com
 
-# Web crawler — JS endpoint extraction
+# Web crawler -- JS endpoint extraction
 talisman recon crawl -t https://example.com --depth 4 --js-parse
 
-# OSINT — emails, S3 buckets, GitHub dorks
+# OSINT -- emails, S3 buckets, GitHub dorks
 talisman recon osint -t example.com --github-token $GITHUB_TOKEN
 ```
 
 ### Vulnerability Scanning
 ```bash
-# Run ALL scanners
+# Run all scanners
 talisman scan all -t https://example.com -s bounty-q1
 
 # Individual scanners
@@ -139,24 +135,21 @@ talisman waf bypass -t https://example.com --waf Cloudflare --type xss
 
 ### WordPress
 ```bash
-# Full WordPress audit
 talisman cms wordpress -t https://wordpress-site.com --full --oast oastify.com
 ```
 
 ### API Security
 ```bash
-# GraphQL audit — introspection, injection, batching
+# GraphQL audit -- introspection, injection, batching
 talisman api graphql -t https://api.example.com --auth "Bearer TOKEN"
 
-# JWT attacks — alg confusion, none, kid, brute force
-talisman api jwt -t https://api.example.com \
-  --token "eyJhbGci..." \
-  --endpoint https://api.example.com/admin
+# JWT attacks -- alg confusion, none, kid, brute force
+talisman api jwt -t https://api.example.com --token "eyJhbGci..." --endpoint https://api.example.com/admin
 ```
 
 ### Cloud Security
 ```bash
-# AWS S3 + CloudFront audit
+# AWS S3 and CloudFront audit
 talisman cloud aws -t example.com --s3 --cf-bypass
 
 # Secret scanning
@@ -174,22 +167,18 @@ talisman misconfig server     -t https://example.com
 ### Active Directory
 ```bash
 # Full AD enumeration
-talisman ad recon -t 192.168.1.10 --domain corp.local --dc-ip 192.168.1.10 \
-  --user testuser --password Pass123
+talisman ad recon -t 192.168.1.10 --domain corp.local --dc-ip 192.168.1.10 --user testuser --password Pass123
 
-# Kerberoasting + AS-REP roasting
-talisman ad kerberos -t 192.168.1.10 --domain corp.local --dc-ip 192.168.1.10 \
-  --user testuser --password Pass123
+# Kerberoasting and AS-REP roasting
+talisman ad kerberos -t 192.168.1.10 --domain corp.local --dc-ip 192.168.1.10 --user testuser --password Pass123
 
-# SMB audit — shares, signing, null session, GPP credentials
+# SMB audit -- shares, signing, null session, GPP credentials
 talisman ad smb -t 192.168.1.10 --user testuser --password Pass123 --domain corp.local
 ```
 
 ### Fuzzing
 ```bash
-# Path/directory brute force
-talisman fuzz paths -t https://example.com --wordlist wordlists/raft-large.txt \
-  --extensions php,asp,aspx,bak,txt --threads 50
+talisman fuzz paths -t https://example.com --wordlist wordlists/raft-large.txt --extensions php,asp,aspx,bak,txt --threads 50
 ```
 
 ### Chain Orchestrator
@@ -220,22 +209,13 @@ talisman session findings bounty-q1 --format json
 
 ### Reports
 ```bash
-# Generate all report formats
 talisman report generate bounty-q1 --format html,markdown,json --output ./reports/
-
-# Filter by severity
 talisman report generate bounty-q1 --severity critical,high
 ```
 
 ### Autopilot
 ```bash
-# Full automated assessment — recon + scan + report
-talisman autopilot -t example.com \
-  --session bounty-q1 \
-  --profile normal \
-  --oast oastify.com \
-  --scope scope.yaml \
-  --report
+talisman autopilot -t example.com --session bounty-q1 --profile normal --oast oastify.com --scope scope.yaml --report
 ```
 
 ---
@@ -247,7 +227,7 @@ name: my_custom_chain
 version: "1.0"
 description: "Custom assessment workflow"
 tags: [web, api]
-rate_profile: stealth   # aggressive | normal | stealth | passive
+rate_profile: stealth
 
 steps:
   - id: tech_detect
@@ -260,33 +240,41 @@ steps:
     depends_on: [tech_detect]
     args:
       waf_bypass: true
-    on_error: continue   # stop | continue | warn
+    on_error: continue
 
   - id: sqli_scan
     module: scanner.sqli
     depends_on: [tech_detect]
-    parallel: true       # Run in parallel with other parallel steps
+    parallel: true
     args:
       techniques: [error, boolean, time]
 ```
 
-**Available modules in chains:**
-`recon.subdomain`, `recon.dns`, `recon.tech`, `recon.crawl`, `recon.osint`,
-`scanner.xss`, `scanner.sqli`, `scanner.ssrf`, `scanner.cmdi`, `scanner.ssti`,
-`scanner.lfi`, `scanner.xxe`, `scanner.cors`, `scanner.headers`, `scanner.idor`,
-`scanner.smuggle`, `scanner.cache`, `scanner.auth`, `scanner.redirect`, `scanner.proto`,
-`waf.detector`, `waf.bypass`, `api.graphql`, `api.jwt`,
-`cloud.aws`, `cloud.secrets`, `misconfig.spring`, `misconfig.kubernetes`,
-`misconfig.database`, `misconfig.server`, `network.takeover`,
-`cms.wordpress`, `cms.wordpress.plugins`, `cms.wordpress.xmlrpc`,
-`ad.recon`, `ad.kerberos`, `ad.smb`
+**Available modules:** `recon.subdomain`, `recon.dns`, `recon.tech`, `recon.crawl`, `recon.osint`, `scanner.xss`, `scanner.sqli`, `scanner.ssrf`, `scanner.cmdi`, `scanner.ssti`, `scanner.lfi`, `scanner.xxe`, `scanner.cors`, `scanner.headers`, `scanner.idor`, `scanner.smuggle`, `scanner.cache`, `scanner.auth`, `scanner.redirect`, `scanner.proto`, `scanner.nosqli`, `scanner.deserialize`, `scanner.websocket`, `waf.detector`, `waf.bypass`, `api.graphql`, `api.jwt`, `cloud.aws`, `cloud.secrets`, `misconfig.spring`, `misconfig.kubernetes`, `misconfig.database`, `misconfig.server`, `network.takeover`, `cms.wordpress`, `cms.wordpress.plugins`, `cms.wordpress.xmlrpc`, `ad.recon`, `ad.kerberos`, `ad.smb`
+
+---
+
+## Scanning Capabilities
+
+TALISMAN provides 20+ vulnerability scanners covering the full OWASP Top 10 and modern attack surface:
+
+| Category | Modules |
+|---|---|
+| Injection | XSS, SQLi, NoSQLi, CMDi, SSTI, LFI, XXE |
+| Authentication | Auth bypass, MFA bypass, JWT attacks, OAuth audit |
+| Access Control | IDOR/BOLA, CORS, Open Redirect, Mass Assignment |
+| Business Logic | Price manipulation, Workflow bypass, Race conditions |
+| Modern Attacks | Prototype pollution, WebSocket hijacking, Deserialization |
+| Infra | Cache poisoning, Request smuggling, Log4Shell, CRLF injection |
+| Cloud | AWS, GCP, Azure, Secrets scanning |
+| AD | Kerberos roasting, SMB audit, ADCS, Password spray |
+| API | GraphQL introspection, Swagger audit, OAuth/OIDC |
 
 ---
 
 ## Scope File Format
 
 ```yaml
-# scope.yaml
 include:
   - "*.example.com"
   - "example.com"
@@ -309,10 +297,10 @@ restrictions:
 
 | Profile | Req/s | Delay | Concurrent | Use Case |
 |---|---|---|---|---|
-| `aggressive` | 200 | 0–50ms | 50 | Internal networks, low-risk targets |
-| `normal` | 50 | 100–300ms | 20 | Standard bug bounty |
-| `stealth` | 10 | 500ms–2s | 5 | WAF-protected, production |
-| `passive` | 5 | 1s–5s | 2 | Highly sensitive / monitored |
+| `aggressive` | 200 | 0-50ms | 50 | Internal networks, low-risk targets |
+| `normal` | 50 | 100-300ms | 20 | Standard bug bounty |
+| `stealth` | 10 | 500ms-2s | 5 | WAF-protected, production |
+| `passive` | 5 | 1s-5s | 2 | Highly sensitive or monitored |
 
 ---
 
@@ -334,8 +322,7 @@ export TALISMAN_AI_KEY=sk-ant-xxx    # AI features
 docker-compose build
 
 # Run a scan
-docker run --rm -v $(pwd)/reports:/reports talisman \
-  autopilot -t example.com -s docker-session
+docker run --rm -v $(pwd)/reports:/reports talisman autopilot -t example.com -s docker-session
 
 # Interactive
 docker run --rm -it -v $(pwd)/reports:/reports talisman bash
@@ -347,22 +334,25 @@ docker run --rm -it -v $(pwd)/reports:/reports talisman bash
 
 ```
 talisman/
-├── engine/           # Core: orchestrator, session, scope, rate limiter
-├── modules/
-│   ├── recon/        # Subdomain, DNS, crawl, tech, OSINT
-│   ├── scanner/      # XSS, SQLi, SSRF, CMDi, SSTI, LFI, XXE, ...
-│   ├── fuzzer/       # Path fuzzer, param fuzzer
-│   ├── api/          # JWT, GraphQL, OAuth, Swagger
-│   ├── cloud/        # AWS, GCP, Azure, secrets
-│   ├── waf/          # Detection, bypass, vendor modules
-│   ├── cms/          # WordPress deep audit
-│   ├── misconfiguration/ # Spring, K8s, databases, servers
-│   ├── activedirectory/  # LDAP, Kerberos, SMB
-│   └── network/      # Takeover, SSL/TLS
-├── output/           # HTML/Markdown/JSON report engine
-├── intelligence/     # CVE correlation, scoring
-├── chains/           # YAML workflow definitions
-└── utils/            # HTTP client, payload engine, logger
+  engine/           core: orchestrator, session, scope, rate limiter
+  modules/
+    recon/          subdomain, DNS, crawl, tech, OSINT
+    scanner/        XSS, SQLi, NoSQLi, SSRF, CMDi, SSTI, LFI, XXE, ...
+    websocket/      WebSocket hijacking and message injection
+    deserialization/ Java, PHP, Python Pickle, Node.js unsafe deserialization
+    nosqli/         MongoDB NoSQL injection
+    fuzzer/         path fuzzer, param fuzzer
+    api/            JWT, GraphQL, OAuth, Swagger
+    cloud/          AWS, GCP, Azure, secrets
+    waf/            detection, bypass, vendor modules
+    cms/            WordPress deep audit
+    misconfiguration/ Spring, K8s, databases, servers
+    activedirectory/ LDAP, Kerberos, SMB, ADCS
+    network/        takeover, SSL/TLS
+  output/           HTML/Markdown/JSON report engine
+  intelligence/     CVE correlation, scoring
+  chains/           YAML workflow definitions
+  utils/            HTTP client, payload engine, logger
 ```
 
 ---
