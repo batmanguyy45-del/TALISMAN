@@ -83,7 +83,7 @@ async def run(
     **kwargs: Any,
 ) -> dict[str, Any]:
     domain = target.replace("https://", "").replace("http://", "").split("/")[0]
-    console.print(f"\n[module]⚡ AWS Security Audit[/module] → [target]{domain}[/target]")
+    console.print(f"\n[module] AWS Security Audit[/module] → [target]{domain}[/target]")
     findings: list[dict[str, Any]] = []
     results: dict[str, Any] = {"domain": domain}
 

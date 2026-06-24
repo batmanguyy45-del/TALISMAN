@@ -19,7 +19,7 @@ async def run(
 ) -> dict[str, Any]:
     host = target.replace("https://", "").replace("http://", "").split("/")[0].split(":")[0]
     port = 443
-    console.print(f"\n[module]⚡ SSL/TLS Audit[/module] → [target]{host}:{port}[/target]")
+    console.print(f"\n[module] SSL/TLS Audit[/module] → [target]{host}:{port}[/target]")
     findings: list[dict[str, Any]] = []
 
     def _get_cert_info() -> dict[str, Any]:

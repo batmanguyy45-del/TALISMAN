@@ -88,7 +88,7 @@ async def run(
     **kwargs: Any,
 ) -> dict[str, Any]:
     url = target if "://" in target else f"https://{target}"
-    console.print(f"\n[module]⚡ Path Fuzzer[/module] → [target]{url}[/target]")
+    console.print(f"\n[module] Path Fuzzer[/module] → [target]{url}[/target]")
 
     paths_to_test = list(BUILT_IN_PATHS)
 

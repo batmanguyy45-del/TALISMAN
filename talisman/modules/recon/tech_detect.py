@@ -86,7 +86,7 @@ async def run(
     **kwargs: Any,
 ) -> dict[str, Any]:
     url = target if "://" in target else f"https://{target}"
-    console.print(f"\n[module]⚡ Technology Detection[/module] → [target]{url}[/target]")
+    console.print(f"\n[module] Technology Detection[/module] → [target]{url}[/target]")
     detected_tech: list[str] = []
     detected_waf: str | None = None
     favicon: str | None = None
@@ -139,7 +139,7 @@ async def run(
     if detected_tech:
         console.print(f"  Tech: {', '.join(detected_tech)}")
     if detected_waf:
-        console.print(f"  [warning]⚠ WAF detected: {detected_waf}[/warning]")
+        console.print(f"  [warning] WAF detected: {detected_waf}[/warning]")
     if favicon:
         console.print(f"  Favicon hash: {favicon}")
     if session:

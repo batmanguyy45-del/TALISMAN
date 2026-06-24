@@ -87,7 +87,7 @@ async def run(
     **kwargs: Any,
 ) -> dict[str, Any]:
     url = target if "://" in target else f"https://{target}"
-    console.print(f"\n[module]⚡ Swagger/OpenAPI Audit[/module] → [target]{url}[/target]")
+    console.print(f"\n[module] Swagger/OpenAPI Audit[/module] → [target]{url}[/target]")
 
     async with TalismanHTTPClient(proxy=proxy, timeout=15) as client:
         # Find spec

@@ -87,7 +87,7 @@ async def run(
 ) -> dict[str, Any]:
     host = dc_ip or target.replace("https://", "").replace("http://", "").split("/")[0]
     dom = domain or host
-    console.print(f"\n[module]⚡ Active Directory Recon[/module] → [target]{host}[/target]")
+    console.print(f"\n[module] Active Directory Recon[/module] → [target]{host}[/target]")
     console.print(f"  Domain: {dom} | Auth: {'yes' if username else 'anonymous'}")
 
     loop = asyncio.get_event_loop()

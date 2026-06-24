@@ -66,7 +66,7 @@ async def run(
     **kwargs: Any,
 ) -> dict[str, Any]:
     url = target if "://" in target else f"https://{target}"
-    console.print(f"\n[module]⚡ Race Condition Scanner[/module] → [target]{url}[/target]")
+    console.print(f"\n[module] Race Condition Scanner[/module] → [target]{url}[/target]")
     findings: list[dict[str, Any]] = []
 
     # Detect race-prone endpoints from URL path

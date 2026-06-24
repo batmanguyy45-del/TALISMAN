@@ -16,7 +16,7 @@ async def run(
     **kwargs: Any,
 ) -> dict[str, Any]:
     domain = target.replace("https://", "").replace("http://", "").split("/")[0]
-    console.print(f"\n[module]⚡ WHOIS/ASN[/module] → [target]{domain}[/target]")
+    console.print(f"\n[module] WHOIS/ASN[/module] → [target]{domain}[/target]")
     result: dict[str, Any] = {"domain": domain}
 
     async with TalismanHTTPClient(proxy=proxy, timeout=15) as client:

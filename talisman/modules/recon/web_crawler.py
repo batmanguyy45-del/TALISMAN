@@ -58,7 +58,7 @@ async def run(
     **kwargs: Any,
 ) -> dict[str, Any]:
     base_url = target if "://" in target else f"https://{target}"
-    console.print(f"\n[module]⚡ Web Crawler[/module] → [target]{base_url}[/target] (depth={depth})")
+    console.print(f"\n[module] Web Crawler[/module] → [target]{base_url}[/target] (depth={depth})")
 
     visited: set[str] = set()
     queue: deque[tuple[str, int]] = deque([(base_url, 0)])
@@ -179,7 +179,7 @@ async def run(
     console.print(f"  Forms found: {len(forms_found)}")
     console.print(f"  Parameters discovered: {len(parameters)}")
     if interesting_comments:
-        console.print(f"  [warning]⚠ {len(interesting_comments)} interesting code comments found[/warning]")
+        console.print(f"  [warning] {len(interesting_comments)} interesting code comments found[/warning]")
 
     return {
         "base_url": base_url,

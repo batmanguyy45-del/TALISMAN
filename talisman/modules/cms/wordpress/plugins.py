@@ -81,7 +81,7 @@ async def run(
     **kwargs: Any,
 ) -> dict[str, Any]:
     url = target if "://" in target else f"https://{target}"
-    console.print(f"\n[module]⚡ WordPress Plugin Audit[/module] → [target]{url}[/target]")
+    console.print(f"\n[module] WordPress Plugin Audit[/module] → [target]{url}[/target]")
 
     detected_plugins: list[dict[str, Any]] = []
     vulnerable: list[dict[str, Any]] = []

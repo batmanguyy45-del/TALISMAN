@@ -105,7 +105,7 @@ async def run(
 ) -> dict[str, Any]:
     domain = target.replace("https://", "").replace("http://", "").split("/")[0]
     active_checks = checks or ["emails", "s3_buckets", "pastebin"]
-    console.print(f"\n[module]⚡ OSINT[/module] → [target]{domain}[/target]")
+    console.print(f"\n[module] OSINT[/module] → [target]{domain}[/target]")
     results: dict[str, Any] = {"domain": domain}
 
     async with TalismanHTTPClient(proxy=proxy, timeout=15) as client:
@@ -156,7 +156,7 @@ async def run(
             pastes = await _check_pastebin(domain, client)
             results["pastebin"] = pastes
             if pastes:
-                console.print(f"  [warning]⚠ {len(pastes)} pastes mention {domain}[/warning]")
+                console.print(f"  [warning] {len(pastes)} pastes mention {domain}[/warning]")
                 for paste in pastes:
                     console.print(f"    → {paste.get('url')} — {paste.get('title', 'untitled')}")
 

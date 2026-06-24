@@ -78,7 +78,7 @@ async def run(
     **kwargs: Any,
 ) -> dict[str, Any]:
     url = target if "://" in target else f"https://{target}"
-    console.print(f"\n[module]⚡ Parameter Fuzzer[/module] → [target]{url}[/target]")
+    console.print(f"\n[module] Parameter Fuzzer[/module] → [target]{url}[/target]")
     method_list = [m.strip().upper() for m in methods.split(",")]
 
     params_to_test = list(COMMON_PARAMS)

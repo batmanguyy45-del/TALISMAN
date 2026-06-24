@@ -1,0 +1,10 @@
+name: example-scanner
+version: 1.0.0
+author: TALISMAN Team
+description: Example scanner plugin that checks for a custom HTTP header security issue
+type: scanner
+entrypoint: scanner.ExampleScannerPlugin
+module_alias: scanner.example
+tags: [example, header, custom]
+destructive: false
+requires_auth: false

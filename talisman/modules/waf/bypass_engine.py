@@ -82,7 +82,7 @@ async def run(
     **kwargs: Any,
 ) -> dict[str, Any]:
     url = target if "://" in target else f"https://{target}"
-    console.print(f"\n[module]⚡ WAF Bypass Engine[/module] → [target]{url}[/target] ({waf})")
+    console.print(f"\n[module] WAF Bypass Engine[/module] → [target]{url}[/target] ({waf})")
 
     if waf == "auto" or waf not in VENDOR_BYPASS_MAP:
         # Use generic payloads

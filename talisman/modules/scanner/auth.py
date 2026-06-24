@@ -107,7 +107,7 @@ async def run(
     **kwargs: Any,
 ) -> dict[str, Any]:
     url = target if "://" in target else f"https://{target}"
-    console.print(f"\n[module]⚡ Authentication Audit[/module] → [target]{url}[/target]")
+    console.print(f"\n[module] Authentication Audit[/module] → [target]{url}[/target]")
     findings: list[dict[str, Any]] = []
 
     async with TalismanHTTPClient(proxy=proxy, timeout=15) as client:

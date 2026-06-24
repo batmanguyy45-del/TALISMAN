@@ -76,7 +76,7 @@ async def _wayback(domain: str, client: TalismanHTTPClient) -> list[str]:
 
 async def _dnsx_resolve(subdomain: str, resolver: aiodns.DNSResolver) -> dict[str, Any] | None:
     try:
-        result = await resolver.query(subdomain, "A")
+        result = await resolver.query_dns(subdomain, "A")
         ips = [r.host for r in result]
         return {"host": subdomain, "ips": ips, "resolved": True}
     except Exception:
@@ -85,7 +85,7 @@ async def _dnsx_resolve(subdomain: str, resolver: aiodns.DNSResolver) -> dict[st
 async def _wildcard_detect(domain: str, resolver: aiodns.DNSResolver) -> bool:
     random_sub = "talismanrandom123xyz789abc456." + domain
     try:
-        await resolver.query(random_sub, "A")
+        await resolver.query_dns(random_sub, "A")
         log.warning("wildcard_detected", domain=domain)
         return True
     except Exception:
@@ -119,14 +119,14 @@ async def run(
 ) -> dict[str, Any]:
     domain = target.replace("https://", "").replace("http://", "").split("/")[0].split(":")[0]
     active_sources = sources or ["crtsh", "hackertarget", "wayback", "permutation"]
-    console.print(f"\n[module]⚡ Subdomain Enumeration[/module] → [target]{domain}[/target]")
+    console.print(f"\n[module] Subdomain Enumeration[/module] → [target]{domain}[/target]")
     console.print(f"  Sources: {', '.join(active_sources)}")
     all_subdomains: set[str] = set()
     all_subdomains.add(domain)
     resolver = aiodns.DNSResolver(nameservers=["8.8.8.8", "1.1.1.1", "8.8.4.4"])
     is_wildcard = await _wildcard_detect(domain, resolver)
     if is_wildcard:
-        console.print("  [warning]⚠ Wildcard DNS detected — results may be noisy[/warning]")
+        console.print("  [warning] Wildcard DNS detected — results may be noisy[/warning]")
     async with TalismanHTTPClient(proxy=proxy, timeout=20, rotate_ua=True) as client:
         tasks: list[asyncio.Task] = []
         if "crtsh" in active_sources:

@@ -66,8 +66,8 @@ async def run(
 ) -> dict[str, Any]:
     host = dc_ip or target.replace("https://", "").replace("http://", "").split("/")[0]
     dom = domain or host
-    console.print(f"\n[module]⚡ Password Spray[/module] → [target]{host}[/target]")
-    console.print(f"  [warning]⚠ Lockout-safe mode: 1 password per {delay_minutes} min[/warning]")
+    console.print(f"\n[module] Password Spray[/module] → [target]{host}[/target]")
+    console.print(f"  [warning] Lockout-safe mode: 1 password per {delay_minutes} min[/warning]")
 
     usernames: list[str] = []
     if users_file:

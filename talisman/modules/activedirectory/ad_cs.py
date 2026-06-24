@@ -86,7 +86,7 @@ async def run(
 ) -> dict[str, Any]:
     host = dc_ip or target.replace("https://", "").replace("http://", "").split("/")[0]
     dom = domain or host
-    console.print(f"\n[module]⚡ AD CS Audit (ESC1-ESC8)[/module] → [target]{host}[/target]")
+    console.print(f"\n[module] AD CS Audit (ESC1-ESC8)[/module] → [target]{host}[/target]")
 
     if not (username and password):
         console.print("  [dim]Credentials required: --user / --password[/dim]")

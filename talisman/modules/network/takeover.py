@@ -92,7 +92,7 @@ async def run(
     **kwargs: Any,
 ) -> dict[str, Any]:
     targets = subdomains or [target]
-    console.print(f"\n[module]⚡ Subdomain Takeover Check[/module] — {len(targets)} targets")
+    console.print(f"\n[module] Subdomain Takeover Check[/module] — {len(targets)} targets")
     vulnerable: list[dict[str, Any]] = []
 
     async with TalismanHTTPClient(proxy=proxy, timeout=12) as client:

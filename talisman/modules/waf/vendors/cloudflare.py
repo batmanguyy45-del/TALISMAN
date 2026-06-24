@@ -144,7 +144,7 @@ async def find_origin(
     **kwargs: Any,
 ) -> dict[str, Any]:
     domain = target.replace("https://", "").replace("http://", "").split("/")[0]
-    console.print(f"\n[module]⚡ Cloudflare Origin Finder[/module] → [target]{domain}[/target]")
+    console.print(f"\n[module] Cloudflare Origin Finder[/module] → [target]{domain}[/target]")
 
     candidates: list[str] = []
     confirmed: list[str] = []
@@ -215,3 +215,40 @@ def get_rate_limit_bypass_headers() -> list[dict[str, str]]:
 
 def get_low_security_paths() -> list[str]:
     return CF_LOW_SECURITY_PATHS
+
+
+async def run(
+    target: str,
+    session: Any = None,
+    scope: Any = None,
+    rate_limiter: Any = None,
+    proxy: str | None = None,
+    **kwargs: Any,
+) -> dict[str, Any]:
+    """Standard module interface — finds real origin IPs behind Cloudflare."""
+    shodan_key = kwargs.get("shodan_key")
+    result = await find_origin(target=target, proxy=proxy, shodan_key=shodan_key)
+    findings = []
+    for ip in result.get("confirmed_origins", []):
+        finding = {
+            "target": target,
+            "vuln_type": "cloudflare_origin_exposure",
+            "severity": "high",
+            "evidence": f"Confirmed origin IP: {ip}",
+        }
+        findings.append(finding)
+        if session:
+            await session.add_finding(
+                target=target,
+                module="waf.origin",
+                vuln_type="cloudflare_origin_exposure",
+                severity="high",
+                confidence="confirmed",
+                title=f"Cloudflare Origin IP Found: {ip}",
+                description=f"Real origin server IP {ip} discovered behind Cloudflare WAF.",
+                evidence=f"Confirmed via certificate transparency / MX records / Shodan.",
+                remediation="Restrict access to only Cloudflare IP ranges. Use an origin-pull firewall rule.",
+                cvss_score=7.5,
+                cwe="CWE-200",
+            )
+    return {"target": target, "findings": findings, "count": len(findings)}

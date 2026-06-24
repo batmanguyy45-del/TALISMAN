@@ -17,7 +17,7 @@
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![Version](https://img.shields.io/badge/Version-1.0.0-orange)
 
-> ⚠️ **AUTHORIZED USE ONLY** — Use TALISMAN exclusively on systems you own or have explicit written permission to test.
+>  **AUTHORIZED USE ONLY** — Use TALISMAN exclusively on systems you own or have explicit written permission to test.
 
 </div>
 
@@ -31,15 +31,15 @@ TALISMAN is an industrial-grade security research platform built for professiona
 
 | Capability | TALISMAN | Burp Suite | Nuclei | Manual |
 |---|---|---|---|---|
-| Automated chain orchestration | ✅ YAML DAG | ❌ | ❌ | ❌ |
-| Session persistence & resume | ✅ SQLite | ⚠️ Limited | ❌ | ❌ |
-| WAF fingerprint + vendor bypass | ✅ 12 vendors | ⚠️ Manual | ❌ | ⚠️ |
-| WordPress deep audit | ✅ Full | ❌ | ⚠️ Templates | ❌ |
-| AD/Kerberos attacks | ✅ Built-in | ❌ | ❌ | ⚠️ |
-| Scope enforcement (all modules) | ✅ Engine-level | ⚠️ | ❌ | ❌ |
-| HTML/Markdown/JSON reports | ✅ Platform-ready | ⚠️ | ❌ | ❌ |
-| Cloudflare origin discovery | ✅ Multi-method | ❌ | ❌ | ⚠️ |
-| OOB/OAST integration | ✅ All modules | ⚠️ Collaborator | ❌ | ❌ |
+| Automated chain orchestration |  YAML DAG |  |  |  |
+| Session persistence & resume |  SQLite |  Limited |  |  |
+| WAF fingerprint + vendor bypass |  12 vendors |  Manual |  |  |
+| WordPress deep audit |  Full |  |  Templates |  |
+| AD/Kerberos attacks |  Built-in |  |  |  |
+| Scope enforcement (all modules) |  Engine-level |  |  |  |
+| HTML/Markdown/JSON reports |  Platform-ready |  |  |  |
+| Cloudflare origin discovery |  Multi-method |  |  |  |
+| OOB/OAST integration |  All modules |  Collaborator |  |  |
 
 ---
 

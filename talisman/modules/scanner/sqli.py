@@ -412,7 +412,7 @@ async def run(
 ) -> dict[str, Any]:
     url = target if "://" in target else f"https://{target}"
     console.print(
-        f"\n[module]⚡ SQL Injection Scanner[/module] → [target]{url}[/target]"
+        f"\n[module] SQL Injection Scanner[/module] → [target]{url}[/target]"
     )
     techniques = techniques or ["error", "boolean", "time"]
     findings: list[dict[str, Any]] = []

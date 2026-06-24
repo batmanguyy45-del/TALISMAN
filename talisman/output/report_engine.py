@@ -1,7 +1,7 @@
 """Report engine — generates HTML, Markdown, JSON reports from session findings."""
 from __future__ import annotations
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from talisman.utils.logger import get_logger, console
@@ -33,7 +33,7 @@ class ReportEngine:
         self.targets = targets
         self.output_dir = output_dir
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        self.generated_at = datetime.utcnow().isoformat() + "Z"
+        self.generated_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
     def _severity_counts(self) -> dict[str, int]:
         counts: dict[str, int] = {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
@@ -189,7 +189,7 @@ class ReportEngine:
 <body>
 <div class='container'>
   <div class='header'>
-    <h1>🗡️ TALISMAN Security Report</h1>
+    <h1>TALISMAN Security Report</h1>
     <p>Session: <strong>{self._esc(self.session)}</strong> &nbsp;·&nbsp; Generated: {self.generated_at}</p>
     <p style='margin-top:8px'>Targets: {len(self.targets)} &nbsp;·&nbsp; Total findings: {len(self.findings)}</p>
   </div>
@@ -213,7 +213,7 @@ class ReportEngine:
     def generate_all(self, formats: list[str] | None = None) -> list[Path]:
         fmts = formats or ["json", "markdown", "html"]
         outputs: list[Path] = []
-        console.print(f"\n[module]⚡ Generating Reports[/module] — {', '.join(fmts)}")
+        console.print(f"\n[module] Generating Reports[/module] — {', '.join(fmts)}")
         if "json" in fmts:
             outputs.append(self.generate_json())
         if "markdown" in fmts:

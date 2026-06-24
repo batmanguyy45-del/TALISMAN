@@ -2,7 +2,7 @@
 from __future__ import annotations
 import json
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 import aiosqlite
@@ -83,7 +83,7 @@ CREATE INDEX IF NOT EXISTS idx_targets_session ON targets(session_id);
 """
 
 def _now() -> str:
-    return datetime.utcnow().isoformat()
+    return datetime.now(timezone.utc).isoformat()
 
 def _uid() -> str:
     return str(uuid.uuid4())

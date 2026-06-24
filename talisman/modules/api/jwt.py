@@ -139,7 +139,7 @@ async def run(
     crack_secret: bool = True,
     **kwargs: Any,
 ) -> dict[str, Any]:
-    console.print(f"\n[module]⚡ JWT Attack Module[/module]")
+    console.print(f"\n[module] JWT Attack Module[/module]")
     findings: list[dict[str, Any]] = []
 
     if not token:

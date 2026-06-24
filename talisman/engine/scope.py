@@ -70,7 +70,7 @@ class ScopeEnforcer:
         pattern = pattern.lower().strip()
         if pattern.startswith("*."):
             suffix = pattern[2:]
-            return host == suffix or host.endswith("." + suffix)
+            return host.endswith("." + suffix)
         if "/" in pattern:
             return False
         return fnmatch(host, pattern) or host == pattern

@@ -58,6 +58,70 @@ steps:
   - id: smuggle_scan
     module: scanner.smuggle
 
+  - id: nosqli_scan
+    module: scanner.nosqli
+    parallel: true
+
+  - id: deserialize_scan
+    module: scanner.deserialize
+    parallel: true
+
+  - id: websocket_scan
+    module: scanner.websocket
+    parallel: true
+
   - id: misconfig_scan
     module: misconfig.server
+    parallel: true
+
+  - id: rate_limit_check
+    module: scanner.rate_limit
+    parallel: true
+
+  - id: host_header_scan
+    module: scanner.host
+    parallel: true
+
+  - id: csrf_scan
+    module: scanner.csrf
+    parallel: true
+
+  - id: mass_assignment_scan
+    module: scanner.mass
+    parallel: true
+
+  - id: cache_deception_scan
+    module: scanner.cache_deception
+    parallel: true
+
+  - id: parser_diff_scan
+    module: scanner.parser
+    parallel: true
+
+  - id: second_order_scan
+    module: scanner.second_order
+    parallel: true
+
+  - id: sspp_scan
+    module: scanner.sspp
+    parallel: true
+
+  - id: verb_tamper_scan
+    module: scanner.verb
+    parallel: true
+
+  - id: file_upload_scan
+    module: scanner.upload
+    parallel: true
+
+  - id: git_exposure_scan
+    module: scanner.git
+    parallel: true
+
+  - id: dep_confusion_scan
+    module: scanner.depconf
+    parallel: true
+
+  - id: csp_deep_scan
+    module: scanner.csp
     parallel: true

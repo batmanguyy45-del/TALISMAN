@@ -20,7 +20,7 @@ from talisman.engine.orchestrator import ChainOrchestrator
 app = typer.Typer(
     name="talisman",
     help=(
-        "🗡️  TALISMAN — Advanced Bug Bounty & Security Research Platform\n\n"
+        " TALISMAN — Advanced Bug Bounty & Security Research Platform\n\n"
         "[bold]Author:[/bold] MR MARCUS TAYK  |  [bold]Version:[/bold] 1.0.0\n\n"
         "[bold yellow]AUTHORIZED USE ONLY[/bold yellow] — Use only on systems you own or have written permission to test.\n\n"
         "[bold]Quick Start:[/bold]\n"
@@ -63,7 +63,7 @@ def _run(coro):
     try:
         asyncio.run(coro)
     except KeyboardInterrupt:
-        console.print("\n[yellow]⚠  Interrupted[/yellow]")
+        console.print("\n[yellow]  Interrupted[/yellow]")
         sys.exit(0)
 
 async def _session_scope(session_name, target, scope_file):
@@ -125,7 +125,7 @@ def cmd_version():
         f"[dim]Threat Analysis, Lateral Intelligence & Security Management[/dim]\n"
         f"[bold]Author:[/bold]  MR MARCUS TAYK\n"
         f"[bold]License:[/bold] MIT  |  Authorized testing only",
-        title="🗡️  TALISMAN", border_style="cyan",
+        title=" TALISMAN", border_style="cyan",
     ))
 
 # ── autopilot ──────────────────────────────────────────────────────────────────
@@ -229,6 +229,7 @@ def cmd_autopilot(
                 ("auth",            "talisman.modules.scanner.auth"),
                 ("business_logic",  "talisman.modules.scanner.business_logic"),
                 ("server_misconfig","talisman.modules.misconfiguration.server_misconfig"),
+                ("nuclei",          "talisman.modules.scanner.nuclei_runner"),
             ]
             if oast:
                 scanners += [
@@ -273,7 +274,7 @@ def cmd_autopilot(
                 f"[bold yellow]Medium:[/bold yellow] {f.get('medium',0)}   "
                 f"[bold blue]Low:[/bold blue] {f.get('low',0)}\n"
                 f"[bold]Total:[/bold] {summary['total_findings']}",
-                title="✅ Autopilot Complete", border_style="green",
+                title=" Autopilot Complete", border_style="green",
             ))
             if report:
                 try:
@@ -592,6 +593,8 @@ _mkscan("mfa","talisman.modules.scanner.mfa_bypass",
     "MFA/2FA bypass — step skip, code brute rate limit, response manipulation.\n\n\\b\nExamples:\n  talisman scan mfa -t https://example.com\n  talisman scan mfa -t https://app.example.com --proxy http://127.0.0.1:8080")
 _mkscan("bizlogic","talisman.modules.scanner.business_logic",
     "Business logic — negative values, mass assignment, workflow step bypass.\n\n\\b\nExamples:\n  talisman scan bizlogic -t https://example.com/checkout\n  talisman scan bizlogic -t https://shop.example.com -s bounty")
+_mkscan("nuclei","talisman.modules.scanner.nuclei_runner",
+    "Nuclei Template Scanner — runs projectdiscovery nuclei with automated session injection.\n\n\\b\nExamples:\n  talisman scan nuclei -t https://example.com -s bounty\n  talisman scan nuclei -t https://example.com")
 
 @scan_app.command("all")
 def scan_all(
@@ -645,6 +648,7 @@ def scan_all(
             ("bizlogic","talisman.modules.scanner.business_logic"),
             ("mfa","talisman.modules.scanner.mfa_bypass"),
             ("race","talisman.modules.scanner.race_condition"),
+            ("nuclei","talisman.modules.scanner.nuclei_runner"),
         ]
         if oast:
             scanners += [("xxe","talisman.modules.scanner.xxe"),("log4shell","talisman.modules.scanner.log4shell")]
@@ -664,7 +668,7 @@ def scan_all(
                 f"[yellow]Medium: {s['findings'].get('medium',0)}[/yellow]  "
                 f"[blue]Low: {s['findings'].get('low',0)}[/blue]\n"
                 f"Total: {s['total_findings']}",
-                title=f"✅ All Scans Complete — {session_name}", border_style="green"))
+                title=f" All Scans Complete — {session_name}", border_style="green"))
             console.print(f"  Report: [cyan]talisman report generate {session_name}[/cyan]")
     _run(_r())
 
@@ -1332,7 +1336,7 @@ def chain_run(
 def chain_list():
     """List all available built-in and custom chains."""
     chains = ChainOrchestrator.list_chains()
-    t = Table(title="🗡️  TALISMAN Chains", style="cyan", border_style="dim")
+    t = Table(title=" TALISMAN Chains", style="cyan", border_style="dim")
     t.add_column("Name", style="bold cyan"); t.add_column("Description"); t.add_column("Tags", style="dim")
     for c in chains:
         t.add_row(c["name"], c["description"], c["tags"])
@@ -1445,6 +1449,28 @@ def session_delete(session_name: str = typer.Argument(...),
     SessionManager().delete(session_name)
     console.print(f"[green]✓ Session '{session_name}' deleted[/green]")
 
+@session_app.command("monitor")
+def session_monitor(old_session: str = typer.Argument(...), new_session: str = typer.Argument(...),
+    webhook: Optional[str] = typer.Option(None, "--webhook", help="Discord/Slack webhook URL")):
+    """Compare two sessions and alert on diffs."""
+    async def _r():
+        from talisman.engine.monitor import compare_sessions
+        await compare_sessions(old_session, new_session, webhook)
+    _run(_r())
+
+@waf_app.command("ai-fuzz")
+def waf_ai_fuzz(
+    target: str = typer.Option(..., "-t", "--target"),
+    param: str = typer.Option("q", "-p", "--param"),
+    waf: str = typer.Option("Generic", "--waf"),
+    proxy: Optional[str] = typer.Option(None, "--proxy")
+):
+    """Generate AI payloads to bypass a WAF."""
+    async def _r():
+        from talisman.modules.waf.ai_fuzz import run
+        await run(target, param, waf, proxy)
+    _run(_r())
+
 # ── REPORT ────────────────────────────────────────────────────────────────────
 @report_app.command("generate")
 def report_generate(
@@ -1523,3 +1549,20 @@ def intel_score(vuln_type: str = typer.Argument(..., help="e.g. command_injectio
 
 if __name__ == "__main__":
     app()
+
+@recon_app.command("params")
+def recon_params(
+    target: str = typer.Option(..., "-t", "--target"),
+    wordlist: Optional[str] = typer.Option(None, "-w", "--wordlist"),
+    session: Optional[str] = typer.Option(None, "-s", "--session"),
+    proxy: Optional[str] = typer.Option(None, "--proxy")
+):
+    """Discover hidden parameters (ParamMiner) via chunked fuzzing."""
+    async def _r():
+        sm = SessionManager()
+        sess = sm.get(session) if session else None
+        if sess: await sess.open()
+        from talisman.modules.recon.param_miner import run
+        await run(target, session=sess, wordlist=wordlist, proxy=proxy)
+        if sess: await sess.close()
+    _run(_r())

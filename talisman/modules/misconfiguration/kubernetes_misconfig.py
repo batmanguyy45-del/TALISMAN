@@ -55,7 +55,7 @@ async def run(
     **kwargs: Any,
 ) -> dict[str, Any]:
     host = target.replace("https://", "").replace("http://", "").split("/")[0].split(":")[0]
-    console.print(f"\n[module]⚡ Kubernetes Audit[/module] → [target]{host}[/target]")
+    console.print(f"\n[module] Kubernetes Audit[/module] → [target]{host}[/target]")
     findings: list[dict[str, Any]] = []
 
     async with TalismanHTTPClient(proxy=proxy, timeout=10) as client:

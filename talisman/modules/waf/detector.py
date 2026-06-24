@@ -73,7 +73,7 @@ async def run(
     **kwargs: Any,
 ) -> dict[str, Any]:
     url = target if "://" in target else f"https://{target}"
-    console.print(f"\n[module]⚡ WAF Detection[/module] → [target]{url}[/target]")
+    console.print(f"\n[module] WAF Detection[/module] → [target]{url}[/target]")
 
     detected: str | None = None
     confidence: int = 0
@@ -138,7 +138,7 @@ async def run(
 
     confidence = min(100, confidence)
     if detected:
-        console.print(f"  [warning]⚠ WAF detected: {detected} (confidence: {confidence}%)[/warning]")
+        console.print(f"  [warning] WAF detected: {detected} (confidence: {confidence}%)[/warning]")
         console.print(f"  Evidence: {', '.join(evidence)}")
     else:
         console.print("  [green]No WAF detected[/green]")

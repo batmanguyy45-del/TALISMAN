@@ -269,7 +269,7 @@ async def run(
 ) -> dict[str, Any]:
     url = target if "://" in target else f"https://{target}"
     console.print(
-        f"\n[module]⚡ XSS Scanner[/module] → [target]{url}[/target]"
+        f"\n[module] XSS Scanner[/module] → [target]{url}[/target]"
     )
     all_findings: list[dict[str, Any]] = []
 

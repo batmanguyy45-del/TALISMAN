@@ -38,7 +38,7 @@ async def run(
     **kwargs: Any,
 ) -> dict[str, Any]:
     host = target.replace("https://", "").replace("http://", "").split("/")[0].split(":")[0]
-    console.print(f"\n[module]⚡ Port Scanner[/module] → [target]{host}[/target]")
+    console.print(f"\n[module] Port Scanner[/module] → [target]{host}[/target]")
 
     port_list = COMMON_PORTS
     if ports not in ("common", "top-100", "top-1000"):

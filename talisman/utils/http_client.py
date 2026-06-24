@@ -61,6 +61,7 @@ def _build_httpx_client(
         "verify": verify_ssl,
         "follow_redirects": follow_redirects,
         "headers": headers,
+        "limits": _httpx.Limits(max_connections=500, max_keepalive_connections=150),
     }
 
     # Proxy: httpx 0.28+ uses 'proxy' (str), older used 'proxies' (dict)

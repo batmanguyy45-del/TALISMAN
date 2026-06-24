@@ -57,7 +57,7 @@ async def run(
 ) -> dict[str, Any]:
     url = target if "://" in target else f"https://{target}"
     endpoint = url.rstrip("/") + XMLRPC_PATH
-    console.print(f"\n[module]⚡ WordPress XML-RPC Audit[/module] → [target]{endpoint}[/target]")
+    console.print(f"\n[module] WordPress XML-RPC Audit[/module] → [target]{endpoint}[/target]")
     findings: list[dict[str, Any]] = []
 
     async with TalismanHTTPClient(proxy=proxy, timeout=15) as client:
@@ -72,7 +72,7 @@ async def run(
                 console.print("  XML-RPC: not accessible")
                 return {"target": url, "xmlrpc_accessible": False, "findings": []}
 
-            console.print("  [warning]⚠ XML-RPC endpoint accessible[/warning]")
+            console.print("  [warning] XML-RPC endpoint accessible[/warning]")
 
             # Extract method list
             import re

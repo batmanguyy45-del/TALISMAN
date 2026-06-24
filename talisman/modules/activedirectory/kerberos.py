@@ -83,7 +83,7 @@ async def run(
 ) -> dict[str, Any]:
     host = dc_ip or target.replace("https://", "").replace("http://", "").split("/")[0]
     dom = domain or host
-    console.print(f"\n[module]⚡ Kerberos Attacks[/module] → [target]{host}[/target]")
+    console.print(f"\n[module] Kerberos Attacks[/module] → [target]{host}[/target]")
     all_hashes: list[dict] = []
     loop = asyncio.get_event_loop()
 

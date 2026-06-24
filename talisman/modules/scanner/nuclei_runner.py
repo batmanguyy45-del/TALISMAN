@@ -21,7 +21,7 @@ async def run(
     templates_dir: str | None = None,
     **kwargs: Any,
 ) -> dict[str, Any]:
-    console.print(f"\n[module]⚡ Nuclei Scanner[/module] → [target]{target}[/target]")
+    console.print(f"\n[module] Nuclei Scanner[/module] → [target]{target}[/target]")
 
     nuclei_bin = shutil.which("nuclei")
     if not nuclei_bin:

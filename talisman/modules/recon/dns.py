@@ -96,7 +96,7 @@ async def run(
     **kwargs: Any,
 ) -> dict[str, Any]:
     domain = target.replace("https://", "").replace("http://", "").split("/")[0].split(":")[0]
-    console.print(f"\n[module]⚡ DNS Analysis[/module] → [target]{domain}[/target]")
+    console.print(f"\n[module] DNS Analysis[/module] → [target]{domain}[/target]")
     resolver = aiodns.DNSResolver(nameservers=["8.8.8.8", "1.1.1.1"])
     results: dict[str, Any] = {"domain": domain, "records": {}, "issues": []}
 

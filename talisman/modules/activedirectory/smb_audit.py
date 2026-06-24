@@ -153,7 +153,7 @@ async def run(
     **kwargs: Any,
 ) -> dict[str, Any]:
     host = target.replace("https://", "").replace("http://", "").split("/")[0].split(":")[0]
-    console.print(f"\n[module]⚡ SMB Audit[/module] → [target]{host}[/target]")
+    console.print(f"\n[module] SMB Audit[/module] → [target]{host}[/target]")
     loop = asyncio.get_event_loop()
     data = await loop.run_in_executor(None, _smb_enumerate, host, username, password, domain)
 

@@ -189,7 +189,7 @@ async def run(
     url = target if "://" in target else f"https://{target}"
     domain = url.split("://")[-1].split("/")[0].split(":")[0]
     console.print(
-        f"\n[module]⚡ CORS Misconfiguration Scan[/module] → [target]{url}[/target]"
+        f"\n[module] CORS Misconfiguration Scan[/module] → [target]{url}[/target]"
     )
     vulnerabilities: list[dict[str, Any]] = []
 

@@ -89,7 +89,7 @@ async def run(
     **kwargs: Any,
 ) -> dict[str, Any]:
     url = target if "://" in target else f"https://{target}"
-    console.print(f"\n[module]⚡ WordPress User Enumeration[/module] → [target]{url}[/target]")
+    console.print(f"\n[module] WordPress User Enumeration[/module] → [target]{url}[/target]")
 
     all_users: dict[str, dict[str, Any]] = {}
 
@@ -110,7 +110,7 @@ async def run(
 
     user_list = list(all_users.values())
     if user_list:
-        console.print(f"  [warning]⚠ Found {len(user_list)} WordPress users:[/warning]")
+        console.print(f"  [warning] Found {len(user_list)} WordPress users:[/warning]")
         for u in user_list:
             console.print(f"    → {u['username']} (via {u['method']})")
         if session:
