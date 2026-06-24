@@ -1,9 +1,15 @@
 """
 Async HTTP client — compatible with httpx 0.27+ and 0.28+.
 Handles proxy, retry, UA rotation, rate limiting.
+
+Extra headers can be injected into every request via:
+  - TALISMAN_EXTRA_HEADERS env var (JSON dict or comma-separated Key:Value pairs)
+  - TALISMAN_H1_USERNAME env var (sets X-HackerOne-Research header)
 """
 from __future__ import annotations
 import asyncio
+import json
+import os
 import random
 import time
 from typing import Any
@@ -33,6 +39,39 @@ BROWSER_HEADERS = {
  "Sec-Fetch-User": "?1",
  "Cache-Control": "max-age=0",
 }
+
+
+def _load_extra_headers() -> dict[str, str]:
+    """Load custom headers from environment variables.
+
+    Order of precedence (last wins):
+      1. TALISMAN_EXTRA_HEADERS as JSON object  e.g. {"X-Custom":"val"}
+      2. TALISMAN_EXTRA_HEADERS as CSV pairs     e.g. X-Custom:val,Another:hdr
+      3. TALISMAN_H1_USERNAME                    e.g. hackerone1
+    """
+    headers: dict[str, str] = {}
+
+    raw = os.environ.get("TALISMAN_EXTRA_HEADERS", "").strip()
+    if raw:
+        # Try JSON first
+        if raw.startswith("{"):
+            try:
+                headers.update(json.loads(raw))
+            except json.JSONDecodeError:
+                pass
+        else:
+            # Comma-separated Key:Value pairs
+            for pair in raw.split(","):
+                pair = pair.strip()
+                if ":" in pair:
+                    k, v = pair.split(":", 1)
+                    headers[k.strip()] = v.strip()
+
+    h1 = os.environ.get("TALISMAN_H1_USERNAME", "").strip()
+    if h1:
+        headers["X-HackerOne-Research"] = h1
+
+    return headers
 
 
 def _has_h2() -> bool:
@@ -105,7 +144,7 @@ class TalismanHTTPClient:
   self._error_count = 0
 
  def _make_headers(self) -> dict[str, str]:
-  h = {**BROWSER_HEADERS, **self.custom_headers}
+  h = {**BROWSER_HEADERS, **self.custom_headers, **_load_extra_headers()}
   if self.rotate_ua:
    h["User-Agent"] = random.choice(USER_AGENTS)
   return h

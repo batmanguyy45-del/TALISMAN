@@ -1,0 +1,16 @@
+# Banco Plata Bug Bounty Scope
+include:
+  - "*.bancoplata.mx"
+  - "*.platacard.mx"
+
+# Mobile apps (iOS: id6443932656, Android: dif.tech.plata) require manual testing
+
+exclude:
+  - "platacard.mx/*/whistleblowing"
+  - "bancoplata.mx/*/whistleblowing"
+
+restrictions:
+  max_requests_per_second: 10
+  avoid_writes: true
+  avoid_destructive: true
+  respect_robots_txt: true

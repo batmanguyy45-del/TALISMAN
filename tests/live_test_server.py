@@ -1036,6 +1036,11 @@ async def handle_connection(reader: asyncio.StreamReader, writer: asyncio.Stream
         method = req.get("method", "GET")
         path = req.get("path", "/")
 
+        # Log HackerOne research header if present
+        h1 = req.get("headers", {}).get("x-hackerone-research", "")
+        if h1:
+            print(f"[H1] X-HackerOne-Research: {h1} on {method} {path}")
+
         handler_key = f"{method}:{path}"
         handler_info = HANDLERS.get(handler_key)
 

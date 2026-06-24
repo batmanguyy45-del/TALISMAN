@@ -3,7 +3,7 @@ TALISMAN CLI — Advanced Bug Bounty & Security Research Platform
 Author: MR MARCUS TAYK | Version: 1.0.0
 """
 from __future__ import annotations
-import asyncio, json, sys
+import asyncio, json, os, sys
 from pathlib import Path
 from typing import Optional
 import typer
@@ -537,9 +537,18 @@ def _mkscan(name, mod_path, doc):
   proxy: Optional[str] = typer.Option(None, "--proxy"),
   oast: Optional[str] = typer.Option(None, "--oast", help="OAST domain for OOB detection"),
   waf_bypass: bool = typer.Option(False, "--waf-bypass", help="Enable WAF evasion"),
+  h1: Optional[str] = typer.Option(None, "--h1", "--hackerone", help="HackerOne researcher username (injects X-HackerOne-Research header)"),
+  header: list[str] = typer.Option([], "-H", "--header", help="Custom header in Key:Value format (can be used multiple times)"),
   debug: bool = typer.Option(False, "--debug"),
  ):
   setup_logging("DEBUG" if debug else "INFO"); print_banner()
+  if h1:
+   os.environ["TALISMAN_H1_USERNAME"] = h1
+  if header:
+   existing = os.environ.get("TALISMAN_EXTRA_HEADERS", "")
+   pairs = [p for p in existing.split(",") if p.strip()] if existing else []
+   pairs.extend(header)
+   os.environ["TALISMAN_EXTRA_HEADERS"] = ",".join(pairs)
   async def _r():
    sess, scope = await _session_scope(session_name, target, None)
    import importlib
@@ -654,9 +663,18 @@ def scan_all(
  proxy: Optional[str] = typer.Option(None, "--proxy"),
  oast: Optional[str] = typer.Option(None, "--oast"),
  waf_bypass: bool = typer.Option(False, "--waf-bypass"),
+ h1: Optional[str] = typer.Option(None, "--h1", "--hackerone", help="HackerOne researcher username (injects X-HackerOne-Research header)"),
+ header: list[str] = typer.Option([], "-H", "--header", help="Custom header in Key:Value format (can be used multiple times)"),
  exclude: str = typer.Option("", "--exclude", help="Modules to skip (comma-separated, e.g. smuggle,race)"),
  debug: bool = typer.Option(False, "--debug"),
 ):
+ if h1:
+  os.environ["TALISMAN_H1_USERNAME"] = h1
+ if header:
+  existing = os.environ.get("TALISMAN_EXTRA_HEADERS", "")
+  pairs = [p for p in existing.split(",") if p.strip()] if existing else []
+  pairs.extend(header)
+  os.environ["TALISMAN_EXTRA_HEADERS"] = ",".join(pairs)
  """
  Run ALL vulnerability scanners against target.
 
