@@ -155,8 +155,14 @@ class ModuleRegistry:
      "scanner.git_exposure": "talisman.modules.scanner.git_exposure",
      "scanner.git":    "talisman.modules.scanner.git_exposure",
      "scanner.dep_confusion": "talisman.modules.scanner.dep_confusion",
-     "scanner.depconf":  "talisman.modules.scanner.dep_confusion",
-    }
+      "scanner.depconf":  "talisman.modules.scanner.dep_confusion",
+      "scanner.dangling_markup": "talisman.modules.scanner.dangling_markup",
+      "scanner.dom_clobbering":  "talisman.modules.scanner.dom_clobbering",
+      "scanner.hpp":            "talisman.modules.scanner.hpp",
+      "scanner.ldap_injection":  "talisman.modules.scanner.ldap_injection",
+      "scanner.ssji":           "talisman.modules.scanner.ssji",
+      "scanner.unicode_attacks": "talisman.modules.scanner.unicode_attacks",
+     }
 
  _plugins_loaded: bool = False
 

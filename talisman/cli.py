@@ -593,6 +593,59 @@ _mkscan("mfa","talisman.modules.scanner.mfa_bypass",
 _mkscan("bizlogic","talisman.modules.scanner.business_logic",
  "Business logic — negative values, mass assignment, workflow step bypass.\n\n\\b\nExamples:\n talisman scan bizlogic -t https://example.com/checkout\n talisman scan bizlogic -t https://shop.example.com -s bounty")
 
+_mkscan("nosqli","talisman.modules.scanner.nosqli",
+ "NoSQL Injection — MongoDB, Cosmos DB, CouchDB. $ne, $gt, $regex, $where operator injection.\n\n\\b\nExamples:\n talisman scan nosqli -t 'https://example.com/api/login'\n talisman scan nosqli -t https://example.com/api")
+_mkscan("deserialize","talisman.modules.scanner.deserialization",
+ "Insecure Deserialization — Java, PHP, Python Pickle, Node.js probe signatures.\n\n\\b\nExamples:\n talisman scan deserialize -t https://example.com/api\n talisman scan deserialize -t https://example.com/rpc")
+_mkscan("websocket","talisman.modules.scanner.websocket",
+ "WebSocket Security — origin validation, message injection, unauthenticated access.\n\n\\b\nExamples:\n talisman scan websocket -t https://example.com\n talisman scan websocket -t https://example.com/chat")
+_mkscan("crlf","talisman.modules.scanner.crlf",
+ "CRLF Injection / HTTP Response Splitting — header injection, response splitting.\n\n\\b\nExamples:\n talisman scan crlf -t https://example.com\n talisman scan crlf -t 'https://example.com/redirect?url=FUZZ'")
+_mkscan("nuclei","talisman.modules.scanner.nuclei_runner",
+ "Nuclei — run Nuclei CVE/community templates against target.\n\n\\b\nExamples:\n talisman scan nuclei -t https://example.com\n talisman scan nuclei -t https://example.com -s bounty")
+_mkscan("ratelimit","talisman.modules.scanner.rate_limit",
+ "Rate Limit Testing — auth, OTP, password reset, API endpoint burst testing.\n\n\\b\nExamples:\n talisman scan ratelimit -t https://example.com/login\n talisman scan ratelimit -t https://example.com/api")
+_mkscan("mass","talisman.modules.scanner.mass_assignment",
+ "Mass Assignment — privileged field discovery via PATCH/PUT superset injection.\n\n\\b\nExamples:\n talisman scan mass -t https://example.com/api/users\n talisman scan mass -t https://example.com/api/profile")
+_mkscan("host","talisman.modules.scanner.host_header",
+ "Host Header Injection — password reset poisoning, XFH injection, cache poisoning.\n\n\\b\nExamples:\n talisman scan host -t https://example.com\n talisman scan host -t https://example.com --proxy http://127.0.0.1:8080")
+_mkscan("csrf","talisman.modules.scanner.csrf",
+ "CSRF — SameSite analysis, method override, token bypass, origin reflection.\n\n\\b\nExamples:\n talisman scan csrf -t https://example.com\n talisman scan csrf -t https://example.com/admin")
+_mkscan("cache_deception","talisman.modules.scanner.cache_deception",
+ "Web Cache Deception — path confusion, static extension append, cache key analysis.\n\n\\b\nExamples:\n talisman scan cache_deception -t https://example.com/profile\n talisman scan cache_deception -t https://example.com/api")
+_mkscan("parser","talisman.modules.scanner.parser_differential",
+ "Parser Differential — JSON/XML/form-encoded parsing discrepancies across layers.\n\n\\b\nExamples:\n talisman scan parser -t https://example.com/api\n talisman scan parser -t https://example.com/webhook")
+_mkscan("second_order","talisman.modules.scanner.second_order",
+ "Second-Order Injection — store payload via one endpoint, trigger via another.\n\n\\b\nExamples:\n talisman scan second_order -t https://example.com\n talisman scan second_order -t https://example.com/api")
+_mkscan("sspp","talisman.modules.scanner.sspp",
+ "Server-Side Prototype Pollution — JSON spaces, charset, constructor bypass.\n\n\\b\nExamples:\n talisman scan sspp -t https://example.com/api\n talisman scan sspp -t https://example.com")
+_mkscan("csp","talisman.modules.scanner.csp_evaluator",
+ "CSP Evaluator — 15+ directive checks, CDN bypass, JSONP endpoint analysis.\n\n\\b\nExamples:\n talisman scan csp -t https://example.com\n talisman scan csp -t https://example.com -s bounty")
+_mkscan("verb","talisman.modules.scanner.verb_tampering",
+ "HTTP Verb Tampering — 9 methods, method override headers, Allow header mismatch.\n\n\\b\nExamples:\n talisman scan verb -t https://example.com\n talisman scan verb -t https://example.com/admin")
+_mkscan("upload","talisman.modules.scanner.file_upload_scanner",
+ "File Upload — extension bypass, content-type spoof, magic byte injection.\n\n\\b\nExamples:\n talisman scan upload -t https://example.com/upload\n talisman scan upload -t https://example.com/api/upload")
+_mkscan("git","talisman.modules.scanner.git_exposure",
+ "Git Exposure — .git/config, .env, credential disclosure, 80+ sensitive paths.\n\n\\b\nExamples:\n talisman scan git -t https://example.com\n talisman scan git -t https://github.com/org/repo")
+_mkscan("depconf","talisman.modules.scanner.dep_confusion",
+ "Dependency Confusion — package.json, requirements.txt, Gemfile, public registry cross-check.\n\n\\b\nExamples:\n talisman scan depconf -t https://example.com\n talisman scan depconf -t https://example.com/src")
+_mkscan("hpp","talisman.modules.scanner.hpp",
+ "HTTP Parameter Pollution — query, body, header, mixed-source HPP bypass.\n\n\\b\nExamples:\n talisman scan hpp -t 'https://example.com/api?param=1&param=2'\n talisman scan hpp -t https://example.com")
+_mkscan("ldap","talisman.modules.scanner.ldap_injection",
+ "LDAP Injection — wildcard, auth bypass, blind extraction payloads.\n\n\\b\nExamples:\n talisman scan ldap -t https://example.com/login\n talisman scan ldap -t https://example.com/search")
+_mkscan("ssji","talisman.modules.scanner.ssji",
+ "Server-Side JS Injection — Node.js eval, timing, error, reflection probes.\n\n\\b\nExamples:\n talisman scan ssji -t https://example.com/api\n talisman scan ssji -t 'https://example.com/eval?code=FUZZ'")
+_mkscan("domclobber","talisman.modules.scanner.dom_clobbering",
+ "DOM Clobbering — 10+ HTML element collisions, global sink overwrite.\n\n\\b\nExamples:\n talisman scan domclobber -t https://example.com\n talisman scan domclobber -t https://example.com/page")
+_mkscan("dangle","talisman.modules.scanner.dangling_markup",
+ "Dangling Markup — unquoted attr, form hijack, script src injection.\n\n\\b\nExamples:\n talisman scan dangle -t https://example.com\n talisman scan dangle -t https://example.com/search?q=FUZZ")
+_mkscan("unicode","talisman.modules.scanner.unicode_attacks",
+ "Unicode Attacks — Bidi override, invisible chars, homoglyph, normalization bypass.\n\n\\b\nExamples:\n talisman scan unicode -t https://example.com\n talisman scan unicode -t 'https://example.com/search?q=FUZZ'")
+_mkscan("grpc","talisman.modules.api.grpc",
+ "gRPC Security — reflection API, TLS check, health check, gRPC-Web probing.\n\n\\b\nExamples:\n talisman scan grpc -t https://example.com\n talisman scan grpc -t grpc://api.example.com:50051")
+_mkscan("email","talisman.modules.network.email_security",
+ "Email Security — SPF, DKIM, DMARC DNS record scoring and analysis.\n\n\\b\nExamples:\n talisman scan email -t example.com\n talisman scan email -t example.com -s bounty")
+
 @scan_app.command("all")
 def scan_all(
  target: str = typer.Option(..., "-t", "--target"),

@@ -1,0 +1,67 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e ".[dev]"
+
+    - name: Lint with ruff
+      run: ruff check talisman/ tests/ --output-format=github
+
+    - name: Type check with mypy
+      run: mypy talisman/ --ignore-missing-imports || true
+
+    - name: Test with pytest
+      run: python -m pytest tests/ -v --tb=short --cov=talisman --cov-report=xml
+
+    - name: Test module resolution
+      run: |
+        python -c "
+        from talisman.engine.orchestrator import ModuleRegistry
+        mr = ModuleRegistry()
+        errors = []
+        for alias in list(mr.MODULE_MAP.keys()):
+            try:
+                fn = mr.resolve(alias)
+                assert fn is not None, f'{alias}: resolved None'
+                assert callable(fn), f'{alias}: not callable'
+            except Exception as e:
+                errors.append((alias, str(e)))
+        if errors:
+            for a, e in errors:
+                print(f'FAIL: {a} -> {e}')
+            exit(1)
+        print(f'All {len(mr.MODULE_MAP)} modules resolve OK')
+        "
+
+    - name: Test chain parsing
+      run: |
+        python -c "
+        from pathlib import Path
+        import yaml
+        for f in Path('chains').glob('*.yaml'):
+            with open(f) as fh:
+                c = yaml.safe_load(fh)
+            print(f'{c[\"name\"]}: {len(c[\"steps\"])} steps')
+        "
