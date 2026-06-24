@@ -73,3 +73,7 @@ steps:
   - id: misconfig_scan
     module: misconfig.server
     parallel: true
+
+  - id: rate_limit_check
+    module: scanner.rate_limit
+    parallel: true

@@ -129,8 +129,13 @@ class ModuleRegistry:
    "cms.wordpress.xmlrpc":  "talisman.modules.cms.wordpress.xmlrpc",
    "ad.recon":     "talisman.modules.activedirectory.ad_recon",
    "ad.kerberos":    "talisman.modules.activedirectory.kerberos",
-   "ad.smb":     "talisman.modules.activedirectory.smb_audit",
-  }
+    "ad.smb":     "talisman.modules.activedirectory.smb_audit",
+    "api.grpc":    "talisman.modules.api.grpc",
+    "scanner.rate_limit":  "talisman.modules.scanner.rate_limit",
+    "scanner.ratelimit":  "talisman.modules.scanner.rate_limit",
+    "network.email":   "talisman.modules.network.email_security",
+    "network.email_security": "talisman.modules.network.email_security",
+   }
 
  @classmethod
  def resolve(cls, module_path: str) -> Callable:
