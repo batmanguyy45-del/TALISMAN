@@ -43,7 +43,7 @@ def _build_test_origins(target_domain: str) -> list[tuple[str, str]]:
   ("http_downgrade",   f"http://{d}"),
   ("http_attacker",    "http://evil.com"),
   ("arbitrary_prefix_path",  f"https://{d}.evil.com/path"),
-  ("unicode_confusable",  "https://evïl.com"),
+   ("unicode_confusable",  "https://xn--evl-mya.com"),
  ]
 
 

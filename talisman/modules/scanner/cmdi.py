@@ -8,7 +8,7 @@ These strings appear in normal HTML constantly (user_id, id="header", etc.)
 
 CORRECT APPROACH:
  1. Output-based: match ONLY the full `id` command output pattern via regex,
-  e.g. uid=\d+\(\w+\) gid=\d+\(\w+\) or root:x:0:0:
+   e.g. uid=\\d+\\(\\w+\\) gid=\\d+\\(\\w+\\) or root:x:0:0:
  2. Time-based: take 5 baseline samples, compute median+stddev, require
   the injected delay to exceed baseline + 3.5 seconds (not just 4s flat).
  3. WAF bypass variants are tested but still require the same strict evidence.
