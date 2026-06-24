@@ -1,8 +1,13 @@
 """Plugin manager — discovers, registers, and bridges external plugins into the module registry."""
 from __future__ import annotations
+import asyncio
 import importlib
 import inspect
+import json
+import shutil
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any, Callable
 from talisman.utils.logger import get_logger, console
@@ -168,3 +173,90 @@ async def run_plugin(alias: str, target: str, **kwargs: Any) -> dict[str, Any]:
     except Exception as e:
         log.error("plugin_execution_error", plugin=alias, error=str(e))
         return {"error": str(e)}
+
+
+PLUGIN_REGISTRY_URL = "https://raw.githubusercontent.com/batmanguyy45-del/TALISMAN-plugins/main/registry.json"
+
+
+async def search_registry(query: str = "") -> list[dict[str, Any]]:
+    """Search the community plugin registry for available plugins."""
+    import httpx
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            r = await client.get(PLUGIN_REGISTRY_URL)
+            if r.status_code != 200:
+                return []
+            registry = r.json()
+            if not isinstance(registry, list):
+                return []
+            if query:
+                q = query.lower()
+                return [p for p in registry if q in p.get("name", "").lower()
+                        or q in p.get("description", "").lower()
+                        or q in p.get("tags", "").lower()]
+            return registry
+    except Exception:
+        return []
+
+
+def install_plugin(plugin_name: str, repo_url: str | None = None) -> dict[str, Any]:
+    """Install a plugin from a Git repository or a local path."""
+    target_dir = Path.home() / ".talisman" / "plugins" / plugin_name
+    if target_dir.exists():
+        return {"success": False, "error": f"Plugin '{plugin_name}' already installed at {target_dir}"}
+
+    try:
+        if repo_url:
+            subprocess.run(
+                ["git", "clone", repo_url, str(target_dir)],
+                capture_output=True, text=True, check=True, timeout=60,
+            )
+        else:
+            url = f"https://github.com/batmanguyy45-del/TALISMAN-plugins.git"
+            clone_dir = Path(tempfile.mkdtemp())
+            subprocess.run(
+                ["git", "clone", "--depth", "1", url, str(clone_dir)],
+                capture_output=True, text=True, check=True, timeout=60,
+            )
+            plugin_src = clone_dir / plugin_name
+            if not plugin_src.exists():
+                shutil.rmtree(clone_dir)
+                return {"success": False, "error": f"Plugin '{plugin_name}' not found in registry"}
+            shutil.copytree(plugin_src, target_dir)
+            shutil.rmtree(clone_dir)
+
+        # Verify the plugin manifest
+        manifest_path = target_dir / "plugin.yaml"
+        if not manifest_path.exists():
+            shutil.rmtree(target_dir)
+            return {"success": False, "error": "Installed plugin missing plugin.yaml"}
+
+        import yaml
+        with open(manifest_path) as f:
+            manifest = yaml.safe_load(f) or {}
+
+        return {
+            "success": True,
+            "name": manifest.get("name", plugin_name),
+            "version": manifest.get("version", "1.0.0"),
+            "author": manifest.get("author", "unknown"),
+            "path": str(target_dir),
+        }
+    except subprocess.TimeoutExpired:
+        return {"success": False, "error": "Git clone timed out"}
+    except subprocess.CalledProcessError as e:
+        return {"success": False, "error": f"Git clone failed: {e.stderr[:200]}"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def uninstall_plugin(plugin_name: str) -> dict[str, Any]:
+    """Remove an installed plugin."""
+    target_dir = Path.home() / ".talisman" / "plugins" / plugin_name
+    if not target_dir.exists():
+        return {"success": False, "error": f"Plugin '{plugin_name}' not found"}
+    try:
+        shutil.rmtree(target_dir)
+        return {"success": True, "name": plugin_name}
+    except Exception as e:
+        return {"success": False, "error": str(e)}

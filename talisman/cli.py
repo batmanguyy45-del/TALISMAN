@@ -50,12 +50,14 @@ report_app = typer.Typer(help="Reports — HTML (dark theme), Markdown (HackerOn
 cms_app  = typer.Typer(help="CMS — WordPress deep audit (version, plugins, users, XML-RPC, REST API)", no_args_is_help=True)
 ad_app  = typer.Typer(help="Active Directory — LDAP enum, Kerberoasting, SMB, password spray, AD CS", no_args_is_help=True)
 intel_app  = typer.Typer(help="Intelligence — CVE lookup, CVSS scoring, knowledge base", no_args_is_help=True)
+plugin_app = typer.Typer(help="Plugin management — list, search, install, uninstall community scanners", no_args_is_help=True)
 
 for _name, _sub in [
  ("recon", recon_app), ("scan", scan_app), ("fuzz", fuzz_app),
  ("api", api_app), ("cloud", cloud_app), ("misconfig", misconfig_app),
  ("waf", waf_app), ("chain", chain_app), ("session", session_app),
  ("report", report_app), ("cms", cms_app), ("ad", ad_app), ("intel", intel_app),
+ ("plugin", plugin_app),
 ]:
  app.add_typer(_sub, name=_name)
 
@@ -83,14 +85,15 @@ PROFILE_HELP = (
 
 # ── init ──────────────────────────────────────────────────────────────────────
 @app.command("init")
-def cmd_init():
+def cmd_init(
+ h1: Optional[str] = typer.Option(None, "--h1", "--hackerone", help="HackerOne researcher username"),
+):
  """
- Initialize TALISMAN — create config directories and check external tools.
+ Initialize TALISMAN — create directories, configure profile, check tools.
 
  \b
  Run once after installation: talisman init
- Creates: ~/.talisman/{sessions,wordlists,templates,plugins,reports}
- Checks for: subfinder, nuclei, httpx, ffuf, amass, nmap, masscan, feroxbuster
+ Optionally set your HackerOne username to auto-inject X-HackerOne-Research header.
  """
  print_banner()
  import shutil
@@ -98,6 +101,38 @@ def cmd_init():
  for d in ["sessions", "wordlists", "templates", "plugins", "reports"]:
   (home / d).mkdir(parents=True, exist_ok=True)
  console.print(f"[bold green][+] Directories created:[/bold green] {home}")
+
+ # Write config.yaml if it doesn't exist
+ config_path = home / "config.yaml"
+ if not config_path.exists():
+  cfg = {
+   "hackerone_username": h1 or "",
+   "default_rate_profile": "normal",
+   "api_keys": {"shodan": "", "github_token": "", "securitytrails": "", "wpscan": ""},
+   "oast": {"provider": "interactsh", "server": "oast.pro"},
+   "proxy": {"url": "", "type": "none"},
+   "reports_dir": "./reports/",
+  }
+  import yaml
+  with open(config_path, "w") as f:
+   yaml.dump(cfg, f, default_flow_style=False)
+  console.print(f"[green][+] Default config written:[/green] {config_path}")
+ else:
+  # Update H1 username if provided
+  if h1:
+   import yaml
+   with open(config_path) as f:
+    cfg = yaml.safe_load(f) or {}
+   cfg["hackerone_username"] = h1
+   with open(config_path, "w") as f:
+    yaml.dump(cfg, f, default_flow_style=False)
+   console.print(f"[green][+] HackerOne username set:[/green] {h1}")
+
+  # Load existing config and print profile
+  if h1:
+   os.environ["TALISMAN_H1_USERNAME"] = h1
+   console.print(f"[green][+] X-HackerOne-Research: {h1} will be injected in all requests[/green]")
+
  tools = [
   ("subfinder", "go install github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest"),
   ("nuclei",  "go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest"),
@@ -115,8 +150,19 @@ def cmd_init():
   t.add_row(tool, f"[green][+] {path}[/green]" if path else "[yellow][-] Not found (optional)[/yellow]", "" if path else cmd)
  console.print(t)
  console.print("\n[bold green][+] TALISMAN ready![/bold green] Run: [cyan]talisman --help[/cyan]")
- console.print("[dim]Author: MR MARCUS TAYK | TALISMAN v1.0.0[/dim]")
+ console.print("[dim]TALISMAN v1.0.0 — Industrial-grade security research platform[/dim]")
 
+# ── dashboard ─────────────────────────────────────────────────────────────────
+@app.command("dashboard")
+def cmd_dashboard(
+ port: int = typer.Option(9191, "--port", "-p", help="Dashboard port"),
+ no_browser: bool = typer.Option(False, "--no-browser", help="Don't auto-open browser"),
+):
+ """Launch the TALISMAN web dashboard."""
+ from talisman.web.dashboard import main as dashboard_main
+ dashboard_main(port=port, open_browser=not no_browser)
+
+# ── version ────────────────────────────────────────────────────────────────────
 @app.command("version")
 def cmd_version():
  """Show version and author info."""
@@ -1613,6 +1659,72 @@ def intel_score(vuln_type: str = typer.Argument(..., help="e.g. command_injectio
  COLORS = {"critical":"red","high":"orange3","medium":"yellow","low":"blue","info":"dim"}
  c = COLORS.get(sev,"white")
  console.print(Panel(f"Vuln: {vuln_type}\nCVSS: {score}\n[{c}]Severity: {sev.upper()}[/{c}]", border_style="cyan"))
+
+# ── PLUGIN ────────────────────────────────────────────────────────────────────
+@plugin_app.command("list")
+def plugin_list():
+ """List installed plugins."""
+ from talisman.engine.plugin_manager import list_plugins
+ plugins = list_plugins()
+ if not plugins:
+  console.print("[yellow]No plugins installed[/yellow]")
+  console.print("  Search community plugins: [cyan]talisman plugin search[/cyan]")
+  console.print("  Install: [cyan]talisman plugin install <name>[/cyan]")
+  return
+ t = Table(title="Installed Plugins", style="cyan", border_style="dim")
+ t.add_column("Name"); t.add_column("Version"); t.add_column("Author"); t.add_column("Type"); t.add_column("Status")
+ for p in plugins:
+  status = "[green]Loaded[/green]" if p["registered"] else "[yellow]Not loaded[/yellow]"
+  t.add_row(p["name"], p["version"], p["author"], p["type"], status)
+ console.print(t)
+
+
+@plugin_app.command("search")
+def plugin_search(query: str = typer.Argument("", help="Search term (name, description, tag)")):
+ """Search the community plugin registry."""
+ async def _r():
+  from talisman.engine.plugin_manager import search_registry
+  results = await search_registry(query)
+  if not results:
+   console.print("[yellow]No plugins found in registry[/yellow]")
+   console.print("  The plugin registry is at: github.com/batmanguyy45-del/TALISMAN-plugins")
+   return
+  t = Table(title=f"Community Plugins{' — ' + query if query else ''}", style="cyan", border_style="dim")
+  t.add_column("Name"); t.add_column("Version"); t.add_column("Author"); t.add_column("Description")
+  for p in results:
+   t.add_row(p.get("name", "?"), p.get("version", "?"), p.get("author", "?"), p.get("description", "")[:60])
+  console.print(t)
+  console.print(f"\n[green]Install:[/green] [cyan]talisman plugin install <name>[/cyan]")
+ _run(_r())
+
+
+@plugin_app.command("install")
+def plugin_install(
+ name: str = typer.Argument(..., help="Plugin name from registry or Git URL"),
+ repo: Optional[str] = typer.Option(None, "--repo", help="Git repository URL (optional)"),
+):
+ """Install a plugin from the registry or a Git repository."""
+ console.print(f"[cyan][*] Installing plugin:[/cyan] {name}")
+ from talisman.engine.plugin_manager import install_plugin
+ result = install_plugin(name, repo_url=repo)
+ if result["success"]:
+  console.print(f"[green][+] Plugin installed:[/green] {result['name']} v{result['version']} by {result['author']}")
+  console.print(f"    Path: {result['path']}")
+  console.print(f"    Run: [cyan]talisman scan plugin.{result['name']} -t https://target.com[/cyan]")
+ else:
+  console.print(f"[red][!] Failed:[/red] {result['error']}")
+
+
+@plugin_app.command("uninstall")
+def plugin_uninstall(name: str = typer.Argument(..., help="Plugin name to remove")):
+ """Remove an installed plugin."""
+ from talisman.engine.plugin_manager import uninstall_plugin
+ result = uninstall_plugin(name)
+ if result["success"]:
+  console.print(f"[green][+] Plugin removed:[/green] {result['name']}")
+ else:
+  console.print(f"[red][!] Failed:[/red] {result['error']}")
+
 
 if __name__ == "__main__":
  app()

@@ -31,6 +31,7 @@ pip install talisman-recon
 ```bash
 talisman --help
 talisman version
+talisman init            # One-time setup
 ```
 
 ---
@@ -38,14 +39,20 @@ talisman version
 ## Quick Start
 
 ```bash
+# Initialize (first time only — creates dirs, configures profile)
+talisman init --h1 your_hackerone_username
+
 # One-command automated assessment
 talisman autopilot -t example.com -s my-session
 
-# Full web vulnerability scan
-talisman chain run web_vuln_scan -t https://target.com -s my-session
+# Full web vulnerability scan (42+ modules)
+talisman scan all -t https://target.com -s my-session
 
 # Generate report
 talisman report generate my-session --format html,markdown
+
+# Launch web dashboard
+talisman dashboard
 ```
 
 ---
@@ -408,17 +415,88 @@ class MyScanner(ScannerPlugin):
         yield Finding(title="Issue found", severity="high", ...)
 ```
 
-List and use:
+List, search, install, and use:
 ```bash
-talisman plugin list
-talisman scan plugin.my_scanner -t https://target.com
+talisman plugin list                               # Show installed plugins
+talisman plugin search ssrf                        # Search community registry
+talisman plugin install my-custom-scanner          # Install from registry
+talisman plugin install https://github.com/... --repo  # Install from Git
+talisman plugin uninstall my-custom-scanner        # Remove plugin
+talisman scan plugin.my_scanner -t https://target.com  # Run plugin
 ```
 
 ---
 
+## Custom Headers & Researcher Profile
+
+Inject custom headers into every request — essential for bug bounty programs requiring `X-HackerOne-Research`:
+
+### Via CLI flag (recommended)
+```bash
+talisman scan all -t https://target.com --h1 your_h1_username
+talisman scan xss -t https://target.com --h1 your_h1_username
+```
+
+### Via environment variable
+```bash
+export TALISMAN_H1_USERNAME=your_h1_username
+talisman scan all -t https://target.com
+```
+
+### Via generic header flag (any header)
+```bash
+talisman scan all -t https://target.com -H "X-Bug-Bounty: myteam" -H "X-Custom: value"
+```
+
+### Persist via init
+```bash
+talisman init --h1 your_h1_username   # Saved to ~/.talisman/config.yaml
+```
+
+## Plugin Marketplace
+
+Extend TALISMAN with community scanners:
+
+```bash
+# Search available plugins
+talisman plugin search xss
+talisman plugin search wordpress
+
+# Install a plugin
+talisman plugin install my-custom-scanner
+talisman plugin install https://github.com/user/plugin-repo --repo
+
+# List installed plugins
+talisman plugin list
+
+# Remove a plugin
+talisman plugin uninstall my-custom-scanner
+```
+
+Plugins auto-register into the module registry and run like native scanners:
+```bash
+talisman scan plugin.my_scanner -t https://target.com
+```
+
+## Web Dashboard
+
+Local UI to browse sessions, findings, and reports:
+
+```bash
+talisman dashboard
+# Opens http://127.0.0.1:9191 in your browser
+
+# Custom port, no auto-open
+talisman dashboard --port 8080 --no-browser
+```
+
+Requires web dependencies: `pip install 'talisman[web]'` or `pip install fastapi uvicorn`.
+
 ## Environment Variables
 
 ```bash
+export TALISMAN_H1_USERNAME=hackerone1   # Injects X-HackerOne-Research header
+export TALISMAN_EXTRA_HEADERS='{"X-Custom":"val"}'  # JSON or Key:Value pairs
 export GITHUB_TOKEN=ghp_xxx
 export SHODAN_API_KEY=xxx
 export DISCORD_WEBHOOK=https://...
