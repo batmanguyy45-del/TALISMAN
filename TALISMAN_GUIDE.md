@@ -1,7 +1,7 @@
-# 🗡️ TALISMAN — Complete User Guide
+#  TALISMAN — Complete User Guide
 **Author: MR MARCUS TAYK** | v1.0.0 | Advanced Bug Bounty & Security Research Platform
 
-> ⚠️ **AUTHORIZED USE ONLY** — Use exclusively on systems you own or have explicit written permission to test.
+> [!IMPORTANT] **AUTHORIZED USE ONLY** — Use exclusively on systems you own or have explicit written permission to test.
 
 ---
 
@@ -445,7 +445,7 @@ talisman api jwt -t https://api.example.com --token eyJ... --no-crack
 ```
 
 **JWT attacks:**
-1. Algorithm confusion (RS256 → HS256 using public key as HMAC secret)
+1. Algorithm confusion (RS256 -> HS256 using public key as HMAC secret)
 2. `alg: none` attack (unsigned tokens) — 5 case variants
 3. `kid` header injection (path traversal + SQL injection)
 4. Weak HMAC secret brute force (50+ common secrets)
@@ -586,7 +586,7 @@ Chains are YAML workflows that run multiple modules in sequence/parallel.
 ```bash
 talisman chain list    # See all available chains
 
-# Full recon (subdomain → DNS → tech → crawl → OSINT → takeover)
+# Full recon (subdomain -> DNS -> tech -> crawl -> OSINT -> takeover)
 talisman chain run full_recon -t example.com -s bounty-q1
 
 # All web vuln scanners
@@ -812,8 +812,8 @@ pip install -e . --force-reinstall
 ### `No such option: --profile`
 Use `-p` instead of `--profile` for short form, or `--profile` (two dashes):
 ```bash
-talisman autopilot -t example.com -p stealth   # ✅ short form
-talisman autopilot -t example.com --profile stealth  # ✅ long form
+talisman autopilot -t example.com -p stealth   # [OK] short form
+talisman autopilot -t example.com --profile stealth  # [OK] long form
 ```
 
 ### SSL Certificate Errors

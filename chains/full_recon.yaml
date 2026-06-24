@@ -55,3 +55,7 @@ steps:
     module: cloud.secrets
     depends_on: [web_crawl]
     parallel: true
+
+  - id: email_security
+    module: network.email
+    parallel: true
