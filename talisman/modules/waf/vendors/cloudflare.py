@@ -215,3 +215,8 @@ def get_rate_limit_bypass_headers() -> list[dict[str, str]]:
 
 def get_low_security_paths() -> list[str]:
  return CF_LOW_SECURITY_PATHS
+
+
+async def run(target: str, **kwargs: Any) -> dict[str, Any]:
+ """Registry-compatible entry point that calls find_origin."""
+ return await find_origin(target, **kwargs)

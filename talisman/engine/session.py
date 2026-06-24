@@ -83,10 +83,17 @@ CREATE INDEX IF NOT EXISTS idx_targets_session ON targets(session_id);
 """
 
 def _now() -> str:
- return datetime.now(timezone.utc).isoformat()
+    return datetime.now(timezone.utc).isoformat()
 
 def _uid() -> str:
- return str(uuid.uuid4())
+    return str(uuid.uuid4())
+
+def _finding_fingerprint(finding: dict) -> str:
+    target = finding.get("target", "")
+    module = finding.get("module", "")
+    vuln_type = finding.get("vuln_type", "")
+    evidence = finding.get("evidence", "")[:200]
+    return f"{target}|{module}|{vuln_type}|{hash(evidence)}"
 
 class Session:
  def __init__(self, name: str, session_dir: Path | None = None):
@@ -153,7 +160,17 @@ class Session:
  async def add_finding(
   self, target: str, module: str, vuln_type: str, severity: str,
   confidence: str, title: str, **kwargs: Any
- ) -> str:
+ ) -> str | None:
+  probe = {"target": target, "module": module, "vuln_type": vuln_type, "evidence": kwargs.get("evidence", "")}
+  fp = _finding_fingerprint(probe)
+  async with self._db.execute(
+   "SELECT id FROM findings WHERE session_id=? AND target=? AND module=? AND vuln_type=? AND evidence LIKE ?",
+   (self.id, target, module, vuln_type, kwargs.get("evidence", "")[:200] + "%")
+  ) as cur:
+   existing = await cur.fetchone()
+  if existing:
+   log.debug("finding_duplicate_skipped", target=target, vuln_type=vuln_type)
+   return None
   fid = _uid()
   now = _now()
   await self._db.execute(

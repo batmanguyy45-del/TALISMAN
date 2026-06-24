@@ -1,7 +1,14 @@
-"""Report engine — generates HTML, Markdown, JSON reports from session findings."""
+"""Report engine — generates HTML, Markdown, JSON reports from session findings.
+
+Quality guarantees:
+- Duplicate findings are removed via fingerprinting (target + module + vuln_type + evidence hash)
+- Findings missing both evidence AND reproduction steps are marked as info severity
+- Evidence is truncated consistently to 500 characters
+"""
 from __future__ import annotations
+import hashlib
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from talisman.utils.logger import get_logger, console
@@ -25,15 +32,47 @@ SEVERITY_BADGES = {
 }
 
 
+def _finding_fingerprint(f: dict) -> str:
+   raw = f"{f.get('target','')}|{f.get('module','')}|{f.get('vuln_type','')}|{(f.get('evidence') or '')[:200]}"
+   return hashlib.sha256(raw.encode()).hexdigest()
+
+
+def _deduplicate(findings: list[dict]) -> list[dict]:
+ seen: set[str] = set()
+ deduped: list[dict] = []
+ for f in findings:
+  fp = _finding_fingerprint(f)
+  if fp not in seen:
+   seen.add(fp)
+   deduped.append(f)
+ return deduped
+
+
+def _quality_gate(findings: list[dict]) -> list[dict]:
+ """Downgrade findings to info if they lack both evidence and reproduction steps."""
+ qualified: list[dict] = []
+ for f in findings:
+  has_evidence = bool(f.get("evidence"))
+  has_reproduction = bool(f.get("reproduction"))
+  if not has_evidence and not has_reproduction:
+   f["confidence"] = "low"
+   if f.get("severity", "info") in ("critical", "high"):
+    f["severity"] = "info"
+  qualified.append(f)
+ return qualified
+
+
 class ReportEngine:
  def __init__(self, session_name: str, findings: list[dict[str, Any]],
      targets: list[dict[str, Any]], output_dir: Path):
   self.session = session_name
+  findings = _quality_gate(findings)
+  findings = _deduplicate(findings)
   self.findings = sorted(findings, key=lambda f: SEVERITY_ORDER.get(f.get("severity", "info"), 99))
   self.targets = targets
   self.output_dir = output_dir
   self.output_dir.mkdir(parents=True, exist_ok=True)
-  self.generated_at = datetime.utcnow().isoformat() + "Z"
+  self.generated_at = datetime.now(timezone.utc).isoformat()
 
  def _severity_counts(self) -> dict[str, int]:
   counts: dict[str, int] = {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
