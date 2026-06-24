@@ -101,3 +101,27 @@ steps:
   - id: second_order_scan
     module: scanner.second_order
     parallel: true
+
+  - id: sspp_scan
+    module: scanner.sspp
+    parallel: true
+
+  - id: verb_tamper_scan
+    module: scanner.verb
+    parallel: true
+
+  - id: file_upload_scan
+    module: scanner.upload
+    parallel: true
+
+  - id: git_exposure_scan
+    module: scanner.git
+    parallel: true
+
+  - id: dep_confusion_scan
+    module: scanner.depconf
+    parallel: true
+
+  - id: csp_deep_scan
+    module: scanner.csp
+    parallel: true

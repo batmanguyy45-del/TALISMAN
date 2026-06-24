@@ -142,15 +142,55 @@ class ModuleRegistry:
     "scanner.parser_differential": "talisman.modules.scanner.parser_differential",
     "scanner.parser":   "talisman.modules.scanner.parser_differential",
     "scanner.second_order":  "talisman.modules.scanner.second_order",
-    "network.email":   "talisman.modules.network.email_security",
-    "network.email_security": "talisman.modules.network.email_security",
-   }
+     "network.email":   "talisman.modules.network.email_security",
+     "network.email_security": "talisman.modules.network.email_security",
+     "scanner.sspp":    "talisman.modules.scanner.sspp",
+     "scanner.sspp_scanner": "talisman.modules.scanner.sspp",
+     "scanner.csp":    "talisman.modules.scanner.csp_evaluator",
+     "scanner.csp_evaluator": "talisman.modules.scanner.csp_evaluator",
+     "scanner.verb_tampering": "talisman.modules.scanner.verb_tampering",
+     "scanner.verb":    "talisman.modules.scanner.verb_tampering",
+     "scanner.file_upload":  "talisman.modules.scanner.file_upload_scanner",
+     "scanner.upload":   "talisman.modules.scanner.file_upload_scanner",
+     "scanner.git_exposure": "talisman.modules.scanner.git_exposure",
+     "scanner.git":    "talisman.modules.scanner.git_exposure",
+     "scanner.dep_confusion": "talisman.modules.scanner.dep_confusion",
+     "scanner.depconf":  "talisman.modules.scanner.dep_confusion",
+    }
+
+ _plugins_loaded: bool = False
+
+ @classmethod
+ def _ensure_plugins(cls) -> None:
+  if not cls._plugins_loaded:
+   try:
+    from talisman.engine.plugin_manager import register_plugins_to_registry
+    plugin_map = register_plugins_to_registry(cls.MODULE_MAP)
+    for k, v in plugin_map.items():
+     if v.startswith("__plugin__:"):
+      cls.MODULE_MAP[k] = v
+    cls._plugins_loaded = True
+   except ImportError:
+    cls._plugins_loaded = True
+   except Exception:
+    cls._plugins_loaded = True
 
  @classmethod
  def resolve(cls, module_path: str) -> Callable:
+  cls._ensure_plugins()
+
   mapped = cls.MODULE_MAP.get(module_path)
   if mapped is None:
    mapped = "talisman.modules." + module_path
+
+  # Plugin modules (loaded dynamically from ~/.talisman/plugins/)
+  if isinstance(mapped, str) and mapped.startswith("__plugin__:"):
+   try:
+    from talisman.engine.plugin_manager import resolve_plugin
+    return resolve_plugin(module_path)
+   except ImportError:
+    return None
+
   # First attempt: import the full module path directly and get its run function
   try:
    mod = importlib.import_module(mapped)
