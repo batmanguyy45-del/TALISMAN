@@ -3,9 +3,14 @@ TALISMAN CLI — Advanced Bug Bounty & Security Research Platform
 Author: MR MARCUS TAYK | Version: 1.0.0
 """
 from __future__ import annotations
-import asyncio, json, os, sys
+
+import asyncio
+import json
+import os
+import sys
 from pathlib import Path
 from typing import Optional
+
 import typer
 from rich.table import Table
 from rich.panel import Panel
@@ -13,7 +18,7 @@ from rich import print as rprint
 from talisman import __version__
 from talisman.utils.logger import setup_logging, console, print_banner
 from talisman.engine.session import SessionManager
-from talisman.engine.scope import ScopeEnforcer, ScopeConfig, set_active_scope
+from talisman.engine.scope import ScopeConfig, ScopeEnforcer, set_active_scope
 from talisman.engine.rate_limiter import RateLimiter, RATE_PROFILES
 from talisman.engine.orchestrator import ChainOrchestrator
 
