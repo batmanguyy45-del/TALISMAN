@@ -180,7 +180,7 @@ async def find_origin(
  )
 
  candidates: list[str] = []
- confirmed: list[str] = []
+ responding_candidates: list[str] = []
  out_of_scope_candidates: list[str] = []
 
  async with TalismanHTTPClient(
@@ -235,21 +235,30 @@ async def find_origin(
   ]
   verify_results = await asyncio.gather(*verify_tasks, return_exceptions=True)
 
-  for ip, is_origin in zip(authorized_candidates[:20], verify_results):
-   if is_origin is True:
-    confirmed.append(ip)
-    console.print(f" [success][+] In-scope origin candidate responds as {domain}: {ip}[/success]")
+  for ip, response_matches in zip(authorized_candidates[:20], verify_results):
+   if response_matches is True:
+    responding_candidates.append(ip)
+    console.print(
+     f" [success][+] In-scope IP returned a non-CDN response for {domain}: {ip}[/success]"
+    )
 
- if not confirmed:
-  console.print(" [dim]No in-scope origin IP was confirmed[/dim]")
+ if not responding_candidates:
+  console.print(" [dim]No in-scope IP returned a matching non-CDN response[/dim]")
 
  return {
   "domain": domain,
   "candidates": non_cf_candidates,
   "verified_candidates": authorized_candidates,
   "out_of_scope_candidates": out_of_scope_candidates,
-  "confirmed_origins": confirmed,
-  "origin_found": len(confirmed) > 0,
+  "responding_candidates": responding_candidates,
+  "confirmed_origins": [],
+  "origin_found": False,
+  "requires_manual_origin_confirmation": True,
+  "verification_required": (
+   "A non-CDN HTTP response is not proof that an IP is the authoritative origin "
+   "or that the provider resource is unclaimed. Confirm the current DNS CNAME "
+   "chain and provider-side resource state independently before reporting takeover."
+  ),
  }
 
 
