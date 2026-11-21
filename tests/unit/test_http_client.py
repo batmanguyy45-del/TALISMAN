@@ -1,9 +1,10 @@
 """Tests for safe HTTP behavior and central scope enforcement."""
 from __future__ import annotations
 
+from ipaddress import ip_address
+
 import httpx
 import pytest
-from ipaddress import ip_address
 
 from talisman.engine.scope import ScopeConfig, ScopeEnforcer, ScopeViolationError
 from talisman.utils.http_client import TalismanHTTPClient
