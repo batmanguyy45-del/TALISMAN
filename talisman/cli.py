@@ -73,10 +73,25 @@ def _run(coro):
   console.print("\n[yellow][!] Interrupted[/yellow]")
   sys.exit(0)
 
+def _load_scope_config(target: str, scope_file: Optional[Path]) -> ScopeConfig:
+ """Load the explicitly requested scope file or build an exact-target scope.
+
+ An operator-supplied path is a security boundary: never silently replace a
+ missing or invalid scope file with a broader default target configuration.
+ """
+ if scope_file is not None:
+  if not scope_file.exists():
+   raise FileNotFoundError(f"Scope file does not exist: {scope_file}")
+  if not scope_file.is_file():
+   raise ValueError(f"Scope path is not a regular file: {scope_file}")
+  return ScopeConfig.from_file(scope_file)
+ return ScopeConfig.from_target(target)
+
+
 async def _session_scope(session_name, target, scope_file):
+ cfg = _load_scope_config(target, scope_file)
  sm = SessionManager()
  sess = sm.get(session_name)
- cfg = ScopeConfig.from_file(scope_file) if scope_file and scope_file.exists() else ScopeConfig.from_target(target)
  active_scope = ScopeEnforcer(cfg)
  sess._scope_token = set_active_scope(active_scope)
  return sess, active_scope
