@@ -77,7 +77,8 @@ async def run(
 
     raw_target = target if "://" in target else f"https://{target}"
     try:
-        resolved_addresses = await scope.resolve_network_destination(raw_target)
+        async with scope.request_concurrency_slot():
+            resolved_addresses = await scope.resolve_network_destination(raw_target)
     except ScopeViolationError as exc:
         return {
             "target": target,
@@ -116,14 +117,15 @@ async def run(
     async def scan_one(port: int) -> None:
         async with sem:
             try:
-                scope.assert_request_allowed(
-                    f"{parsed.scheme}://{host}:{port}/",
-                    "GET",
-                )
-                await scope.acquire_request_slot()
+                async with scope.request_concurrency_slot():
+                    scope.assert_request_allowed(
+                        f"{parsed.scheme}://{host}:{port}/",
+                        "GET",
+                    )
+                    await scope.acquire_request_slot()
+                    _, status = await _tcp_connect(connect_ip, port)
             except ScopeViolationError:
                 return
-            _, status = await _tcp_connect(connect_ip, port)
             if status == "open":
                 open_ports.append(port)
 
