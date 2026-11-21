@@ -206,6 +206,7 @@ async def _test_ssrf_param(
  client: TalismanHTTPClient,
  oast_domain: str | None,
  allow_internal_probes: bool = False,
+ allow_post_probes: bool = False,
 ) -> dict[str, Any] | None:
  parsed = urllib.parse.urlparse(url)
  base_params = dict(urllib.parse.parse_qsl(parsed.query))
@@ -260,20 +261,21 @@ async def _test_ssrf_param(
      "response_snippet": response_text[:500],
     }
 
-   # Also check POST
-   r2 = await client.post(url, data={param: target_url}, timeout=10)
-   confirmed2, evidence2, severity2 = _check_ssrf_response(r2.text)
-   if confirmed2:
-    return {
-     "param": param,
-     "payload": target_url,
-     "target_description": description,
-     "status": r2.status_code,
-     "evidence": evidence2,
-     "severity": severity2,
-     "request": f"POST {url}\n{param}={urllib.parse.quote(target_url)}",
-     "response_snippet": r2.text[:500],
-    }
+   if allow_post_probes:
+    r2 = await client.post(url, data={param: target_url}, timeout=10)
+    confirmed2, evidence2, severity2 = _check_ssrf_response(r2.text)
+    if confirmed2:
+     return {
+      "param": param,
+      "payload": target_url,
+      "target_description": description,
+      "status": r2.status_code,
+      "evidence": evidence2,
+      "severity": severity2,
+      "request": f"POST {url}\n{param}={urllib.parse.quote(target_url)}",
+      "response_snippet": r2.text[:500],
+     }
+ 
 
   except Exception as e:
    log.debug("ssrf_test", param=param, target=target_url[:40], error=str(e)[:60])
@@ -333,6 +335,12 @@ async def run(
  parsed = urllib.parse.urlparse(url)
  existing_params = list(dict(urllib.parse.parse_qsl(parsed.query)).keys())
  params_to_test = list(dict.fromkeys(existing_params + COMMON_SSRF_PARAMS[:15]))
+ allow_post_probes = False
+ try:
+  scope.assert_destructive_allowed(url, "POST")
+  allow_post_probes = True
+ except ScopeViolationError:
+  pass
 
  async with TalismanHTTPClient(proxy=proxy, timeout=15, scope=scope) as client:
   tasks = [
@@ -342,6 +350,7 @@ async def run(
     client,
     oast_domain,
     allow_internal_probes=scope.config.allow_internal_ssrf_probes,
+    allow_post_probes=allow_post_probes,
    )
    for param in params_to_test
   ]
@@ -375,4 +384,6 @@ async def run(
   "count": 0,
   "candidate_count": len(candidates),
   "internal_probes_enabled": scope.config.allow_internal_ssrf_probes,
+  "post_probes_enabled": allow_post_probes,
+  "skipped_methods": [] if allow_post_probes else ["POST"],
  }
