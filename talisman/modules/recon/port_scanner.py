@@ -137,4 +137,9 @@ async def run(
         )
 
     console.print(f" Open ports: {open_ports[:20]}")
-    return {"target": host, "open_ports": open_ports, "count": len(open_ports)}
+    return {
+        "target": host,
+        "resolved_ip": connect_ip,
+        "open_ports": open_ports,
+        "count": len(open_ports),
+    }
