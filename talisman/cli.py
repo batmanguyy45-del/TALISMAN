@@ -13,7 +13,7 @@ from rich import print as rprint
 from talisman import __version__
 from talisman.utils.logger import setup_logging, console, print_banner
 from talisman.engine.session import SessionManager
-from talisman.engine.scope import ScopeEnforcer, ScopeConfig
+from talisman.engine.scope import ScopeEnforcer, ScopeConfig, set_active_scope
 from talisman.engine.rate_limiter import RateLimiter, RATE_PROFILES
 from talisman.engine.orchestrator import ChainOrchestrator
 
@@ -73,7 +73,9 @@ async def _session_scope(session_name, target, scope_file):
  sess = sm.get(session_name)
  await sess.open()
  cfg = ScopeConfig.from_file(scope_file) if scope_file and scope_file.exists() else ScopeConfig.from_target(target)
- return sess, ScopeEnforcer(cfg)
+ active_scope = ScopeEnforcer(cfg)
+ set_active_scope(active_scope)
+ return sess, active_scope
 
 PROFILE_HELP = (
  "Rate profile for scan speed/stealth:\n"
