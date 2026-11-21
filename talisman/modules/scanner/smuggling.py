@@ -190,6 +190,8 @@ async def run(
     **kwargs: Any,
 ) -> dict[str, Any]:
     url = target if "://" in target else f"https://{target}"
+    if scope is not None:
+        scope.assert_in_scope(url)
     use_tls = url.startswith("https://")
     host_part = url.split("://")[1].split("/")[0]
     host = host_part.split(":")[0]
