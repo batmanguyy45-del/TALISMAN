@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import asynccontextmanager
 import ipaddress
 import math
 import posixpath
@@ -20,6 +21,8 @@ from talisman.utils.logger import get_logger
 
 log = get_logger(__name__)
 MAX_REQUESTS_PER_SECOND = 20.0
+MAX_CONCURRENT_REQUESTS = 20
+DEFAULT_MAX_CONCURRENT_REQUESTS = 4
 HOST_LABEL_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 
 # Hosts used only as passive data providers by built-in modules. Custom providers
@@ -146,6 +149,7 @@ class ScopeConfig:
     exclude: list[str] = field(default_factory=list)
     service_allowlist: list[str] = field(default_factory=lambda: list(DEFAULT_SERVICE_HOSTS))
     max_requests_per_second: float = 2.0
+    max_concurrent_requests: int = DEFAULT_MAX_CONCURRENT_REQUESTS
     avoid_writes: bool = False
     allow_state_changing_requests: bool = False
     avoid_destructive: bool = True
@@ -184,6 +188,20 @@ class ScopeConfig:
                 f"{MAX_REQUESTS_PER_SECOND:g}"
             )
 
+        max_concurrent = restrictions.get(
+            "max_concurrent_requests",
+            DEFAULT_MAX_CONCURRENT_REQUESTS,
+        )
+        if (
+            isinstance(max_concurrent, bool)
+            or not isinstance(max_concurrent, int)
+            or not 1 <= max_concurrent <= MAX_CONCURRENT_REQUESTS
+        ):
+            raise ValueError(
+                "max_concurrent_requests must be an integer between 1 and "
+                f"{MAX_CONCURRENT_REQUESTS}"
+            )
+
         def boolean_option(name: str, default: bool) -> bool:
             value = restrictions.get(name, default)
             if not isinstance(value, bool):
@@ -195,6 +213,7 @@ class ScopeConfig:
             exclude=exclude,
             service_allowlist=services,
             max_requests_per_second=rate,
+            max_concurrent_requests=max_concurrent,
             avoid_writes=boolean_option("avoid_writes", False),
             allow_state_changing_requests=boolean_option("allow_state_changing_requests", False),
             avoid_destructive=boolean_option("avoid_destructive", True),
@@ -247,7 +266,17 @@ class ScopeEnforcer:
         self._validate_entries(config.exclude, "exclude", allow_url=True)
         self._validate_entries(config.service_allowlist, "service_allowlist", allow_url=False)
         self.config = config
+        if (
+            isinstance(config.max_concurrent_requests, bool)
+            or not isinstance(config.max_concurrent_requests, int)
+            or not 1 <= config.max_concurrent_requests <= MAX_CONCURRENT_REQUESTS
+        ):
+            raise ValueError(
+                "max_concurrent_requests must be an integer between 1 and "
+                f"{MAX_CONCURRENT_REQUESTS}"
+            )
         self._request_lock = asyncio.Lock()
+        self._request_semaphore = asyncio.Semaphore(config.max_concurrent_requests)
         self._next_request_at = 0.0
         self._include_nets = self._parse_networks(config.include)
         self._exclude_nets = self._parse_networks(config.exclude)
@@ -503,6 +532,15 @@ class ScopeEnforcer:
     ) -> None:
         """Check DNS destination policy before a shared HTTP request."""
         await self.resolve_network_destination(target, method)
+
+    @asynccontextmanager
+    async def request_concurrency_slot(self):
+        """Bound in-flight work, including DNS resolution, across HTTP clients."""
+        await self._request_semaphore.acquire()
+        try:
+            yield
+        finally:
+            self._request_semaphore.release()
 
     async def acquire_request_slot(self) -> None:
         """Apply one shared per-assessment request rate across all HTTP clients."""
