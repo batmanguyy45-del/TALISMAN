@@ -9,7 +9,7 @@ from contextvars import ContextVar, Token
 from dataclasses import dataclass, field
 from fnmatch import fnmatchcase
 from pathlib import Path
-from urllib.parse import SplitResult, urlsplit, urlunsplit
+from urllib.parse import SplitResult, urlsplit
 
 import yaml
 
@@ -29,8 +29,13 @@ DEFAULT_SERVICE_HOSTS = (
     "raw.githubusercontent.com",
     "github.com",
     "dns.google",
+    "*.oast.pro",
     "oast.pro",
+    "*.interactsh.com",
     "interactsh.com",
+    "*.s3.amazonaws.com",
+    "registry.npmjs.org",
+    "psbdmp.ws",
     "api.shodan.io",
     "internetdb.shodan.io",
     "api.censys.io",
@@ -227,7 +232,7 @@ class ScopeEnforcer:
         expected = _parse_url(pattern)
         if expected is None:
             return False
-        if candidate.scheme != expected.scheme:
+        if "://" in pattern and candidate.scheme != expected.scheme:
             return False
 
         candidate_host = _normalize_host(candidate.hostname or "")
