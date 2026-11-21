@@ -25,7 +25,7 @@ PLUGIN_DIRS = [
 
 _plugin_registry: dict[str, dict[str, Any]] = {}
 _PLUGIN_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
-_MODULE_PATH_RE = re.compile(r"^[A-Za-z_]\\w*(?:\\.[A-Za-z_]\\w*)*$")
+_MODULE_PATH_RE = re.compile(r"^[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*$")
 _ALIAS_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.-]{0,127}$")
 _PLUGIN_OPT_IN = "TALISMAN_ENABLE_UNTRUSTED_PLUGINS"
 
