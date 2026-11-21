@@ -61,3 +61,78 @@ def test_unframed_response_is_not_split_speculatively():
     )
 
     assert _http_response_bodies(raw) == []
+
+
+@pytest.mark.asyncio
+async def test_smuggling_refuses_to_bypass_configured_proxy(monkeypatch):
+    from talisman.engine.scope import ScopeConfig, ScopeEnforcer
+    from talisman.modules.scanner import smuggling
+
+    scope = ScopeEnforcer(
+        ScopeConfig(
+            include=["example.com"],
+            service_allowlist=[],
+            allow_state_changing_requests=True,
+            avoid_writes=False,
+            avoid_destructive=False,
+        )
+    )
+
+    async def must_not_probe(*args, **kwargs):
+        raise AssertionError("raw probes must not bypass the configured proxy")
+
+    monkeypatch.setattr(smuggling, "_confirm_smuggling", must_not_probe)
+    result = await smuggling.run(
+        target="https://example.com/",
+        scope=scope,
+        proxy="http://127.0.0.1:8080",
+    )
+
+    assert result["skipped"] is True
+    assert result["findings"] == []
+    assert "cannot honor the configured proxy" in result["reason"]
+
+
+@pytest.mark.asyncio
+async def test_smuggling_timing_only_signal_is_candidate_not_finding(monkeypatch):
+    from talisman.engine.scope import ScopeConfig, ScopeEnforcer
+    from talisman.modules.scanner import smuggling
+
+    scope = ScopeEnforcer(
+        ScopeConfig(
+            include=["example.com"],
+            service_allowlist=[],
+            allow_state_changing_requests=True,
+            avoid_writes=False,
+            avoid_destructive=False,
+        )
+    )
+
+    async def timing_only(host, port, use_tls, technique, probe, scope, url, host_header):
+        return {
+            "confirmed": False,
+            "timing_differential": technique == "CL.TE",
+            "evidence": "single timing sample",
+        }
+
+    monkeypatch.setattr(smuggling, "_confirm_smuggling", timing_only)
+
+    class Session:
+        def __init__(self):
+            self.saved = []
+
+        async def add_finding(self, *args, **kwargs):
+            self.saved.append((args, kwargs))
+
+    session = Session()
+    result = await smuggling.run(
+        target="https://example.com/",
+        scope=scope,
+        session=session,
+    )
+
+    assert result["findings"] == []
+    assert result["count"] == 0
+    assert result["candidate_count"] == 1
+    assert result["candidates"][0]["confidence"] == "candidate"
+    assert session.saved == []
