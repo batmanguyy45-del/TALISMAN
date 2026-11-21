@@ -171,13 +171,21 @@ async def run(
  if bruteforce and wordlist:
   wl_path = Path(wordlist)
   if wl_path.exists():
-   with open(wl_path) as f:
-    words = [line.strip() for line in f if line.strip()]
+   with wl_path.open(encoding="utf-8", errors="ignore") as handle:
+    words = [
+     line.strip()
+     for _, line in zip(range(10000), handle)
+     if line.strip()
+    ]
    for word in words[:10000]:
     all_subdomains.add(f"{word}.{domain}")
  console.print(f" Found {len(all_subdomains)} candidates — resolving...")
  resolved: list[dict[str, Any]] = []
- sem = asyncio.Semaphore(max(1, min(int(threads), 20)))
+ try:
+  requested_threads = int(threads)
+ except (TypeError, ValueError):
+  requested_threads = 1
+ sem = asyncio.Semaphore(max(1, min(requested_threads, 20)))
  async def resolve_one(sub: str) -> None:
   async with sem:
    if not scope.is_in_scope(sub):
