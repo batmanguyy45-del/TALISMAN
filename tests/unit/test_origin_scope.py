@@ -94,5 +94,7 @@ async def test_explicitly_scoped_origin_ip_can_be_verified(monkeypatch):
 
     assert result["verified_candidates"] == ["203.0.113.45"]
     assert result["out_of_scope_candidates"] == []
-    assert result["confirmed_origins"] == ["203.0.113.45"]
-    assert result["origin_found"] is True
+    assert result["responding_candidates"] == ["203.0.113.45"]
+    assert result["confirmed_origins"] == []
+    assert result["origin_found"] is False
+    assert result["requires_manual_origin_confirmation"] is True
