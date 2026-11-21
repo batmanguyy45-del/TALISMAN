@@ -1,7 +1,9 @@
 """Strict target-scope parsing and enforcement for outbound requests."""
 from __future__ import annotations
 
+import asyncio
 import ipaddress
+import time
 import math
 from contextvars import ContextVar, Token
 from dataclasses import dataclass, field
@@ -184,6 +186,8 @@ class ScopeEnforcer:
         if not config.include:
             raise ValueError("At least one in-scope target is required")
         self.config = config
+        self._request_lock = asyncio.Lock()
+        self._next_request_at = 0.0
         self._include_nets = self._parse_networks(config.include)
         self._exclude_nets = self._parse_networks(config.exclude)
 
@@ -282,6 +286,17 @@ class ScopeEnforcer:
             if self._host_matches(host, entry):
                 return True
         return False
+
+    async def acquire_request_slot(self) -> None:
+        """Apply one shared per-assessment request rate across all HTTP clients."""
+        interval = 1.0 / self.config.max_requests_per_second
+        async with self._request_lock:
+            now = time.monotonic()
+            delay = self._next_request_at - now
+            if delay > 0:
+                await asyncio.sleep(delay)
+                now = time.monotonic()
+            self._next_request_at = max(now, self._next_request_at) + interval
 
     def assert_in_scope(self, target: str) -> None:
         if not self.is_in_scope(target):
