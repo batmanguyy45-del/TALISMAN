@@ -326,7 +326,7 @@ def test_max_concurrent_requests_is_validated_from_scope_file(tmp_path):
     config = ScopeConfig.from_file(scope_file)
     assert config.max_concurrent_requests == 3
 
-    for value in ("3", "true", "0", "21"):
+    for value in ("'3'", "true", "0", "21"):
         scope_file.write_text(
             "include:\n  - example.com\nrestrictions:\n"
             f"  max_concurrent_requests: {value}\n",
