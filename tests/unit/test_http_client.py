@@ -219,3 +219,14 @@ async def test_http_client_fails_closed_without_active_or_explicit_scope():
             await client.get("https://example.com/")
 
     assert calls == []
+
+
+
+def test_hackerone_username_header_rejects_crlf(monkeypatch):
+    from talisman.utils.http_client import _load_extra_headers
+
+    monkeypatch.setenv("TALISMAN_EXTRA_HEADERS", "")
+    monkeypatch.setenv("TALISMAN_H1_USERNAME", "researcher\r\nX-Injected: yes")
+
+    with pytest.raises(ValueError, match="line break"):
+        _load_extra_headers()
