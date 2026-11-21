@@ -20,7 +20,6 @@ DEFAULT_USER_AGENT = "TALISMAN/1.1 (+authorized security testing)"
 SAFE_REDIRECT_METHODS = {"GET", "HEAD", "OPTIONS"}
 REDIRECT_STATUSES = {301, 302, 303, 307, 308}
 FORBIDDEN_CUSTOM_HEADERS = {
-    "host",
     "content-length",
     "transfer-encoding",
     "connection",
