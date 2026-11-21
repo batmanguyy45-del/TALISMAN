@@ -5,6 +5,13 @@ import json
 import pytest
 import httpx
 import respx
+from talisman.engine.scope import ScopeConfig, ScopeEnforcer
+
+
+def _test_scope():
+    return ScopeEnforcer(
+        ScopeConfig(include=["test.com"], service_allowlist=[])
+    )
 
 
 def _is_coroutine(mod):
@@ -28,7 +35,7 @@ class TestNosqli:
         from talisman.utils.http_client import TalismanHTTPClient
         async with respx.mock:
             respx.post("http://test.com/").respond(200, text='{"login":"success","token":"abc"}')
-            async with TalismanHTTPClient() as c:
+            async with TalismanHTTPClient(scope=_test_scope()) as c:
                 r = await m._test_json_nosqli("http://test.com/", m.NOSQLI_JSON_PAYLOADS[0], c)
             assert r is not None, "should detect NoSQLi when login succeeds"
             assert r["issue"] == "nosql_injection_json"
@@ -134,7 +141,7 @@ class TestHostHeader:
         import talisman.modules.scanner.host_header as m
         async with respx.mock:
             respx.get("http://test.com/").respond(200, text="<html></html>")
-            r = await m.run(target="http://test.com/")
+            r = await m.run(target="http://test.com/", scope=_test_scope())
         assert isinstance(r, dict) and "findings" in r
 
 
@@ -150,7 +157,7 @@ class TestCsrf:
         import talisman.modules.scanner.csrf as m
         async with respx.mock:
             respx.get("http://test.com/").respond(200, text="<html><form><input name='csrf'/></form></html>")
-            r = await m.run(target="http://test.com/")
+            r = await m.run(target="http://test.com/", scope=_test_scope())
         assert isinstance(r, dict)
 
 
