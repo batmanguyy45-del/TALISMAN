@@ -24,9 +24,9 @@ proxy:
 tools:
   nuclei_path: nuclei
   subfinder_path: subfinder
-  amass_path: amass
-  ffuf_path: ffuf
   httpx_path: httpx
+  ffuf_path: ffuf
+  amass_path: amass
   nmap_path: nmap
   masscan_path: masscan
 
@@ -37,9 +37,9 @@ notifications:
 
 defaults:
   rate_profile: normal
-  threads: 50
+  threads: 20
   timeout: 30
-  verify_ssl: false
+  verify_ssl: true
   follow_redirects: true
   max_retries: 3
   wordlists_dir: ~/.talisman/wordlists/
