@@ -106,6 +106,7 @@ async def _follow_redirect_chain(
  client: httpx.AsyncClient,
  url: str,
  max_hops: int = 10,
+ scope: Any = None,
 ) -> tuple[str, list[str]]:
  """
  Follow redirect chain manually, returning (final_url, list_of_locations).
@@ -115,6 +116,11 @@ async def _follow_redirect_chain(
  locations: list[str] = []
 
  for _ in range(max_hops):
+  if scope is not None:
+   try:
+    scope.assert_in_scope(current_url)
+   except Exception:
+    break
   try:
    resp = await client.get(
     current_url,
@@ -156,6 +162,7 @@ async def _test_param(
  url: str,
  param: str,
  client: httpx.AsyncClient,
+ scope: Any = None,
 ) -> dict[str, Any] | None:
  """
  Test a single parameter with all redirect payloads.
@@ -198,7 +205,7 @@ async def _test_param(
 
    # Step 3: Follow the full chain — maybe it's a multi-hop redirect
    final_url, all_locations = await _follow_redirect_chain(
-    client, test_url, max_hops=8
+    client, test_url, max_hops=8, scope=scope
    )
 
    if _is_attacker_destination(final_url):
@@ -237,6 +244,9 @@ async def run(
  )
  findings: list[dict[str, Any]] = []
 
+ if scope is not None:
+  scope.assert_in_scope(url)
+
  parsed = urllib.parse.urlparse(url)
  existing_params = list(dict(urllib.parse.parse_qsl(parsed.query)).keys())
  params_to_test = list(dict.fromkeys(existing_params + REDIRECT_PARAMS))
@@ -247,11 +257,11 @@ async def run(
   proxy_kwargs["proxy"] = proxy
 
  async with httpx.AsyncClient(
-  verify=False,
+  verify=True,
   timeout=12,
   **proxy_kwargs,
  ) as client:
-  tasks = [_test_param(url, param, client) for param in params_to_test]
+  tasks = [_test_param(url, param, client, scope) for param in params_to_test]
   results = await asyncio.gather(*tasks, return_exceptions=True)
 
   seen_params: set[str] = set()
