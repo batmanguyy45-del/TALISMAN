@@ -37,9 +37,9 @@ notifications:
 
 defaults:
   rate_profile: normal
-  threads: 50
+  threads: 10
   timeout: 30
-  verify_ssl: false
+  verify_ssl: true
   follow_redirects: true
   max_retries: 3
   wordlists_dir: ~/.talisman/wordlists/
