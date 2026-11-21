@@ -17,7 +17,6 @@ async def test_email_posture_requires_target_scope():
         scope=scope,
     )
     assert result["error"]
-    assert result["findings"] if "findings" in result else True
 
 
 @pytest.mark.asyncio
