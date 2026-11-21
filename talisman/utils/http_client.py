@@ -398,96 +398,101 @@ class TalismanHTTPClient:
         current_url = url
         current_params = params
         for redirect_index in range(self.max_redirects + 1):
-            active_scope, pin_host, pin_ip = await self._assert_allowed(
-                current_url,
-                method,
-            )
-            if self.proxy and os.environ.get(
-                "TALISMAN_ALLOW_UNPINNED_PROXY", ""
-            ).strip().lower() not in {"1", "true", "yes"}:
-                raise ScopeViolationError(
-                    "Proxy request blocked because the proxy resolves the target "
-                    "independently. Set TALISMAN_ALLOW_UNPINNED_PROXY=1 only when "
-                    "the explicitly configured proxy is trusted."
+            scope_for_slot = self.scope or get_active_scope()
+            if scope_for_slot is None:
+                await self._assert_allowed(current_url, method)
+                raise RuntimeError("Scope validation unexpectedly returned without a scope")
+            async with scope_for_slot.request_concurrency_slot():
+                active_scope, pin_host, pin_ip = await self._assert_allowed(
+                    current_url,
+                    method,
                 )
-            attempts = self.max_retries if method in SAFE_REDIRECT_METHODS else 1
-            last_exc: Exception | None = None
-            response: httpx.Response | None = None
+                if self.proxy and os.environ.get(
+                    "TALISMAN_ALLOW_UNPINNED_PROXY", ""
+                ).strip().lower() not in {"1", "true", "yes"}:
+                    raise ScopeViolationError(
+                        "Proxy request blocked because the proxy resolves the target "
+                        "independently. Set TALISMAN_ALLOW_UNPINNED_PROXY=1 only when "
+                        "the explicitly configured proxy is trusted."
+                    )
+                attempts = self.max_retries if method in SAFE_REDIRECT_METHODS else 1
+                last_exc: Exception | None = None
+                response: httpx.Response | None = None
 
-            for attempt in range(attempts):
-                await active_scope.acquire_request_slot()
-                await self._enforce_rate_limit()
-                pin_token: Token[tuple[str, str] | None] | None = None
-                if self.proxy is None:
-                    pin_token = _PINNED_DESTINATION.set((pin_host, pin_ip))
-                try:
-                    async with asyncio.timeout(float(effective_timeout)):
-                        response = await self._send_bounded_response(
-                            method=method,
-                            url=current_url,
-                            headers=request_headers,
-                            params=current_params,
-                            data=data,
-                            json_body=json,
-                            content=content,
-                            timeout=request_timeout,
-                        )
-                    self._request_count += 1
-                    break
-                except (httpx.ConnectError, httpx.TimeoutException, httpx.ReadError, TimeoutError) as exc:
-                    self._error_count += 1
-                    last_exc = exc
-                    if attempt + 1 < attempts:
-                        delay = min(2 ** attempt, 8)
+                for attempt in range(attempts):
+                    await active_scope.acquire_request_slot()
+                    await self._enforce_rate_limit()
+                    pin_token: Token[tuple[str, str] | None] | None = None
+                    if self.proxy is None:
+                        pin_token = _PINNED_DESTINATION.set((pin_host, pin_ip))
+                    try:
+                        async with asyncio.timeout(float(effective_timeout)):
+                            response = await self._send_bounded_response(
+                                method=method,
+                                url=current_url,
+                                headers=request_headers,
+                                params=current_params,
+                                data=data,
+                                json_body=json,
+                                content=content,
+                                timeout=request_timeout,
+                            )
+                        self._request_count += 1
+                        break
+                    except (httpx.ConnectError, httpx.TimeoutException, httpx.ReadError, TimeoutError) as exc:
+                        self._error_count += 1
+                        last_exc = exc
+                        if attempt + 1 < attempts:
+                            delay = min(2 ** attempt, 8)
+                            log.debug(
+                                "http_retry",
+                                url=current_url[:120],
+                                attempt=attempt + 1,
+                                error=type(exc).__name__,
+                            )
+                            await asyncio.sleep(delay)
+                    except Exception as exc:
+                        self._error_count += 1
                         log.debug(
-                            "http_retry",
+                            "http_error",
                             url=current_url[:120],
-                            attempt=attempt + 1,
                             error=type(exc).__name__,
                         )
-                        await asyncio.sleep(delay)
-                except Exception as exc:
-                    self._error_count += 1
-                    log.debug(
-                        "http_error",
-                        url=current_url[:120],
-                        error=type(exc).__name__,
-                    )
-                    raise
-                finally:
-                    if pin_token is not None:
-                        _PINNED_DESTINATION.reset(pin_token)
+                        raise
+                    finally:
+                        if pin_token is not None:
+                            _PINNED_DESTINATION.reset(pin_token)
 
-            if response is None:
-                raise last_exc or RuntimeError(f"HTTP request failed for {current_url}")
+                if response is None:
+                    raise last_exc or RuntimeError(f"HTTP request failed for {current_url}")
 
-            if not follow or response.status_code not in REDIRECT_STATUSES:
-                return response
-            location = response.headers.get("location")
-            if not location:
-                return response
-            if redirect_index >= self.max_redirects:
-                log.warning("http_redirect_limit", url=current_url[:120])
-                return response
+                if not follow or response.status_code not in REDIRECT_STATUSES:
+                    return response
+                location = response.headers.get("location")
+                if not location:
+                    return response
+                if redirect_index >= self.max_redirects:
+                    log.warning("http_redirect_limit", url=current_url[:120])
+                    return response
 
-            next_url = urljoin(str(response.url), location)
-            # The next loop iteration revalidates and pins the redirect target
-            # before opening another connection.
-            old_origin = httpx.URL(str(response.url))
-            new_origin = httpx.URL(next_url)
-            if (old_origin.scheme, old_origin.host, old_origin.port) != (
-                new_origin.scheme, new_origin.host, new_origin.port
-            ):
-                # Credentials and cookies must not cross origin boundaries.
-                # On a cross-origin redirect, retain only generic negotiation
-                # headers. Custom API keys, cookies, Host overrides, and any
-                # future credential header must never leak to the new origin.
-                request_headers = {
-                    key: value for key, value in request_headers.items()
-                    if key.lower() in {"accept", "accept-encoding", "accept-language", "user-agent"}
-                }
-            current_url = next_url
-            current_params = None
+                next_url = urljoin(str(response.url), location)
+                # The next loop iteration revalidates and pins the redirect target
+                # before opening another connection.
+                old_origin = httpx.URL(str(response.url))
+                new_origin = httpx.URL(next_url)
+                if (old_origin.scheme, old_origin.host, old_origin.port) != (
+                    new_origin.scheme, new_origin.host, new_origin.port
+                ):
+                    # Credentials and cookies must not cross origin boundaries.
+                    # On a cross-origin redirect, retain only generic negotiation
+                    # headers. Custom API keys, cookies, Host overrides, and any
+                    # future credential header must never leak to the new origin.
+                    request_headers = {
+                        key: value for key, value in request_headers.items()
+                        if key.lower() in {"accept", "accept-encoding", "accept-language", "user-agent"}
+                    }
+                current_url = next_url
+                current_params = None
 
         raise RuntimeError("Redirect handling ended unexpectedly")
 
