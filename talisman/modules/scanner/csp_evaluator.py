@@ -1,11 +1,9 @@
 """CSP deep evaluator — bypass technique detection, misconfiguration analysis, nonce quality check."""
 from __future__ import annotations
 import re
-import random
-import string
 from typing import Any
 from talisman.utils.http_client import TalismanHTTPClient
-from talisman.utils.logger import get_logger, console, print_finding
+from talisman.utils.logger import get_logger, console
 
 log = get_logger(__name__)
 
@@ -248,73 +246,124 @@ async def run(
     proxy: str | None = None,
     **kwargs: Any,
 ) -> dict[str, Any]:
+    """Inspect CSP posture without promoting policy observations to findings.
+
+    A weak or absent CSP can reduce defense-in-depth, but does not establish
+    an exploitable XSS or clickjacking vulnerability by itself. Those require
+    a separate reachable sink, attacker-controlled input, and browser-context
+    validation.
+    """
+    from urllib.parse import urlsplit
+
+    from talisman.engine.scope import ScopeViolationError
+
     url = target if "://" in target else f"https://{target}"
-    host = url.split("://")[1].split("/")[0].split(":")[0]
-    console.print(f"\n[module][+] CSP Deep Evaluator[/module] -> [target]{url}[/target]")
-    findings: list[dict[str, Any]] = []
+    if scope is None:
+        return {
+            "target": url,
+            "findings": [],
+            "observations": [],
+            "count": 0,
+            "error": "scope_enforcer_required",
+        }
+
+    try:
+        scope.assert_in_scope(url)
+    except ScopeViolationError as exc:
+        return {
+            "target": url,
+            "findings": [],
+            "observations": [],
+            "count": 0,
+            "error": str(exc),
+        }
+
+    host = urlsplit(url).hostname or ""
+    if not host:
+        return {
+            "target": url,
+            "findings": [],
+            "observations": [],
+            "count": 0,
+            "error": "invalid_target",
+        }
+
+    console.print(
+        f"\\n[module][+] CSP Posture Assessment[/module] -> [target]{url}[/target]"
+    )
     csp_value = ""
+    try:
+        async with TalismanHTTPClient(
+            proxy=proxy,
+            timeout=10,
+            verify_ssl=True,
+            follow_redirects=False,
+            scope=scope,
+        ) as client:
+            response = await client.get(url, timeout=10)
+            csp_value = (
+                response.headers.get("Content-Security-Policy")
+                or response.headers.get("Content-Security-Policy-Report-Only")
+                or ""
+            )
+    except Exception as exc:
+        log.warning("csp_retrieval_failed", error=type(exc).__name__)
+        return {
+            "target": url,
+            "csp_found": False,
+            "findings": [],
+            "observations": [],
+            "count": 0,
+            "error": "csp_retrieval_failed",
+        }
 
-    async with TalismanHTTPClient(proxy=proxy, timeout=10) as client:
-        try:
-            r = await client.get(url, timeout=10)
-            csp_value = (r.headers.get("Content-Security-Policy") or
-                         r.headers.get("Content-Security-Policy-Report-Only") or "")
-        except Exception:
-            console.print("  Could not retrieve CSP header")
-            return {"target": url, "csp_found": False, "findings": []}
-
-        if not csp_value:
-            console.print("  No CSP header found")
-            findings.append({"issue": "no_csp", "severity": "medium"})
-            if session:
-                await session.add_finding(
-                    target=url, module="csp_evaluator",
-                    vuln_type="no_csp",
-                    severity="medium", confidence="confirmed",
-                    title="No Content Security Policy header",
-                    description="The page does not send a Content-Security-Policy header. XSS attacks can execute arbitrary scripts without restriction.",
-                    remediation="Implement a strict CSP with nonce-based script-src and 'strict-dynamic'.",
-                    cvss_score=6.5, cwe="CWE-1021",
-                )
-            return {"target": url, "csp": "", "findings": findings}
-
+    if not csp_value:
+        issues = [{
+            "issue": "no_enforced_csp",
+            "severity": "posture",
+            "description": (
+                "No enforced Content-Security-Policy header was observed. "
+                "This is a defense-in-depth gap, not proof of an exploitable vulnerability."
+            ),
+        }]
+        console.print("  No enforced Content-Security-Policy header observed")
+    else:
         console.print(f"  CSP: {csp_value[:120]}...")
         issues = _analyze_csp(csp_value, host)
 
-        for issue in issues:
-            severity = issue.get("severity", "medium")
-            title = f"CSP misconfiguration: {issue.get('description', issue['issue'])}"
-            print_finding(title, severity, url)
-            findings.append(issue)
-            if session:
-                cwe_map = {
-                    "unsafe_inline": "CWE-79",
-                    "unsafe_eval": "CWE-79",
-                    "wildcard_src": "CWE-79",
-                    "data_scheme": "CWE-79",
-                    "blob_scheme": "CWE-79",
-                    "cdn_jsonp_bypass": "CWE-79",
-                    "missing_base_uri": "CWE-444",
-                    "short_nonce": "CWE-330",
-                    "wildcard_frame_ancestors": "CWE-1021",
-                }
-                cvss_map = {
-                    "high": 8.3, "medium": 6.1, "low": 3.7, "info": 0.0,
-                }
-                await session.add_finding(
-                    target=url, module="csp_evaluator",
-                    vuln_type=f"csp_{issue['issue']}",
-                    severity=severity, confidence="confirmed",
-                    title=title,
-                    description=issue.get("description", ""),
-                    evidence=f"Directive: {issue.get('directive', 'N/A')}, Value: {issue.get('value', 'N/A')}",
-                    remediation=_get_remediation(issue["issue"]),
-                    cvss_score=cvss_map.get(severity, 5.0),
-                    cwe=cwe_map.get(issue["issue"], "CWE-693"),
-                )
+    observations = [
+        {
+            **issue,
+            "classification": "security_posture_observation",
+            "requires_exploit_chain_validation": True,
+            "verification_required": (
+                "Identify an attacker-controlled input and reachable browser sink, "
+                "then demonstrate impact in a real browser. For clickjacking, verify "
+                "that a sensitive action is frameable and lacks independent defenses."
+            ),
+        }
+        for issue in issues
+    ]
 
-    console.print(f"  CSP evaluation complete -- {len(findings)} issues")
-    return {"target": url, "csp": csp_value, "findings": findings, "count": len(findings)}
+    for issue in observations:
+        console.print(
+            f"  [dim]Posture observation: {issue.get('issue', 'unknown')} "
+            f"({issue.get('severity', 'unrated')})[/dim]"
+        )
+
+    console.print(
+        f"  CSP assessment complete — {len(observations)} posture observations; "
+        "no vulnerability asserted"
+    )
+    return {
+        "target": url,
+        "csp": csp_value,
+        "csp_found": bool(csp_value),
+        "findings": [],
+        "observations": observations,
+        "count": 0,
+        "observation_count": len(observations),
+    }
 
 
 def _get_remediation(issue_type: str) -> str:
