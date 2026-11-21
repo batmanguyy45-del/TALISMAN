@@ -150,6 +150,7 @@ class ScopeConfig:
     allow_state_changing_requests: bool = False
     avoid_destructive: bool = True
     respect_robots_txt: bool = False
+    allow_internal_ssrf_probes: bool = False
 
     @classmethod
     def from_file(cls, path: Path) -> ScopeConfig:
@@ -198,6 +199,10 @@ class ScopeConfig:
             allow_state_changing_requests=boolean_option("allow_state_changing_requests", False),
             avoid_destructive=boolean_option("avoid_destructive", True),
             respect_robots_txt=boolean_option("respect_robots_txt", False),
+            allow_internal_ssrf_probes=boolean_option(
+                "allow_internal_ssrf_probes",
+                False,
+            ),
         )
 
     @classmethod
