@@ -301,10 +301,10 @@ async def run(
             scope=scope,
         ) as client:
             response = await client.get(url, timeout=10)
-            csp_value = (
-                response.headers.get("Content-Security-Policy")
-                or response.headers.get("Content-Security-Policy-Report-Only")
-                or ""
+            csp_value = response.headers.get("Content-Security-Policy", "")
+            report_only_value = response.headers.get(
+                "Content-Security-Policy-Report-Only",
+                "",
             )
     except Exception as exc:
         log.warning("csp_retrieval_failed", error=type(exc).__name__)
@@ -328,8 +328,19 @@ async def run(
         }]
         console.print("  No enforced Content-Security-Policy header observed")
     else:
-        console.print(f"  CSP: {csp_value[:120]}...")
+        console.print(f"  Enforced CSP: {csp_value[:120]}...")
         issues = _analyze_csp(csp_value, host)
+
+    if report_only_value:
+        issues.append({
+            "issue": "report_only_policy_present",
+            "severity": "info",
+            "description": (
+                "A Content-Security-Policy-Report-Only header is present. "
+                "Report-Only policies report violations but do not enforce restrictions."
+            ),
+            "value": report_only_value[:500],
+        })
 
     observations = [
         {
@@ -358,6 +369,7 @@ async def run(
     return {
         "target": url,
         "csp": csp_value,
+        "csp_report_only": report_only_value,
         "csp_found": bool(csp_value),
         "findings": [],
         "observations": observations,
