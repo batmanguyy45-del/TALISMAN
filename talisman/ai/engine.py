@@ -148,12 +148,20 @@ class AIEngine:
   """Auto-generate professional bug report for a finding."""
   console.print(f" [dim]AI report generation for: {finding.get('title','')[:50]}[/dim]")
   safe = self._anonymize_finding(finding) if self.anonymize else finding
+  if self.anonymize:
+   description = "[omitted in privacy mode]"
+   evidence = "[omitted in privacy mode]"
+   remediation = "[omitted in privacy mode]"
+  else:
+   description = finding.get("description", "")
+   evidence = finding.get("evidence", "")[:200]
+   remediation = finding.get("remediation", "")
   prompt = (
    f"Write a professional {platform} bug report for:\n"
    f"{json.dumps(safe, indent=2)}\n\n"
-   f"Description: {finding.get('description','')}\n"
-   f"Evidence: {finding.get('evidence','')[:200]}\n"
-   f"Remediation: {finding.get('remediation','')}"
+   f"Description: {description}\n"
+   f"Evidence: {evidence}\n"
+   f"Remediation: {remediation}"
   )
   return await self._call(SYSTEM_REPORT_WRITER, prompt)
 
