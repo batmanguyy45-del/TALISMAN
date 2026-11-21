@@ -45,6 +45,7 @@ async def _check_grpc_port(
         # Send a minimal HTTP/2 preface to check if it's gRPC
         # gRPC requires HTTP/2, but for basic detection we try the content-type
         writer.write(b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n")
+        await writer.drain()
         try:
             data = await asyncio.wait_for(reader.read(1024), timeout=3)
             result["reachable"] = True
