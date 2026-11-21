@@ -87,6 +87,8 @@ async def run(
         "-timeout",
         "10",
         "-disable-redirects",
+        "-restrict-local-network-access",
+        "-no-interactsh",
     ]
     if proxy:
         cmd.extend(["-proxy", proxy])
