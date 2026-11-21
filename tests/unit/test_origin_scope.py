@@ -78,9 +78,10 @@ async def test_explicitly_scoped_origin_ip_can_be_verified(monkeypatch):
     async def fake_mx(domain, scoped):
         return []
 
-    async def fake_verification(domain, ip, client):
+    async def fake_verification(domain, ip, scoped):
         assert domain == "example.com"
         assert ip == "203.0.113.45"
+        assert scoped is scope
         return True
 
     monkeypatch.setattr(cloudflare, "_crtsh_ips", fake_crtsh)
