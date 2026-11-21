@@ -75,3 +75,29 @@ async def test_oast_hostname_resolving_to_private_ip_is_rejected(monkeypatch):
     )
     with pytest.raises(ScopeViolationError, match="non-public address"):
         await validate_public_oast_domain("callback.oast.pro")
+
+
+
+def test_registered_oast_token_is_required_for_payload_generation():
+    client = OASTClient()
+    with pytest.raises(ValueError, match="not registered"):
+        client.get_xxe_payloads("guessable-token.oast.pro")
+
+
+def test_registered_token_can_generate_oob_payloads_and_poll_name():
+    client = OASTClient()
+    full_domain = client.register()
+    payloads = client.get_xxe_payloads(full_domain)
+    assert payloads
+    assert full_domain in payloads[0]
+    assert client._registered_domain(full_domain) == full_domain
+
+
+def test_payload_url_prefix_is_validated_and_token_is_retained():
+    client = OASTClient()
+    with pytest.raises(ValueError):
+        client.get_payload_url("../bad")
+
+    url = client.get_payload_url(prefix="research")
+    host = url.removeprefix("http://").rstrip("/")
+    assert client._registered_domain(host) == host
