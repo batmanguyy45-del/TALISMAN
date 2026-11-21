@@ -74,6 +74,7 @@ async def _session_scope(session_name, target, scope_file):
  await sess.open()
  cfg = ScopeConfig.from_file(scope_file) if scope_file and scope_file.exists() else ScopeConfig.from_target(target)
  scoped = ScopeEnforcer(cfg)
+ scoped.assert_in_scope(target)
  activate_scope(scoped)
  return sess, scoped
 
