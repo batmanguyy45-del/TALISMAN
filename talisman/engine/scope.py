@@ -6,6 +6,7 @@ import ipaddress
 import time
 import math
 import posixpath
+import re
 from contextvars import ContextVar, Token
 from dataclasses import dataclass, field
 from fnmatch import fnmatchcase
@@ -81,10 +82,19 @@ def _normalize_host(host: str) -> str:
     try:
         return ipaddress.ip_address(host).compressed
     except ValueError:
-        try:
-            return host.encode("idna").decode("ascii")
-        except UnicodeError:
-            return ""
+        pass
+    try:
+        normalized = host.encode("idna").decode("ascii")
+    except UnicodeError:
+        return ""
+
+    if len(normalized) > 253:
+        return ""
+    label_re = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
+    labels = normalized.split(".")
+    if any(not label_re.fullmatch(label) for label in labels):
+        return ""
+    return normalized
 
 
 def _parse_url(value: str) -> SplitResult | None:
