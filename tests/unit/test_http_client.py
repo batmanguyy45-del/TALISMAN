@@ -424,3 +424,53 @@ async def test_http_client_uses_assessment_wide_concurrency_limit():
         )
 
     assert peak_active == 1
+
+
+@pytest.mark.asyncio
+async def test_http_client_normalizes_headers_after_decompression():
+    import gzip
+
+    compressed = gzip.compress(b"decoded payload")
+
+    async def handler(request):
+        return httpx.Response(
+            200,
+            headers={
+                "Content-Encoding": "gzip",
+                "Content-Length": str(len(compressed)),
+            },
+            content=compressed,
+            request=request,
+        )
+
+    scope = ScopeEnforcer(ScopeConfig(include=["example.com"], service_allowlist=[]))
+    async with _mock_client(scope, handler, max_response_bytes=1024) as client:
+        response = await client.get("https://example.com/compressed")
+
+    assert response.content == b"decoded payload"
+    assert "content-encoding" not in response.headers
+    assert response.headers["content-length"] == str(len(b"decoded payload"))
+
+
+@pytest.mark.asyncio
+async def test_http_client_bounds_scope_dns_resolution_time():
+    import asyncio
+
+    calls = []
+
+    async def handler(request):
+        calls.append(request)
+        return httpx.Response(200, request=request)
+
+    scope = ScopeEnforcer(ScopeConfig(include=["example.com"], service_allowlist=[]))
+
+    async def slow_resolution(url, method="GET"):
+        await asyncio.sleep(0.05)
+        return (ip_address("93.184.216.34"),)
+
+    scope.resolve_network_destination = slow_resolution
+    async with _mock_client(scope, handler, max_retries=1) as client:
+        with pytest.raises(TimeoutError):
+            await client.get("https://example.com/", timeout=0.005)
+
+    assert calls == []
