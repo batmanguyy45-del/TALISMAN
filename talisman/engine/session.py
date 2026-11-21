@@ -1,6 +1,8 @@
 """SQLite-backed session management. Every run is persistent and resumable."""
 from __future__ import annotations
 import json
+import os
+import re
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -10,6 +12,13 @@ from talisman.utils.logger import get_logger
 
 log = get_logger(__name__)
 SESSIONS_DIR = Path.home() / ".talisman" / "sessions"
+_SESSION_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+
+
+def _validate_session_name(name: str) -> str:
+    if not isinstance(name, str) or not _SESSION_NAME_RE.fullmatch(name) or name in {".", ".."}:
+        raise ValueError("Invalid session name; use 1-64 letters, digits, dots, underscores or hyphens, starting with a letter or digit")
+    return name
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS targets (
@@ -97,21 +106,30 @@ def _finding_fingerprint(finding: dict) -> str:
 
 class Session:
  def __init__(self, name: str, session_dir: Path | None = None):
-  self.name = name
-  self.id = name
-  self.dir = (session_dir or SESSIONS_DIR) / name
-  self.dir.mkdir(parents=True, exist_ok=True)
+  self.name = _validate_session_name(name)
+  self.id = self.name
+  base_dir = (session_dir or SESSIONS_DIR).expanduser()
+  base_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+  self.dir = base_dir / self.name
+  if self.dir.exists() and self.dir.is_symlink():
+   raise ValueError("Session path must not be a symbolic link")
+  self.dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+  os.chmod(self.dir, 0o700)
   self.db_path = self.dir / "session.db"
   self.raw_dir = self.dir / "raw"
-  self.raw_dir.mkdir(exist_ok=True)
+  self.raw_dir.mkdir(exist_ok=True, mode=0o700)
+  os.chmod(self.raw_dir, 0o700)
   self.screenshots_dir = self.dir / "screenshots"
-  self.screenshots_dir.mkdir(exist_ok=True)
+  self.screenshots_dir.mkdir(exist_ok=True, mode=0o700)
+  os.chmod(self.screenshots_dir, 0o700)
   self.exports_dir = self.dir / "exports"
-  self.exports_dir.mkdir(exist_ok=True)
+  self.exports_dir.mkdir(exist_ok=True, mode=0o700)
+  os.chmod(self.exports_dir, 0o700)
   self._db: aiosqlite.Connection | None = None
 
  async def open(self) -> "Session":
   self._db = await aiosqlite.connect(str(self.db_path))
+  os.chmod(self.db_path, 0o600)
   self._db.row_factory = aiosqlite.Row
   # Execute each statement separately to avoid reserved-word issues with executescript
   for stmt in [s.strip() for s in SCHEMA.split(";") if s.strip()]:
@@ -164,8 +182,8 @@ class Session:
   probe = {"target": target, "module": module, "vuln_type": vuln_type, "evidence": kwargs.get("evidence", "")}
   fp = _finding_fingerprint(probe)
   async with self._db.execute(
-   "SELECT id FROM findings WHERE session_id=? AND target=? AND module=? AND vuln_type=? AND evidence LIKE ?",
-   (self.id, target, module, vuln_type, kwargs.get("evidence", "")[:200] + "%")
+   "SELECT id FROM findings WHERE session_id=? AND target=? AND module=? AND vuln_type=? AND COALESCE(evidence, '') = ?",
+   (self.id, target, module, vuln_type, kwargs.get("evidence", "") or "")
   ) as cur:
    existing = await cur.fetchone()
   if existing:
@@ -284,7 +302,7 @@ class SessionManager:
   return sorted(p.name for p in self._base.iterdir() if p.is_dir())
 
  def get(self, name: str) -> Session:
-  return Session(name, self._base)
+  return Session(_validate_session_name(name), self._base)
 
  def create(self, name: str) -> Session:
   s = Session(name, self._base)
@@ -292,11 +310,13 @@ class SessionManager:
   return s
 
  def exists(self, name: str) -> bool:
-  return (self._base / name).exists()
+  return (self._base / _validate_session_name(name)).exists()
 
  def delete(self, name: str) -> None:
   import shutil
-  path = self._base / name
+  path = self._base / _validate_session_name(name)
+  if path.is_symlink():
+   raise ValueError("Session path must not be a symbolic link")
   if path.exists():
    shutil.rmtree(path)
    log.info("session_deleted", name=name)
