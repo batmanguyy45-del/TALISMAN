@@ -6,6 +6,7 @@ import ipaddress
 import math
 import posixpath
 import re
+import socket
 import time
 from contextvars import ContextVar, Token
 from dataclasses import dataclass, field
@@ -412,6 +413,82 @@ class ScopeEnforcer:
             if self._host_matches(host, entry):
                 return True
         return False
+
+    async def _resolve_host_addresses(
+        self,
+        host: str,
+        port: int,
+    ) -> set[ipaddress.IPv4Address | ipaddress.IPv6Address]:
+        """Resolve a host once for policy evaluation using the system resolver."""
+        try:
+            return {
+                ipaddress.ip_address(result[4][0].split("%", 1)[0])
+                for result in await asyncio.get_running_loop().getaddrinfo(
+                    host,
+                    port,
+                    type=socket.SOCK_STREAM,
+                )
+            }
+        except (OSError, ValueError) as exc:
+            raise ScopeViolationError(
+                f"Request blocked: destination host '{host}' did not resolve safely"
+            ) from exc
+
+    def _explicitly_includes_ip(
+        self,
+        address: ipaddress.IPv4Address | ipaddress.IPv6Address,
+    ) -> bool:
+        """Allow private/reserved destinations only when their IP is explicitly scoped."""
+        for entry in self.config.include:
+            try:
+                network = ipaddress.ip_network(entry, strict=False)
+            except ValueError:
+                parsed = _parse_url(entry)
+                if parsed is None or not parsed.hostname:
+                    continue
+                try:
+                    network = ipaddress.ip_network(parsed.hostname, strict=False)
+                except ValueError:
+                    continue
+            if address.version == network.version and address in network:
+                return True
+        return False
+
+    async def assert_network_destination_allowed(
+        self,
+        target: str,
+        method: str = "GET",
+    ) -> None:
+        """Block DNS names resolving to local/private IPs unless those IPs are scoped."""
+        self.assert_request_allowed(target, method)
+        parsed = _parse_url(target)
+        if parsed is None or not parsed.hostname:
+            raise ScopeViolationError(f"Request blocked: invalid destination '{target}'")
+
+        host = _normalize_host(parsed.hostname)
+        try:
+            literal_address = ipaddress.ip_address(host)
+        except ValueError:
+            port = parsed.port or (443 if parsed.scheme == "https" else 80)
+            addresses = await self._resolve_host_addresses(host, port)
+        else:
+            addresses = {literal_address}
+
+        if not addresses:
+            raise ScopeViolationError(
+                f"Request blocked: destination host '{host}' has no usable addresses"
+            )
+
+        blocked = [
+            address for address in addresses
+            if not address.is_global and not self._explicitly_includes_ip(address)
+        ]
+        if blocked:
+            rendered = ", ".join(str(address) for address in sorted(blocked, key=str))
+            raise ScopeViolationError(
+                f"Request blocked: '{host}' resolves to non-public address(es) "
+                f"{rendered}; explicitly include the authorized IP/CIDR to permit it"
+            )
 
     async def acquire_request_slot(self) -> None:
         """Apply one shared per-assessment request rate across all HTTP clients."""
