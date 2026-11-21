@@ -862,6 +862,8 @@ def waf_origin(
 @waf_app.command("bypass")
 def waf_bypass(
  target: str = typer.Option(..., "-t", "--target"),
+ session_name: str = typer.Option("default", "-s", "--session"),
+ scope_file: Optional[Path] = typer.Option(None, "--scope"),
  waf: str = typer.Option("auto", "--waf", help="WAF vendor: auto, Cloudflare, Akamai, ModSecurity, AWS WAF"),
  vuln_type: str = typer.Option("xss", "--type", help="Vuln type: xss, sqli, lfi, cmdi"),
  param: str = typer.Option("q", "--param", help="URL parameter to test"),
@@ -869,16 +871,26 @@ def waf_bypass(
  debug: bool = typer.Option(False, "--debug"),
 ):
  """
- Generate and score vendor-specific WAF bypass payloads.
+ Score vendor-specific WAF payloads against an explicitly scoped target.
+
+ \b
+ This performs active GET probes. Use only where the program permits this testing.
 
  \b
  Examples:
-  talisman waf bypass -t https://example.com --waf Cloudflare --type xss
-  talisman waf bypass -t https://example.com --waf Akamai --type sqli --param id
+  talisman waf bypass -t https://example.com --scope ./scope.yaml --waf Cloudflare --type xss
+  talisman waf bypass -t https://example.com --scope ./scope.yaml --waf Akamai --type sqli --param id
  """
  setup_logging("DEBUG" if debug else "INFO"); print_banner()
  from talisman.modules.waf.bypass_engine import run
- _run(run(target=target, waf=waf, vuln_type=vuln_type, proxy=proxy, param=param))
+ async def _r():
+  sess, scope = await _session_scope(session_name, target, scope_file)
+  async with sess:
+   return await run(
+    target=target, session=sess, scope=scope, waf=waf,
+    vuln_type=vuln_type, proxy=proxy, param=param
+   )
+ _run(_r())
 
 # ── FUZZ ──────────────────────────────────────────────────────────────────────
 @fuzz_app.command("paths")
