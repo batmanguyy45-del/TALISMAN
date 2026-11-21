@@ -50,7 +50,7 @@ async def _tcp_connect(host: str, port: int, scope: Any, timeout: float = 3.0) -
 
 async def _test_redis(host: str, port: int, scope: Any) -> dict[str, Any] | None:
     """Check whether Redis permits a harmless INFO command without credentials."""
-    request_url = f"redis://{host}:{port}/"
+    request_url = f"http://{host}:{port}/"
     scope.assert_request_allowed(request_url, "GET")
     await scope.acquire_request_slot()
 
