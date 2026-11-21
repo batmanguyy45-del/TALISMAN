@@ -17,6 +17,7 @@ import yaml
 from talisman.utils.logger import get_logger
 
 log = get_logger(__name__)
+MAX_REQUESTS_PER_SECOND = 20.0
 
 # Hosts used only as passive data providers by built-in modules. Custom providers
 # must be added explicitly to the scope file's service_allowlist.
@@ -153,22 +154,32 @@ class ScopeConfig:
             raise ValueError("Scope field 'restrictions' must be a mapping")
 
         rate = restrictions.get("max_requests_per_second", 2.0)
+        if isinstance(rate, bool):
+            raise ValueError("max_requests_per_second must be numeric, not boolean")
         try:
             rate = float(rate)
         except (TypeError, ValueError) as exc:
             raise ValueError("max_requests_per_second must be a positive number") from exc
-        if not math.isfinite(rate) or rate <= 0:
-            raise ValueError("max_requests_per_second must be a positive finite number")
+        if not math.isfinite(rate) or rate <= 0 or rate > MAX_REQUESTS_PER_SECOND:
+            raise ValueError(
+                f"max_requests_per_second must be positive and no greater than {MAX_REQUESTS_PER_SECOND:g}"
+            )
+
+        def boolean_option(name: str, default: bool) -> bool:
+            value = restrictions.get(name, default)
+            if not isinstance(value, bool):
+                raise ValueError(f"restrictions.{name} must be true or false")
+            return value
 
         return cls(
             include=include,
             exclude=exclude,
             service_allowlist=services,
             max_requests_per_second=rate,
-            avoid_writes=bool(restrictions.get("avoid_writes", False)),
-            allow_state_changing_requests=bool(restrictions.get("allow_state_changing_requests", False)),
-            avoid_destructive=bool(restrictions.get("avoid_destructive", True)),
-            respect_robots_txt=bool(restrictions.get("respect_robots_txt", False)),
+            avoid_writes=boolean_option("avoid_writes", False),
+            allow_state_changing_requests=boolean_option("allow_state_changing_requests", False),
+            avoid_destructive=boolean_option("avoid_destructive", True),
+            respect_robots_txt=boolean_option("respect_robots_txt", False),
         )
 
     @classmethod
@@ -200,11 +211,45 @@ class ScopeEnforcer:
     def __init__(self, config: ScopeConfig):
         if not config.include:
             raise ValueError("At least one in-scope target is required")
+        if (
+            not math.isfinite(config.max_requests_per_second)
+            or config.max_requests_per_second <= 0
+            or config.max_requests_per_second > MAX_REQUESTS_PER_SECOND
+        ):
+            raise ValueError(
+                f"max_requests_per_second must be positive and no greater than {MAX_REQUESTS_PER_SECOND:g}"
+            )
+        self._validate_entries(config.include, "include", allow_url=True)
+        self._validate_entries(config.exclude, "exclude", allow_url=True)
+        self._validate_entries(config.service_allowlist, "service_allowlist", allow_url=False)
         self.config = config
         self._request_lock = asyncio.Lock()
         self._next_request_at = 0.0
         self._include_nets = self._parse_networks(config.include)
         self._exclude_nets = self._parse_networks(config.exclude)
+
+
+    @staticmethod
+    def _validate_entries(entries: list[str], field_name: str, allow_url: bool) -> None:
+        for entry in entries:
+            if not isinstance(entry, str) or not entry.strip():
+                raise ValueError(f"Invalid empty target in scope field '{field_name}'")
+            value = entry.strip()
+            try:
+                ipaddress.ip_network(value, strict=False)
+                continue
+            except ValueError:
+                pass
+            if value.startswith("*."):
+                if not _normalize_host(value[2:]):
+                    raise ValueError(f"Invalid wildcard target in '{field_name}': {entry!r}")
+                continue
+            if allow_url and ("://" in value or "/" in value or "?" in value):
+                if _parse_url(value) is None:
+                    raise ValueError(f"Invalid URL target in '{field_name}': {entry!r}")
+                continue
+            if not _normalize_host(value):
+                raise ValueError(f"Invalid host target in '{field_name}': {entry!r}")
 
     @staticmethod
     def _parse_networks(
