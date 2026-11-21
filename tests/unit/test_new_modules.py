@@ -20,9 +20,12 @@ def _test_scope():
     )
 
     async def allow_mock_destination(url, method="GET"):
-        scope.assert_request_allowed(url, method)
+        import ipaddress
 
-    scope.assert_network_destination_allowed = allow_mock_destination
+        scope.assert_request_allowed(url, method)
+        return (ipaddress.ip_address("93.184.216.34"),)
+
+    scope.resolve_network_destination = allow_mock_destination
     return scope
 
 
