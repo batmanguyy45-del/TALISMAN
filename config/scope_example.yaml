@@ -9,7 +9,8 @@ exclude:
   - "*.prod.example.com"
 
 restrictions:
-  max_requests_per_second: 50
+  max_requests_per_second: 2
   avoid_writes: false
+  allow_state_changing_requests: false
   avoid_destructive: true
   respect_robots_txt: false
