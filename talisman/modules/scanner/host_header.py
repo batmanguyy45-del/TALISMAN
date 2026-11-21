@@ -25,10 +25,9 @@ FORWARDED_HOST_HEADERS = ["X-Forwarded-Host", "X-Original-Host"]
 def _location_uses_canary(location: str) -> bool:
     try:
         parsed = urlsplit(location)
-        return (parsed.hostname or "").lower().rstrip(".") in {
-            CANARY_HOST,
-            "redirect-check.invalid",
-        }
+        return (parsed.hostname or "").lower().rstrip(".") in set(
+            HOST_HEADER_VARIANTS
+        )
     except ValueError:
         return False
 
