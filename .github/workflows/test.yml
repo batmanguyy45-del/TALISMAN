@@ -6,7 +6,7 @@ concurrency:
 
 on:
   push:
-    branches: [main]
+    branches: [main, security/hardening-phase-1]
   pull_request:
     branches: [main]
 
