@@ -28,8 +28,8 @@ def _valid_webhook_url(value: str) -> bool:
             and not parsed.fragment
             and expected_prefix
             and parsed.path.startswith(expected_prefix)
-            and "\\r" not in value
-            and "\\n" not in value
+            and "\r" not in value
+            and "\n" not in value
         )
     except ValueError:
         return False
