@@ -122,6 +122,9 @@ def discover_plugins() -> dict[str, dict[str, Any]]:
         for item in root.iterdir():
             if item.is_symlink() or not item.is_dir():
                 continue
+            if _contains_symlinks(item):
+                log.warning("plugin_symlink_rejected", plugin=item.name)
+                continue
             manifest_path = item / "plugin.yaml"
             if manifest_path.is_symlink() or not manifest_path.is_file():
                 continue
@@ -179,9 +182,13 @@ def load_plugin(plugin_info: dict[str, Any]) -> Callable | None:
     except OSError:
         return None
 
-    if not plugin_dir.is_dir() or not any(
-        plugin_dir != root and plugin_dir.is_relative_to(root)
-        for root in allowed_roots
+    if (
+        not plugin_dir.is_dir()
+        or _contains_symlinks(plugin_dir)
+        or not any(
+            plugin_dir != root and plugin_dir.is_relative_to(root)
+            for root in allowed_roots
+        )
     ):
         log.warning("plugin_directory_rejected", plugin=manifest["name"])
         return None

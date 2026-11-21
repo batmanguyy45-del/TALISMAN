@@ -99,3 +99,61 @@ class TestPluginExecution:
         info = {"entrypoint": "nonexistent_module.ClassName", "directory": "/tmp"}
         result = load_plugin(info)
         assert result is None
+
+
+class TestPluginSymlinkHardening:
+    def test_discovery_rejects_plugin_tree_with_internal_symlink(self, tmp_path):
+        from talisman.engine.plugin_manager import discover_plugins
+
+        plugins_root = tmp_path / "plugins"
+        plugin_dir = plugins_root / "symlinked-plugin"
+        plugin_dir.mkdir(parents=True)
+        (plugin_dir / "plugin.yaml").write_text(
+            "name: symlinked-plugin\n"
+            "entrypoint: scanner.ExamplePlugin\n"
+            "type: scanner\n",
+            encoding="utf-8",
+        )
+        external_module = tmp_path / "external.py"
+        external_module.write_text("VALUE = 'outside'", encoding="utf-8")
+        try:
+            (plugin_dir / "external.py").symlink_to(external_module)
+        except OSError:
+            pytest.skip("symlinks are not available on this platform")
+
+        with patch("talisman.engine.plugin_manager.PLUGIN_DIRS", [plugins_root]):
+            plugins = discover_plugins()
+
+        assert "symlinked-plugin" not in plugins
+
+    def test_loader_rejects_internal_symlink_before_import(self, tmp_path, monkeypatch):
+        from talisman.engine.plugin_manager import load_plugin
+
+        plugins_root = tmp_path / "plugins"
+        plugin_dir = plugins_root / "symlinked-plugin"
+        plugin_dir.mkdir(parents=True)
+        external_module = tmp_path / "external.py"
+        external_module.write_text(
+            "class ExamplePlugin:\n"
+            "    async def run(self, **kwargs):\n"
+            "        return {'executed': True}\n",
+            encoding="utf-8",
+        )
+        try:
+            (plugin_dir / "scanner.py").symlink_to(external_module)
+        except OSError:
+            pytest.skip("symlinks are not available on this platform")
+
+        monkeypatch.setenv("TALISMAN_ENABLE_UNTRUSTED_PLUGINS", "1")
+        with patch("talisman.engine.plugin_manager.PLUGIN_DIRS", [plugins_root]):
+            result = load_plugin(
+                {
+                    "name": "symlinked-plugin",
+                    "entrypoint": "scanner.ExamplePlugin",
+                    "type": "scanner",
+                    "directory": str(plugin_dir),
+                }
+            )
+
+        assert result is None
+
