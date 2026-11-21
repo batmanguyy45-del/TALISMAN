@@ -84,7 +84,16 @@ async def run(
         }
 
     requested_buckets = list(dict.fromkeys(s3_buckets or []))
-    if s3_enum and not requested_buckets:
+    if not s3_enum:
+        return {
+            "target": target,
+            "s3_buckets": [],
+            "findings": [],
+            "count": 0,
+            "skipped": True,
+            "reason": "S3 checks are disabled unless s3_enum is explicitly enabled.",
+        }
+    if not requested_buckets:
         return {
             "target": target,
             "s3_buckets": [],
