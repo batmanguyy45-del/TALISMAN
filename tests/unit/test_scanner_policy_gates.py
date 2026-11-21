@@ -234,3 +234,68 @@ async def test_headers_and_cors_require_scope():
 
     assert header_result["error"] == "scope_enforcer_required"
     assert cors_result["error"] == "scope_enforcer_required"
+
+
+@pytest.mark.asyncio
+async def test_generic_prototype_nosqli_and_deserialization_scanners_are_disabled():
+    from talisman.modules.scanner import deserialization, nosqli, prototype
+
+    for module in (prototype, nosqli, deserialization):
+        result = await module.run(
+            target="https://example.com",
+            scope=_scope(),
+        )
+        assert result["skipped"] is True
+        assert result["findings"] == []
+        assert result["count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_cache_poisoning_requires_destructive_probe_opt_in(monkeypatch):
+    from talisman.modules.scanner import cache_poison
+
+    class MustNotStartClient:
+        def __init__(self, *args, **kwargs):
+            raise AssertionError("cache mutation must be blocked by default")
+
+    monkeypatch.setattr(cache_poison, "TalismanHTTPClient", MustNotStartClient)
+    result = await cache_poison.run(
+        "https://example.com",
+        scope=_scope(),
+    )
+
+    assert result["skipped"] is True
+    assert result["findings"] == []
+    assert "Destructive probe blocked" in result["reason"]
+
+
+@pytest.mark.asyncio
+async def test_mfa_scan_is_passive_and_sends_no_otp_submissions(monkeypatch):
+    from talisman.modules.scanner import mfa_bypass
+
+    monkeypatch.setattr(mfa_bypass, "TalismanHTTPClient", _FakeClient)
+    result = await mfa_bypass.run(
+        "https://example.com",
+        scope=_scope(),
+    )
+
+    assert result["findings"] == []
+    assert result["count"] == 0
+    assert result["otp_attempts_sent"] == 0
+
+
+@pytest.mark.asyncio
+async def test_crlf_requires_scope_and_returns_candidates_only(monkeypatch):
+    from talisman.modules.scanner import crlf
+
+    missing_scope = await crlf.run("https://example.com")
+    assert missing_scope["error"] == "scope_enforcer_required"
+
+    monkeypatch.setattr(crlf, "TalismanHTTPClient", _FakeClient)
+    result = await crlf.run(
+        "https://example.com",
+        scope=_scope(),
+    )
+
+    assert result["findings"] == []
+    assert result["count"] == 0
