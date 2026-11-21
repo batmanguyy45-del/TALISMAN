@@ -14,6 +14,7 @@ from talisman.utils.logger import console, get_logger, print_finding
 log = get_logger(__name__)
 
 EXCLUDED_TEMPLATE_TAGS = "dos,intrusive,fuzz,bruteforce"
+EXCLUDED_TEMPLATE_TYPES = "code,file"
 MAX_NUCLEI_OUTPUT_BYTES = 25 * 1024 * 1024
 NUCLEI_OUTPUT_CHUNK_BYTES = 64 * 1024
 
@@ -177,6 +178,15 @@ async def run(
         severity,
         "-exclude-tags",
         EXCLUDED_TEMPLATE_TAGS,
+        # Nuclei templates are third-party executable policy. Require signed
+        # templates and block local code/file protocols even after the operator
+        # has accepted the separate unpinned-network opt-in.
+        "-disable-unsigned-templates",
+        "-exclude-type",
+        EXCLUDED_TEMPLATE_TYPES,
+        # Pin template behavior per run; operators update the template corpus
+        # intentionally rather than letting the subprocess update itself.
+        "-disable-update-check",
         "-json",
         "-silent",
         "-no-color",

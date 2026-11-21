@@ -99,6 +99,10 @@ async def test_nuclei_receives_safe_flags_and_discards_out_of_scope_results(monk
     assert "-no-interactsh" in args
     assert "-exclude-tags" in args
     assert "dos,intrusive,fuzz,bruteforce" in args
+    assert "-disable-unsigned-templates" in args
+    assert "-exclude-type" in args
+    assert "code,file" in args
+    assert "-disable-update-check" in args
     assert "-retries" in args and "0" in args
     assert "-rate-limit" in args and "2" in args
     assert "-concurrency" in args and "4" in args
