@@ -293,17 +293,6 @@ async def run(
  console.print(
   f"\n[module][+] Reflected XSS Candidate Scanner[/module] -> [target]{url}[/target]"
  )
- try:
-  scope.assert_in_scope(url)
- except ScopeViolationError as exc:
-  return {
-   "target": url,
-   "findings": [],
-   "candidates": [],
-   "count": 0,
-   "error": str(exc),
-  }
-
  parsed = urllib.parse.urlparse(url)
  params = list(dict(urllib.parse.parse_qsl(parsed.query)).keys())
  if not params:
