@@ -158,15 +158,20 @@ async def run(
         cmd.extend(["-templates", templates_dir])
 
     try:
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.DEVNULL,
-        )
-        stdout, returncode = await asyncio.wait_for(
-            _collect_process_output(proc),
-            timeout=300,
-        )
+        # Nuclei performs its own network I/O and cannot acquire one shared
+        # transport slot per request. Reserve the assessment's full HTTP
+        # concurrency budget while it runs so other TALISMAN modules cannot
+        # silently add traffic beyond the operator's configured concurrency.
+        async with scope.exclusive_request_activity():
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            stdout, returncode = await asyncio.wait_for(
+                _collect_process_output(proc),
+                timeout=300,
+            )
         if returncode not in (0, 1):
             return {
                 "target": target,
