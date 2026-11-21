@@ -413,3 +413,15 @@ def test_false_restrictions_mapping_is_rejected(tmp_path):
     with pytest.raises(ValueError, match="restrictions.*mapping"):
         ScopeConfig.from_file(scope_file)
 
+def test_scope_config_rejects_symlinked_scope_file(tmp_path):
+    scope_file = tmp_path / "scope.yaml"
+    scope_file.write_text("include:\n  - example.com\n", encoding="utf-8")
+    link = tmp_path / "scope-link.yaml"
+    try:
+        link.symlink_to(scope_file)
+    except OSError:
+        pytest.skip("symlinks are not available on this platform")
+
+    with pytest.raises(ValueError, match="must not be a symbolic link"):
+        ScopeConfig.from_file(link)
+

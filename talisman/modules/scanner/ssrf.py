@@ -275,7 +275,6 @@ async def _test_ssrf_param(
       "request": f"POST {url}\n{param}={urllib.parse.quote(target_url)}",
       "response_snippet": r2.text[:500],
      }
- 
 
   except Exception as e:
    log.debug("ssrf_test", param=param, target=target_url[:40], error=str(e)[:60])
