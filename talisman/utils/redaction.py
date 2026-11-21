@@ -8,55 +8,55 @@ MAX_REDACTION_INPUT_CHARS = 2_000_000
 
 _PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (
-        re.compile(r"(?im)(\\bauthorization\\s*:\\s*(?:bearer|basic)\\s+)[^\\s,;]+"),
-        r"\\1[REDACTED]",
+        re.compile(r"(?im)(\bauthorization\s*:\s*(?:bearer|basic)\s+)[^\s,;]+"),
+        r"\1[REDACTED]",
     ),
     (
-        re.compile(r"(?im)(\\b(?:proxy-authorization)\\s*:\\s*)[^\\r\\n]+"),
-        r"\\1[REDACTED]",
+        re.compile(r"(?im)(\b(?:proxy-authorization)\s*:\s*)[^\r\n]+"),
+        r"\1[REDACTED]",
     ),
     (
-        re.compile(r"(?im)(\\b(?:cookie|set-cookie)\\s*:\\s*)[^\\r\\n]+"),
-        r"\\1[REDACTED]",
+        re.compile(r"(?im)(\b(?:cookie|set-cookie)\s*:\s*)[^\r\n]+"),
+        r"\1[REDACTED]",
     ),
     (
         re.compile(
-            r"(?i)([?&](?:access_token|refresh_token|id_token|client_secret|api[_-]?key|apikey|secret|password|passwd|token|jwt|session)=)[^&#\\s]+"
+            r"(?i)([?&](?:access_token|refresh_token|id_token|client_secret|api[_-]?key|apikey|secret|password|passwd|token|jwt|session)=)[^&#\s]+"
         ),
-        r"\\1[REDACTED]",
+        r"\1[REDACTED]",
     ),
     (
         re.compile(
-            r"""(?i)((?:api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|secret|password|passwd|pwd|token|jwt)\\s*[=:]\\s*["']?)[^"'\\s&,;]+"""
+            r"""(?i)((?:api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|secret|password|passwd|pwd|token|jwt)\s*[=:]\s*["']?)[^"'\s&,;]+"""
         ),
-        r"\\1[REDACTED]",
+        r"\1[REDACTED]",
     ),
     (
-        re.compile(r"(?i)((?:https?|postgres(?:ql)?|mysql|mongodb(?:\\+srv)?|redis)://[^:/\\s]+:)[^@/\\s]+(@)"),
-        r"\\1[REDACTED]\\2",
+        re.compile(r"(?i)((?:https?|postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis)://[^:/\s]+:)[^@/\s]+(@)"),
+        r"\1[REDACTED]\2",
     ),
     (
         re.compile(
-            r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----[\\s\\S]*?-----END (?:RSA |EC |OPENSSH )?PRIVATE KEY-----",
+            r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----[\s\S]*?-----END (?:RSA |EC |OPENSSH )?PRIVATE KEY-----",
             re.IGNORECASE,
         ),
         "[PRIVATE KEY REDACTED]",
     ),
     (
-        re.compile(r"-----BEGIN PGP PRIVATE KEY BLOCK-----[\\s\\S]*?-----END PGP PRIVATE KEY BLOCK-----", re.IGNORECASE),
+        re.compile(r"-----BEGIN PGP PRIVATE KEY BLOCK-----[\s\S]*?-----END PGP PRIVATE KEY BLOCK-----", re.IGNORECASE),
         "[PGP PRIVATE KEY REDACTED]",
     ),
-    (re.compile(r"\\bAKIA[0-9A-Z]{16}\\b"), "[AWS_ACCESS_KEY_REDACTED]"),
-    (re.compile(r"\\b(?:ghp|ghs|ghu)_[A-Za-z0-9]{30,}\\b"), "[GITHUB_TOKEN_REDACTED]"),
-    (re.compile(r"\\bgithub_pat_[A-Za-z0-9_]{40,}\\b"), "[GITHUB_TOKEN_REDACTED]"),
-    (re.compile(r"\\bxox[baprs]-[0-9A-Za-z-]{10,}\\b"), "[SLACK_TOKEN_REDACTED]"),
-    (re.compile(r"\\bsk_(?:live|test)_[A-Za-z0-9]{16,}\\b"), "[STRIPE_SECRET_REDACTED]"),
-    (re.compile(r"\\bsk-ant-[A-Za-z0-9_-]{20,}\\b"), "[ANTHROPIC_KEY_REDACTED]"),
-    (re.compile(r"\\bSG\\.[A-Za-z0-9_-]{20,}\\.[A-Za-z0-9_-]{30,}\\b"), "[SENDGRID_KEY_REDACTED]"),
-    (re.compile(r"\\bwhsec_[A-Za-z0-9]{24,}\\b"), "[WEBHOOK_SECRET_REDACTED]"),
-    (re.compile(r"\\bya29\\.[A-Za-z0-9_-]{20,}\\b"), "[OAUTH_TOKEN_REDACTED]"),
+    (re.compile(r"\bAKIA[0-9A-Z]{16}\b"), "[AWS_ACCESS_KEY_REDACTED]"),
+    (re.compile(r"\b(?:ghp|ghs|ghu)_[A-Za-z0-9]{30,}\b"), "[GITHUB_TOKEN_REDACTED]"),
+    (re.compile(r"\bgithub_pat_[A-Za-z0-9_]{40,}\b"), "[GITHUB_TOKEN_REDACTED]"),
+    (re.compile(r"\bxox[baprs]-[0-9A-Za-z-]{10,}\b"), "[SLACK_TOKEN_REDACTED]"),
+    (re.compile(r"\bsk_(?:live|test)_[A-Za-z0-9]{16,}\b"), "[STRIPE_SECRET_REDACTED]"),
+    (re.compile(r"\bsk-ant-[A-Za-z0-9_-]{20,}\b"), "[ANTHROPIC_KEY_REDACTED]"),
+    (re.compile(r"\bSG\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{30,}\b"), "[SENDGRID_KEY_REDACTED]"),
+    (re.compile(r"\bwhsec_[A-Za-z0-9]{24,}\b"), "[WEBHOOK_SECRET_REDACTED]"),
+    (re.compile(r"\bya29\.[A-Za-z0-9_-]{20,}\b"), "[OAUTH_TOKEN_REDACTED]"),
     (
-        re.compile(r"\\beyJ[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}\\b"),
+        re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b"),
         "[JWT_REDACTED]",
     ),
 )
@@ -79,7 +79,7 @@ def redact_sensitive_text(value: str, *, max_chars: int = MAX_REDACTION_INPUT_CH
         text = pattern.sub(replacement, text)
 
     if truncated:
-        text += "\\n[TRUNCATED: redaction input exceeded configured size limit]"
+        text += "\n[TRUNCATED: redaction input exceeded configured size limit]"
     return text
 
 
