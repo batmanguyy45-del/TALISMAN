@@ -4,6 +4,7 @@ import asyncio
 import importlib
 import inspect
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -122,6 +123,13 @@ def register_plugins_to_registry(module_registry_map: dict[str, str]) -> dict[st
     Returns an updated copy of the registry map with plugin entries added.
     """
     updated = dict(module_registry_map)
+    if os.environ.get("TALISMAN_ENABLE_UNTRUSTED_PLUGINS", "").strip().lower() not in {"1", "true", "yes"}:
+        log.warning(
+            "plugin_autoload_disabled",
+            message="Community plugins are untrusted code. Set TALISMAN_ENABLE_UNTRUSTED_PLUGINS=1 only after reviewing installed plugins."
+        )
+        return updated
+
     plugins = discover_plugins()
 
     for plugin_name, info in plugins.items():
