@@ -156,7 +156,7 @@ async def test_host_header_is_available_for_authorized_host_header_testing():
 
 def test_header_injection_is_rejected():
     with pytest.raises(ValueError):
-        TalismanHTTPClient(headers={"X-Test": "ok\\r\\nInjected: yes"})
+        TalismanHTTPClient(headers={"X-Test": "ok\r\nInjected: yes"})
 
 
 @pytest.mark.asyncio
