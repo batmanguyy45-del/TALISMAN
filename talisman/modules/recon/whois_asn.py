@@ -19,7 +19,7 @@ async def run(
  console.print(f"\n[module][+] WHOIS/ASN[/module] -> [target]{domain}[/target]")
  result: dict[str, Any] = {"domain": domain}
 
- async with TalismanHTTPClient(proxy=proxy, timeout=15) as client:
+ async with TalismanHTTPClient(proxy=proxy, timeout=15, scope_exempt=True) as client:
   try:
    r = await client.get(f"https://ipinfo.io/{domain}/json", timeout=10)
    if r.status_code == 200:
