@@ -320,7 +320,7 @@ def test_internal_ssrf_probe_setting_rejects_string_boolean(tmp_path):
 def test_max_concurrent_requests_is_validated_from_scope_file(tmp_path):
     scope_file = tmp_path / "scope.yaml"
     scope_file.write_text(
-        "include:\\n  - example.com\\nrestrictions:\\n  max_concurrent_requests: 3\\n",
+        "include:\n  - example.com\nrestrictions:\n  max_concurrent_requests: 3\n",
         encoding="utf-8",
     )
     config = ScopeConfig.from_file(scope_file)
@@ -328,8 +328,8 @@ def test_max_concurrent_requests_is_validated_from_scope_file(tmp_path):
 
     for value in ("3", "true", "0", "21"):
         scope_file.write_text(
-            "include:\\n  - example.com\\nrestrictions:\\n"
-            f"  max_concurrent_requests: {value}\\n",
+            "include:\n  - example.com\nrestrictions:\n"
+            f"  max_concurrent_requests: {value}\n",
             encoding="utf-8",
         )
         with pytest.raises(ValueError, match="max_concurrent_requests"):
