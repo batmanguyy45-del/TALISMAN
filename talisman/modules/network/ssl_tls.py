@@ -103,9 +103,13 @@ async def run(
         return {"target": target, "findings": [], "count": 0, "error": "invalid_target"}
 
     port = parsed.port or 443
+    # This module opens a TLS socket, regardless of the input URL scheme.
+    # Enforce scope against the actual HTTPS destination rather than an
+    # http:// URL that would otherwise be validated as port 80.
+    tls_destination = parsed._replace(scheme="https").geturl()
     try:
         async with scope.request_concurrency_slot():
-            addresses = await scope.resolve_network_destination(url, "GET")
+            addresses = await scope.resolve_network_destination(tls_destination, "GET")
             await scope.acquire_request_slot()
             connect_ip = str(addresses[0])
             info = await asyncio.to_thread(_get_cert_info, host, connect_ip, port)
