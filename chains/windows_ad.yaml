@@ -1,6 +1,6 @@
 name: windows_ad
 version: "1.0"
-description: "Active Directory security assessment — LDAP enum, Kerberoasting, SMB, AS-REP"
+description: "Active Directory assessment placeholder — direct LDAP, Kerberos and SMB transports are disabled until scope-safe implementations are available"
 tags: [activedirectory, windows, kerberos, smb]
 rate_profile: stealth
 
@@ -9,13 +9,6 @@ steps:
     module: ad.recon
     args:
       collect: [users, groups, computers, spns, asrep]
-
-  - id: kerberos_attacks
-    module: ad.kerberos
-    depends_on: [ad_recon]
-    args:
-      kerberoast: true
-      asreproast: true
 
   - id: smb_audit
     module: ad.smb
