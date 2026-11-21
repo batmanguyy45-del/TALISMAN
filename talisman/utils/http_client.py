@@ -11,7 +11,7 @@ from urllib.parse import urljoin
 
 import httpx
 
-from talisman.engine.scope import ScopeEnforcer, get_active_scope
+from talisman.engine.scope import ScopeEnforcer, ScopeViolationError, get_active_scope
 from talisman.utils.logger import get_logger
 
 log = get_logger(__name__)
@@ -196,10 +196,14 @@ class TalismanHTTPClient:
                 await asyncio.sleep(delay)
             self._last_request_time = time.monotonic()
 
-    def _assert_allowed(self, url: str, method: str) -> None:
+    def _assert_allowed(self, url: str, method: str) -> ScopeEnforcer:
         scope = self.scope or get_active_scope()
-        if scope is not None:
-            scope.assert_request_allowed(url, method)
+        if scope is None:
+            raise ScopeViolationError(
+                "HTTP request blocked: no active target scope. Invoke the scanner through an authorized assessment or pass ScopeEnforcer explicitly."
+            )
+        scope.assert_request_allowed(url, method)
+        return scope
 
     async def request(
         self,
@@ -227,15 +231,13 @@ class TalismanHTTPClient:
         current_url = url
         current_params = params
         for redirect_index in range(self.max_redirects + 1):
-            self._assert_allowed(current_url, method)
+            active_scope = self._assert_allowed(current_url, method)
             attempts = self.max_retries if method in SAFE_REDIRECT_METHODS else 1
             last_exc: Exception | None = None
             response: httpx.Response | None = None
 
             for attempt in range(attempts):
-                active_scope = self.scope or get_active_scope()
-                if active_scope is not None:
-                    await active_scope.acquire_request_slot()
+                await active_scope.acquire_request_slot()
                 await self._enforce_rate_limit()
                 try:
                     response = await self._client.request(
@@ -286,7 +288,7 @@ class TalismanHTTPClient:
 
             next_url = urljoin(str(response.url), location)
             # Check scope before the next connection; never delegate this to httpx.
-            self._assert_allowed(next_url, method)
+            active_scope = self._assert_allowed(next_url, method)
             old_origin = httpx.URL(str(response.url))
             new_origin = httpx.URL(next_url)
             if (old_origin.scheme, old_origin.host, old_origin.port) != (
@@ -331,7 +333,12 @@ class TalismanHTTPClient:
         return {"requests": self._request_count, "errors": self._error_count}
 
 
-async def fetch(url: str, method: str = "GET", **kwargs: Any) -> httpx.Response:
-    """One-shot request helper."""
-    async with TalismanHTTPClient() as client:
+async def fetch(
+    url: str,
+    method: str = "GET",
+    scope: ScopeEnforcer | None = None,
+    **kwargs: Any,
+) -> httpx.Response:
+    """One-shot request helper; requires an explicit or active assessment scope."""
+    async with TalismanHTTPClient(scope=scope) as client:
         return await client.request(method, url, **kwargs)
