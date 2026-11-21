@@ -9,6 +9,20 @@ from talisman.engine.scope import ScopeConfig, ScopeEnforcer
 from talisman.modules.scanner import nuclei_runner
 
 
+def _active_scope(rate: float = 2.0) -> ScopeEnforcer:
+    """Nuclei execution requires explicit authorization for state-changing templates."""
+    return ScopeEnforcer(
+        ScopeConfig(
+            include=["example.com"],
+            service_allowlist=[],
+            max_requests_per_second=rate,
+            allow_state_changing_requests=True,
+            avoid_writes=False,
+            avoid_destructive=False,
+        )
+    )
+
+
 @pytest.mark.asyncio
 async def test_nuclei_requires_scope_before_checking_binary(monkeypatch):
     def should_not_check_binary(*args, **kwargs):
@@ -21,9 +35,7 @@ async def test_nuclei_requires_scope_before_checking_binary(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_nuclei_receives_safe_flags_and_discards_out_of_scope_results(monkeypatch):
-    scope = ScopeEnforcer(
-        ScopeConfig(include=["example.com"], service_allowlist=[])
-    )
+    scope = _active_scope()
     monkeypatch.setattr(nuclei_runner.shutil, "which", lambda _: "/usr/bin/nuclei")
 
     class FakeStream:
@@ -116,9 +128,7 @@ async def test_nuclei_out_of_scope_target_is_blocked_before_process_launch(monke
 
 @pytest.mark.asyncio
 async def test_nuclei_output_is_bounded_and_process_is_killed_on_limit(monkeypatch):
-    scope = ScopeEnforcer(
-        ScopeConfig(include=["example.com"], service_allowlist=[])
-    )
+    scope = _active_scope()
     monkeypatch.setattr(nuclei_runner.shutil, "which", lambda _: "/usr/bin/nuclei")
     monkeypatch.setattr(nuclei_runner, "MAX_NUCLEI_OUTPUT_BYTES", 32)
 
@@ -173,6 +183,9 @@ async def test_nuclei_skips_when_configured_rate_is_below_its_minimum(monkeypatc
             include=["example.com"],
             service_allowlist=[],
             max_requests_per_second=0.5,
+            allow_state_changing_requests=True,
+            avoid_writes=False,
+            avoid_destructive=False,
         )
     )
 
@@ -187,3 +200,24 @@ async def test_nuclei_skips_when_configured_rate_is_below_its_minimum(monkeypatc
 
     assert result["skipped"] is True
     assert "below 1 request/second" in result["reason"]
+
+
+
+@pytest.mark.asyncio
+async def test_nuclei_requires_explicit_destructive_permission_before_binary_lookup(monkeypatch):
+    scope = ScopeEnforcer(
+        ScopeConfig(include=["example.com"], service_allowlist=[])
+    )
+
+    def should_not_lookup_binary(*args, **kwargs):
+        raise AssertionError("Nuclei must not be inspected or launched without destructive permission")
+
+    monkeypatch.setattr(nuclei_runner.shutil, "which", should_not_lookup_binary)
+    result = await nuclei_runner.run(
+        target="https://example.com",
+        scope=scope,
+    )
+
+    assert result["skipped"] is True
+    assert result["findings"] == []
+    assert "Explicit destructive-scope permission is required" in result["reason"]
