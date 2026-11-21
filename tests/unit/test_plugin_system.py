@@ -5,7 +5,13 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
+from talisman.engine.scope import ScopeConfig, ScopeEnforcer
+
 COMMUNITY_PLUGIN_DIR = Path("talisman/plugins/community/example_scanner")
+
+
+def _plugin_scope() -> ScopeEnforcer:
+    return ScopeEnforcer(ScopeConfig(include=["test.com"], service_allowlist=[]))
 
 
 @pytest.mark.asyncio
@@ -52,7 +58,11 @@ async def test_plugin_base_run_method(tmp_path):
             resp.headers = {"X-Content-Type-Options": ""}
             mock_instance.get = AsyncMock(return_value=resp)
 
-            result = await instance.run(target="http://test.com", session=session)
+            result = await instance.run(
+                target="http://test.com",
+                session=session,
+                scope=_plugin_scope(),
+            )
             assert isinstance(result, dict)
             assert "findings" in result
             assert result["count"] > 0
@@ -78,7 +88,7 @@ async def test_plugin_base_run_no_finding_when_header_present(tmp_path):
             resp.headers = {"X-Content-Type-Options": "nosniff"}
             mock_instance.get = AsyncMock(return_value=resp)
 
-            result = await instance.run(target="http://test.com")
+            result = await instance.run(target="http://test.com", scope=_plugin_scope())
             assert isinstance(result, dict)
             assert result["count"] == 0
     finally:

@@ -64,7 +64,7 @@ async def test_nuclei_receives_safe_flags_and_discards_out_of_scope_results(monk
                 },
             ]
             self.stdout = FakeStream(
-                ("\\n".join(json.dumps(item) for item in output)).encode()
+                ("\n".join(json.dumps(item) for item in output)).encode()
             )
             self.killed = False
 

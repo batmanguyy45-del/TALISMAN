@@ -528,7 +528,7 @@ class TestMassAssignment:
 
 class TestDatabaseExposureRedisProbe:
     @pytest.mark.asyncio
-    async def test_redis_probe_sends_a_real_crlf_terminated_info_command(monkeypatch):
+    async def test_redis_probe_sends_a_real_crlf_terminated_info_command(self, monkeypatch):
         import talisman.modules.misconfiguration.database_exposure as module
 
         sent = []
