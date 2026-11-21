@@ -74,6 +74,19 @@ async def run(
     except ScopeViolationError as exc:
         return {"target": target, "findings": [], "count": 0, "error": str(exc)}
 
+    configured_rate = float(scope.config.max_requests_per_second)
+    if configured_rate < 1.0:
+        return {
+            "target": target,
+            "findings": [],
+            "count": 0,
+            "skipped": True,
+            "reason": (
+                "Nuclei only accepts an integer requests-per-second limit and "
+                "cannot honor a scope ceiling below 1 request/second."
+            ),
+        }
+
     nuclei_bin = shutil.which("nuclei")
     if not nuclei_bin:
         console.print(
@@ -112,7 +125,8 @@ async def run(
     # Do not inherit implicit active scans from the Nuclei defaults.
     # Redirects, intrusive templates, high concurrency and failed-request
     # retries are disabled/bounded explicitly here.
-    request_rate = max(1, int(scope.config.max_requests_per_second))
+    request_rate = int(configured_rate)
+    request_concurrency = min(5, int(scope.config.max_concurrent_requests))
     cmd = [
         nuclei_bin,
         "-target",
@@ -129,7 +143,7 @@ async def run(
         "-rate-limit",
         str(request_rate),
         "-concurrency",
-        "5",
+        str(request_concurrency),
         "-retries",
         "0",
         "-timeout",
