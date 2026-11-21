@@ -3,6 +3,8 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from talisman.engine.scope import ScopeViolationError
 from typing import Any, AsyncGenerator
 
 @dataclass
@@ -60,11 +62,37 @@ class ScannerPlugin(ABC):
   proxy: str | None = None,
   **kwargs: Any,
  ) -> dict[str, Any]:
-  """Standard module interface."""
+  """Standard module interface for an explicitly scoped assessment."""
   from talisman.utils.http_client import TalismanHTTPClient
+
+  if scope is None:
+   return {
+    "target": target,
+    "findings": [],
+    "count": 0,
+    "error": "scope_enforcer_required",
+   }
+  try:
+   scope.assert_in_scope(target)
+   if self.destructive:
+    scope.assert_destructive_allowed(target, "POST")
+  except ScopeViolationError as exc:
+   return {
+    "target": target,
+    "findings": [],
+    "count": 0,
+    "skipped": True,
+    "reason": str(exc),
+   }
+
   findings: list[Finding] = []
-  async with TalismanHTTPClient(proxy=proxy) as client:
-   async for finding in self.check(target, {}, client, kwargs):
+  async with TalismanHTTPClient(
+   proxy=proxy,
+   scope=scope,
+   verify_ssl=True,
+   follow_redirects=False,
+  ) as client:
+   async for finding in self.check(target, {"scope": scope}, client, kwargs):
     findings.append(finding)
     if session:
      await session.add_finding(
