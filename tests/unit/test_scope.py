@@ -402,3 +402,14 @@ async def test_exclusive_network_activity_blocks_http_request_slots():
     release_exclusive.set()
     await asyncio.gather(scanner_task, request_task)
     assert request_entered.is_set()
+
+def test_false_restrictions_mapping_is_rejected(tmp_path):
+    scope_file = tmp_path / "scope.yaml"
+    scope_file.write_text(
+        "include:\\n  - example.com\\nrestrictions: false\\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="restrictions.*mapping"):
+        ScopeConfig.from_file(scope_file)
+

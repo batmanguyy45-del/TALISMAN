@@ -159,6 +159,8 @@ class ScopeConfig:
 
     @classmethod
     def from_file(cls, path: Path) -> ScopeConfig:
+        if path.is_symlink():
+            raise ValueError("Scope file must not be a symbolic link")
         with path.open(encoding="utf-8") as handle:
             data = yaml.safe_load(handle) or {}
         if not isinstance(data, dict):
@@ -172,7 +174,9 @@ class ScopeConfig:
             data.get("service_allowlist", list(DEFAULT_SERVICE_HOSTS)),
             "service_allowlist",
         )
-        restrictions = data.get("restrictions") or {}
+        restrictions = data.get("restrictions", {})
+        if restrictions is None:
+            restrictions = {}
         if not isinstance(restrictions, dict):
             raise ValueError("Scope field 'restrictions' must be a mapping")
 

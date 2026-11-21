@@ -36,3 +36,19 @@ def test_no_scope_file_uses_exact_target_scope():
     config = _load_scope_config("https://example.com", None)
 
     assert config.include == ["example.com"]
+
+def test_explicit_scope_symlink_is_rejected(tmp_path):
+    target_scope = tmp_path / "actual-scope.yaml"
+    target_scope.write_text(
+        "include:\\n  - example.com\\n",
+        encoding="utf-8",
+    )
+    linked_scope = tmp_path / "scope-link.yaml"
+    try:
+        linked_scope.symlink_to(target_scope)
+    except OSError:
+        pytest.skip("symlinks are not available on this platform")
+
+    with pytest.raises(ValueError, match="must not be a symbolic link"):
+        _load_scope_config("example.com", linked_scope)
+

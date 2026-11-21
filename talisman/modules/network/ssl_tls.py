@@ -97,16 +97,23 @@ async def run(
         }
 
     url = target if "://" in target else f"https://{target}"
-    parsed = urlsplit(url)
-    host = parsed.hostname
-    if parsed.scheme not in {"http", "https"} or not host:
-        return {"target": target, "findings": [], "count": 0, "error": "invalid_target"}
-
-    port = parsed.port or 443
-    # This module opens a TLS socket, regardless of the input URL scheme.
-    # Enforce scope against the actual HTTPS destination rather than an
-    # http:// URL that would otherwise be validated as port 80.
-    tls_destination = parsed._replace(scheme="https").geturl()
+    try:
+        parsed = urlsplit(url)
+        host = parsed.hostname
+        if parsed.scheme not in {"http", "https"} or not host:
+            return {"target": target, "findings": [], "count": 0, "error": "invalid_target"}
+        port = parsed.port or 443
+        # This module opens a TLS socket, regardless of the input URL scheme.
+        # Enforce scope against the actual HTTPS destination rather than an
+        # http:// URL that would otherwise be validated as port 80.
+        tls_destination = parsed._replace(scheme="https").geturl()
+    except ValueError as exc:
+        return {
+            "target": target,
+            "findings": [],
+            "count": 0,
+            "error": f"invalid_target: {exc}",
+        }
     try:
         async with scope.request_concurrency_slot():
             addresses = await scope.resolve_network_destination(tls_destination, "GET")

@@ -37,3 +37,18 @@ async def test_tls_audit_does_not_use_https_when_scope_only_allows_http(monkeypa
     assert attempted_socket == []
     assert result["findings"] == []
     assert result["error"]
+
+@pytest.mark.asyncio
+async def test_tls_audit_returns_error_for_out_of_range_url_port():
+    scope = ScopeEnforcer(
+        ScopeConfig(include=["example.com"], service_allowlist=[])
+    )
+
+    result = await ssl_tls.run(
+        target="https://example.com:99999",
+        scope=scope,
+    )
+
+    assert result["findings"] == []
+    assert result["error"].startswith("invalid_target:")
+

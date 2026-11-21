@@ -80,6 +80,8 @@ def _load_scope_config(target: str, scope_file: Optional[Path]) -> ScopeConfig:
  missing or invalid scope file with a broader default target configuration.
  """
  if scope_file is not None:
+  if scope_file.is_symlink():
+   raise ValueError(f"Scope file must not be a symbolic link: {scope_file}")
   if not scope_file.exists():
    raise FileNotFoundError(f"Scope file does not exist: {scope_file}")
   if not scope_file.is_file():
