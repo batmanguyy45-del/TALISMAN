@@ -317,8 +317,6 @@ async def run(
    f"(monitor for callbacks — NOT auto-reported)"
   )
 
- findings: list[dict[str, Any]] = []
-
  parsed = urllib.parse.urlparse(url)
  existing_params = list(dict(urllib.parse.parse_qsl(parsed.query)).keys())
  params_to_test = list(dict.fromkeys(existing_params + COMMON_SSRF_PARAMS[:15]))
