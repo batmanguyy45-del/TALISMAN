@@ -26,59 +26,60 @@ async def _check_grpc_port(
     host: str, port: int, use_tls: bool, scope: Any, request_url: str
 ) -> dict[str, Any]:
     """Check if a scoped port speaks the HTTP/2 preface used by gRPC."""
-    addresses = await scope.resolve_network_destination(request_url, "GET")
-    await scope.acquire_request_slot()
-    connect_ip = str(addresses[0])
-    result: dict[str, Any] = {
-        "port": port,
-        "tls": use_tls,
-        "reachable": False,
-        "resolved_ip": connect_ip,
-    }
-    try:
-        reader: asyncio.StreamReader
-        writer: asyncio.StreamWriter
-        if use_tls:
-            ctx = ssl.create_default_context()
-            reader, writer = await asyncio.wait_for(
-                asyncio.open_connection(
-                    connect_ip,
-                    port,
-                    ssl=ctx,
-                    server_hostname=host,
-                ),
-                timeout=5,
-            )
-        else:
-            reader, writer = await asyncio.wait_for(
-                asyncio.open_connection(connect_ip, port), timeout=5
-            )
-
-        # Send a minimal HTTP/2 preface to check if it's gRPC
-        # gRPC requires HTTP/2, but for basic detection we try the content-type
-        writer.write(b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n")
-        await writer.drain()
+    async with scope.request_concurrency_slot():
+        addresses = await scope.resolve_network_destination(request_url, "GET")
+        await scope.acquire_request_slot()
+        connect_ip = str(addresses[0])
+        result: dict[str, Any] = {
+            "port": port,
+            "tls": use_tls,
+            "reachable": False,
+            "resolved_ip": connect_ip,
+        }
         try:
-            data = await asyncio.wait_for(reader.read(1024), timeout=3)
-            result["reachable"] = True
-            result["response_preview"] = data[:100].hex()
-            if b"grpc" in data.lower() or b"content-type" in data.lower():
-                result["likely_grpc"] = True
-        except asyncio.TimeoutError:
-            result["reachable"] = True
-            result["response_preview"] = "timeout_no_data"
-        finally:
-            writer.close()
+            reader: asyncio.StreamReader
+            writer: asyncio.StreamWriter
+            if use_tls:
+                ctx = ssl.create_default_context()
+                reader, writer = await asyncio.wait_for(
+                    asyncio.open_connection(
+                        connect_ip,
+                        port,
+                        ssl=ctx,
+                        server_hostname=host,
+                    ),
+                    timeout=5,
+                )
+            else:
+                reader, writer = await asyncio.wait_for(
+                    asyncio.open_connection(connect_ip, port), timeout=5
+                )
+
+            # Send a minimal HTTP/2 preface to check if it's gRPC
+            # gRPC requires HTTP/2, but for basic detection we try the content-type
+            writer.write(b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n")
+            await writer.drain()
             try:
-                await writer.wait_closed()
-            except Exception:
-                pass
-    except (ConnectionRefusedError, asyncio.TimeoutError, ssl.SSLError, OSError):
-        result["reachable"] = False
-    except Exception as e:
-        result["reachable"] = False
-        result["error"] = str(e)[:100]
-    return result
+                data = await asyncio.wait_for(reader.read(1024), timeout=3)
+                result["reachable"] = True
+                result["response_preview"] = data[:100].hex()
+                if b"grpc" in data.lower() or b"content-type" in data.lower():
+                    result["likely_grpc"] = True
+            except asyncio.TimeoutError:
+                result["reachable"] = True
+                result["response_preview"] = "timeout_no_data"
+            finally:
+                writer.close()
+                try:
+                    await writer.wait_closed()
+                except Exception:
+                    pass
+        except (ConnectionRefusedError, asyncio.TimeoutError, ssl.SSLError, OSError):
+            result["reachable"] = False
+        except Exception as e:
+            result["reachable"] = False
+            result["error"] = str(e)[:100]
+        return result
 
 
 async def _check_health_endpoint(url: str, client: TalismanHTTPClient) -> bool:
@@ -202,34 +203,45 @@ async def run(
                 )
 
     # -- 4. gRPC-web detection ------------------------------------------------------
-    async with TalismanHTTPClient(proxy=proxy, timeout=10, scope=scope) as client:
-        grpc_web_paths = ["/grpc", "/api/grpc", "/grpc-web"]
-        for grpc_path in grpc_web_paths:
-            test_url = url.rstrip("/") + grpc_path
-            try:
-                r = await client.post(
-                    test_url,
-                    headers={"Content-Type": "application/grpc-web-text"},
-                    data="AAAAAAA=",
-                    timeout=5,
-                )
-                if r.status_code not in (404, 405):
-                    body_lower = r.text.lower()
-                    if "grpc" in body_lower or r.status_code == 200:
-                        print_finding(f"gRPC-Web endpoint detected at {grpc_path}", "info", test_url)
-                        findings.append({"issue": "grpc_web_detected", "path": grpc_path})
-                        if session:
-                            await session.add_finding(
-                                target=test_url, module="grpc",
-                                vuln_type="grpc_web_detected",
-                                severity="info", confidence="confirmed",
-                                title=f"gRPC-Web endpoint at {grpc_path}",
-                                description="gRPC-Web endpoint found. May expose backend services to browser-based attacks if not properly secured.",
-                                remediation="Ensure gRPC-Web endpoints use authentication and proper CORS configuration.",
-                                cwe="CWE-200",
-                            )
-            except Exception:
-                pass
+    # This probe sends POST to guessed RPC paths. It is not part of a
+    # read-only assessment and must pass the separate destructive-probe gate.
+    try:
+        scope.assert_destructive_allowed(url, "POST")
+    except ScopeViolationError:
+        console.print("  [dim]gRPC-Web POST probes skipped: destructive testing is disabled[/dim]")
+    else:
+        async with TalismanHTTPClient(proxy=proxy, timeout=10, scope=scope) as client:
+            grpc_web_paths = ["/grpc", "/api/grpc", "/grpc-web"]
+            for grpc_path in grpc_web_paths:
+                test_url = url.rstrip("/") + grpc_path
+                try:
+                    r = await client.post(
+                        test_url,
+                        headers={"Content-Type": "application/grpc-web-text"},
+                        data="AAAAAAA=",
+                        timeout=5,
+                    )
+                    if r.status_code not in (404, 405):
+                        body_lower = r.text.lower()
+                        if "grpc" in body_lower or r.status_code == 200:
+                            print_finding(f"gRPC-Web endpoint detected at {grpc_path}", "info", test_url)
+                            findings.append({"issue": "grpc_web_detected", "path": grpc_path})
+                            if session:
+                                await session.add_finding(
+                                    target=test_url, module="grpc",
+                                    vuln_type="grpc_web_detected",
+                                    severity="info", confidence="candidate",
+                                    title=f"gRPC-Web endpoint at {grpc_path}",
+                                    description=(
+                                        "A response was received from a guessed gRPC-Web path. "
+                                        "This indicates a possible gRPC-Web endpoint; verify the "
+                                        "service protocol and authorization before reporting."
+                                    ),
+                                    remediation="Ensure gRPC-Web endpoints use authentication and proper CORS configuration.",
+                                    cwe="CWE-200",
+                                )
+                except Exception:
+                    pass
 
     console.print(f"  gRPC scanning complete -- {len(findings)} issues")
     return {"target": host, "discovered_ports": discovered_ports, "findings": findings, "count": len(findings)}
