@@ -524,3 +524,48 @@ class TestMassAssignment:
             respx.put("/").respond(200, text='{"role":"admin"}')
             r = await m.run(target="http://test.com/")
         assert isinstance(r, dict)
+
+
+class TestDatabaseExposureRedisProbe:
+    @pytest.mark.asyncio
+    async def test_redis_probe_sends_a_real_crlf_terminated_info_command(monkeypatch):
+        import talisman.modules.misconfiguration.database_exposure as module
+
+        sent = []
+
+        class FakeSocket:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, traceback):
+                return False
+
+            def settimeout(self, timeout):
+                pass
+
+            def sendall(self, payload):
+                sent.append(payload)
+
+            def recv(self, size):
+                return b"# Server\nredis_version:7.2.0\n"
+
+        monkeypatch.setattr(
+            module.socket,
+            "create_connection",
+            lambda address, timeout: FakeSocket(),
+        )
+
+        async def immediate_to_thread(function, *args, **kwargs):
+            return function(*args, **kwargs)
+
+        async def no_wait_for_rate_slot():
+            return None
+
+        monkeypatch.setattr(module.asyncio, "to_thread", immediate_to_thread)
+        scope = _test_scope()
+        monkeypatch.setattr(scope, "acquire_request_slot", no_wait_for_rate_slot)
+
+        result = await module._test_redis("test.com", 6379, scope)
+
+        assert result is not None
+        assert sent == [b"INFO server\r\n"]
