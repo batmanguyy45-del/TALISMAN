@@ -11,6 +11,7 @@ or Microsoft-related HTML snippets).
 from __future__ import annotations
 import asyncio
 import re
+from urllib.parse import urlsplit
 from typing import Any
 
 from talisman.engine.scope import ScopeViolationError
@@ -110,6 +111,7 @@ async def run(
    return {"target": url, "findings": [], "count": 0, "error": str(exc)}
  console.print(f"\n[module][+] XXE Scanner[/module] -> [target]{url}[/target]")
  findings: list[dict[str, Any]] = []
+ candidates: list[dict[str, Any]] = []
 
  oast_client: OASTClient | None = None
  oast_token: str | None = None
@@ -117,7 +119,8 @@ async def run(
  if oast_domain:
   # Give this scan a unique callback label; never reuse a shared OAST token.
   oast_client = OASTClient(server=oast_domain)
-  oast_token = oast_client.get_payload_url(prefix="xxe").split("/", 3)[2]
+  callback_url = oast_client.get_payload_url(prefix="xxe")
+  oast_token = urlsplit(callback_url).hostname
   oob_payloads = [
    (payload, "application/xml")
    for payload in oast_client.get_xxe_payloads(oast_token)
@@ -198,34 +201,11 @@ async def run(
      "internal resources. A callback alone is not proof of data exfiltration."
     ),
    }
-   findings.append(callback)
-   print_finding("Blind XXE interaction confirmed by unique OAST callback", "high", url)
-   if session:
-    await session.add_finding(
-     target=url,
-     module="xxe",
-     vuln_type="blind_xxe_oast_interaction",
-     severity="high",
-     confidence="confirmed",
-     title="Blind XXE — unique OAST callback received",
-     description=(
-      "The XML endpoint triggered an outbound interaction to a unique, "
-      "per-assessment OAST token. This confirms external entity processing, "
-      "but does not alone establish file disclosure or internal network access."
-     ),
-     evidence=str(callback)[:2000],
-     reproduction=(
-      f"Submit the recorded XML entity payload to {url} using the same "
-      "content type and verify the unique OAST interaction."
-     ),
-     remediation=(
-      "Disable DTD and external entity processing in the XML parser; "
-      "use a parser configuration that rejects external general and "
-      "parameter entities and restricts external resource resolution."
-     ),
-     cwe="CWE-611",
-     extra={"requires_impact_validation": True},
-    )
+   candidates.append(callback)
+   console.print(
+    "  [dim]Unique OAST callback received: external entity resolution "
+    "observed; impact remains unverified[/dim]"
+   )
 
  console.print(
   f" Found {len(findings)} XXE indicators "
@@ -234,7 +214,9 @@ async def run(
  return {
   "target": url,
   "findings": findings,
+  "candidates": candidates,
   "count": len(findings),
+  "candidate_count": len(candidates),
   "oast_callbacks": len(oast_hits),
   "oast_verification_performed": oast_client is not None,
  }
