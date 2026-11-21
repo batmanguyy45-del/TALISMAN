@@ -542,6 +542,24 @@ class ScopeEnforcer:
         finally:
             self._request_semaphore.release()
 
+    @asynccontextmanager
+    async def exclusive_request_activity(self):
+        """Reserve every shared HTTP concurrency slot for an external scanner.
+
+        Used for subprocess scanners that cannot call the shared transport for
+        each individual request. This prevents ordinary TALISMAN HTTP modules
+        from adding traffic while the external scanner runs.
+        """
+        acquired = 0
+        try:
+            while acquired < self.config.max_concurrent_requests:
+                await self._request_semaphore.acquire()
+                acquired += 1
+            yield
+        finally:
+            for _ in range(acquired):
+                self._request_semaphore.release()
+
     async def acquire_request_slot(self) -> None:
         """Apply one shared per-assessment request rate across all HTTP clients."""
         interval = 1.0 / self.config.max_requests_per_second
