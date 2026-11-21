@@ -22,6 +22,27 @@ PLUGIN_DIRS = [
 _plugin_registry: dict[str, dict[str, Any]] = {}
 
 
+def _plugin_path(plugin_name: str) -> Path:
+    """Resolve a plugin path while rejecting traversal and symlink escapes."""
+    if (
+        not isinstance(plugin_name, str)
+        or not plugin_name
+        or plugin_name in {".", ".."}
+        or plugin_name.strip() != plugin_name
+        or "/" in plugin_name
+        or "\\" in plugin_name
+        or "\x00" in plugin_name
+        or Path(plugin_name).is_absolute()
+    ):
+        raise ValueError("Invalid plugin name: use a single directory name, not a path")
+
+    root = (Path.home() / ".talisman" / "plugins").resolve()
+    candidate = root / plugin_name
+    if candidate.resolve(strict=False).parent != root:
+        raise ValueError("Plugin path escapes the plugin directory")
+    return candidate
+
+
 def discover_plugins() -> dict[str, dict[str, Any]]:
     """Scan plugin directories and discover all installed plugins."""
     plugins: dict[str, dict[str, Any]] = {}
@@ -126,6 +147,9 @@ def register_plugins_to_registry(module_registry_map: dict[str, str]) -> dict[st
 
     for plugin_name, info in plugins.items():
         alias = info.get("module_alias", f"plugin.{plugin_name}")
+        if alias in updated:
+            log.warning("plugin_alias_conflict", plugin=plugin_name, alias=alias)
+            continue
         fn = load_plugin(info)
         if fn:
             _plugin_registry[alias] = {"info": info, "run": fn}
@@ -201,9 +225,13 @@ async def search_registry(query: str = "") -> list[dict[str, Any]]:
 
 def install_plugin(plugin_name: str, repo_url: str | None = None) -> dict[str, Any]:
     """Install a plugin from a Git repository or a local path."""
-    target_dir = Path.home() / ".talisman" / "plugins" / plugin_name
-    if target_dir.exists():
+    try:
+        target_dir = _plugin_path(plugin_name)
+    except ValueError as exc:
+        return {"success": False, "error": str(exc)}
+    if target_dir.exists() or target_dir.is_symlink():
         return {"success": False, "error": f"Plugin '{plugin_name}' already installed at {target_dir}"}
+    target_dir.parent.mkdir(parents=True, exist_ok=True)
 
     try:
         if repo_url:
@@ -252,11 +280,17 @@ def install_plugin(plugin_name: str, repo_url: str | None = None) -> dict[str, A
 
 def uninstall_plugin(plugin_name: str) -> dict[str, Any]:
     """Remove an installed plugin."""
-    target_dir = Path.home() / ".talisman" / "plugins" / plugin_name
-    if not target_dir.exists():
+    try:
+        target_dir = _plugin_path(plugin_name)
+    except ValueError as exc:
+        return {"success": False, "error": str(exc)}
+    if not target_dir.exists() and not target_dir.is_symlink():
         return {"success": False, "error": f"Plugin '{plugin_name}' not found"}
     try:
-        shutil.rmtree(target_dir)
+        if target_dir.is_symlink():
+            target_dir.unlink()
+        else:
+            shutil.rmtree(target_dir)
         return {"success": True, "name": plugin_name}
     except Exception as e:
         return {"success": False, "error": str(e)}
