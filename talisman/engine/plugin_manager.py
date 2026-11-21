@@ -11,8 +11,8 @@ import sys
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
-from urllib.parse import urlsplit
 from typing import Any
+from urllib.parse import urlsplit
 
 from talisman.utils.logger import get_logger
 
