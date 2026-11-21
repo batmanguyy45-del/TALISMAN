@@ -14,6 +14,37 @@ from talisman.utils.logger import console, get_logger, print_finding
 log = get_logger(__name__)
 
 EXCLUDED_TEMPLATE_TAGS = "dos,intrusive,fuzz,bruteforce"
+MAX_NUCLEI_OUTPUT_BYTES = 25 * 1024 * 1024
+NUCLEI_OUTPUT_CHUNK_BYTES = 64 * 1024
+
+
+class NucleiOutputLimitError(RuntimeError):
+    """Raised when a Nuclei run exceeds its bounded output budget."""
+
+
+async def _read_bounded_stdout(proc: asyncio.subprocess.Process) -> bytes:
+    """Drain subprocess stdout without allowing unbounded memory growth."""
+    if proc.stdout is None:
+        raise RuntimeError("Nuclei stdout pipe was not created")
+
+    output = bytearray()
+    while True:
+        chunk = await proc.stdout.read(NUCLEI_OUTPUT_CHUNK_BYTES)
+        if not chunk:
+            return bytes(output)
+        if len(output) + len(chunk) > MAX_NUCLEI_OUTPUT_BYTES:
+            raise NucleiOutputLimitError(
+                f"Nuclei output exceeded {MAX_NUCLEI_OUTPUT_BYTES} bytes"
+            )
+        output.extend(chunk)
+
+
+async def _collect_process_output(
+    proc: asyncio.subprocess.Process,
+) -> tuple[bytes, int]:
+    """Drain output and wait for exit under the caller's overall deadline."""
+    output = await _read_bounded_stdout(proc)
+    return output, await proc.wait()
 
 
 async def run(
@@ -118,8 +149,11 @@ async def run(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.DEVNULL,
         )
-        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=300)
-        if proc.returncode not in (0, 1):
+        stdout, returncode = await asyncio.wait_for(
+            _collect_process_output(proc),
+            timeout=300,
+        )
+        if returncode not in (0, 1):
             return {
                 "target": target,
                 "findings": [],
@@ -185,7 +219,21 @@ async def run(
             await proc.wait()
         console.print(" [warning]Nuclei timed out after 5 minutes[/warning]")
         return {"target": target, "findings": [], "count": 0, "error": "timeout"}
+    except NucleiOutputLimitError:
+        if "proc" in locals() and proc.returncode is None:
+            proc.kill()
+            await proc.wait()
+        console.print(" [warning]Nuclei output limit exceeded; process stopped[/warning]")
+        return {
+            "target": target,
+            "findings": [],
+            "count": 0,
+            "error": "output_limit",
+        }
     except Exception as exc:
+        if "proc" in locals() and proc.returncode is None:
+            proc.kill()
+            await proc.wait()
         log.error("nuclei_runner_error", error=type(exc).__name__)
         return {
             "target": target,
