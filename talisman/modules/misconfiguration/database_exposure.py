@@ -97,6 +97,8 @@ async def run(
  proxy: str | None = None,
  **kwargs: Any,
 ) -> dict[str, Any]:
+ if scope is not None:
+  scope.assert_in_scope(target)
  host = target.replace("https://", "").replace("http://", "").split("/")[0].split(":")[0]
  console.print(f"\n[module][+] Database Exposure Check[/module] -> [target]{host}[/target]")
  exposed: list[dict[str, Any]] = []
