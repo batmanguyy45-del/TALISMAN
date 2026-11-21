@@ -44,7 +44,7 @@ def _certificate_matches_host(cert: x509.Certificate, host: str) -> bool:
         return False
 
 
-def _get_cert_info(host: str, port: int) -> dict[str, Any]:
+def _get_cert_info(host: str, connect_ip: str, port: int) -> dict[str, Any]:
     """Retrieve certificate details, including invalid/expired certificates.
 
     Verification is intentionally disabled only for this inspection handshake:
@@ -56,7 +56,7 @@ def _get_cert_info(host: str, port: int) -> dict[str, Any]:
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
         context.check_hostname = False
         context.verify_mode = ssl.CERT_NONE
-        sock = socket.create_connection((host, port), timeout=10)
+        sock = socket.create_connection((connect_ip, port), timeout=10)
         with context.wrap_socket(sock, server_hostname=host) as tls_socket:
             raw_cert = tls_socket.getpeercert(binary_form=True)
             return {
@@ -93,13 +93,14 @@ async def run(
 
     port = parsed.port or 443
     try:
-        scope.assert_in_scope(target)
+        addresses = await scope.resolve_network_destination(url, "GET")
         await scope.acquire_request_slot()
     except (ScopeViolationError, ValueError) as exc:
         return {"target": target, "findings": [], "count": 0, "error": str(exc)}
 
     console.print(f"\n[module][+] SSL/TLS Audit[/module] -> [target]{host}:{port}[/target]")
-    info = await asyncio.to_thread(_get_cert_info, host, port)
+    connect_ip = str(addresses[0])
+    info = await asyncio.to_thread(_get_cert_info, host, connect_ip, port)
     if "error" in info:
         console.print(f" [dim]TLS error: {info['error']}[/dim]")
         return {"target": host, "findings": [], "count": 0, "error": info["error"]}
@@ -174,6 +175,7 @@ async def run(
     return {
         "target": host,
         "port": port,
+        "resolved_ip": connect_ip,
         "protocol": protocol,
         "cipher": cipher[0] if cipher else None,
         "findings": findings,
