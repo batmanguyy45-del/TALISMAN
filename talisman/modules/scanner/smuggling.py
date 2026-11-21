@@ -126,7 +126,7 @@ async def _raw_send(
     timeout: int = 10,
 ) -> bytes:
     """Send one raw probe only after scope, write-policy and rate checks."""
-    scope.assert_request_allowed(request_url, "POST")
+    scope.assert_destructive_allowed(request_url, "POST")
     await scope.acquire_request_slot()
 
     def _sync_send() -> bytes:
@@ -217,7 +217,7 @@ async def run(
     if scope is None:
         return {"target": url, "findings": [], "count": 0, "error": "scope_enforcer_required"}
     try:
-        scope.assert_request_allowed(url, "POST")
+        scope.assert_destructive_allowed(url, "POST")
     except ScopeViolationError as exc:
         return {"target": url, "findings": [], "count": 0, "error": str(exc)}
 
