@@ -441,6 +441,10 @@ class ScopeEnforcer:
                     f"{method} blocked: enable allow_state_changing_requests only "
                     "when the program permits active testing"
                 )
+            if method == "DELETE" and self.config.avoid_destructive:
+                raise ScopeViolationError(
+                    "DELETE blocked: destructive requests are disabled by this scope"
+                )
 
     def assert_destructive_allowed(self, target: str, method: str = "POST") -> None:
         """Require explicit write permission and explicit opt-in to destructive probes."""
