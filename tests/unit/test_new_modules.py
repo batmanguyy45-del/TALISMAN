@@ -15,6 +15,7 @@ def _test_scope():
             service_allowlist=[],
             allow_state_changing_requests=True,
             avoid_writes=False,
+            avoid_destructive=False,
         )
     )
 
@@ -23,6 +24,18 @@ def _test_scope():
 
     scope.assert_network_destination_allowed = allow_mock_destination
     return scope
+
+
+@pytest.fixture(autouse=True)
+def _activate_scope_for_http_tests():
+    from talisman.engine.scope import reset_active_scope, set_active_scope
+
+    scope = _test_scope()
+    token = set_active_scope(scope)
+    try:
+        yield scope
+    finally:
+        reset_active_scope(token)
 
 
 def _is_coroutine(mod):
