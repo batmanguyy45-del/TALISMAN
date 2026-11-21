@@ -6,7 +6,10 @@ import pytest
 from talisman.engine.scope import ScopeConfig, ScopeEnforcer
 from talisman.modules.scanner import (
     file_upload_scanner,
+    idor,
     mass_assignment,
+    parser_differential,
+    second_order,
     sqli,
     ssrf,
     xss,
@@ -289,3 +292,53 @@ async def test_sqli_time_based_runs_only_after_destructive_opt_in(monkeypatch):
     assert result["candidate_count"] == 1
     assert result["findings"] == []
     assert result["candidates"][0]["requires_manual_verification"] is True
+
+
+def test_idor_requires_classifiable_response_structure():
+    assert not idor._structures_match(
+        "plain response with different data",
+        "another plain response with different data",
+    )
+    assert not idor._structures_match(
+        "<html><body>one value</body></html>",
+        "<html><body>another value</body></html>",
+    )
+
+
+@pytest.mark.asyncio
+async def test_generic_second_order_mutation_scanner_is_disabled():
+    result = await second_order.run(
+        target="https://example.com",
+        scope=_scope(),
+    )
+
+    assert result["skipped"] is True
+    assert result["findings"] == []
+    assert result["candidates"] == []
+    assert result["count"] == 0
+    assert "disposable" in result["reason"]
+
+
+@pytest.mark.asyncio
+async def test_generic_parser_mutation_scanner_is_disabled():
+    result = await parser_differential.run(
+        target="https://example.com",
+        scope=_scope(),
+    )
+
+    assert result["skipped"] is True
+    assert result["findings"] == []
+    assert result["candidates"] == []
+    assert result["count"] == 0
+    assert "disposable" in result["reason"]
+
+
+@pytest.mark.asyncio
+async def test_disabled_mutation_scanners_still_enforce_scope():
+    for module in (second_order, parser_differential):
+        result = await module.run(
+            target="https://outside.example",
+            scope=_scope(),
+        )
+        assert result["error"] == "Target 'https://outside.example' is out of scope"
+        assert result["findings"] == []
