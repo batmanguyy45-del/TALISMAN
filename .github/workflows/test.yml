@@ -4,9 +4,12 @@ concurrency:
   group: talisman-ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 on:
   push:
-    branches: [main, security/hardening-phase-1]
+    branches: [main]
   pull_request:
     branches: [main]
 
