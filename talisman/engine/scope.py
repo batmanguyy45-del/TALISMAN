@@ -425,6 +425,14 @@ class ScopeEnforcer:
                     "DELETE blocked: destructive requests are disabled by this scope"
                 )
 
+    def assert_destructive_allowed(self, target: str, method: str = "POST") -> None:
+        """Require explicit write permission and explicit opt-in to destructive probes."""
+        self.assert_request_allowed(target, method)
+        if self.config.avoid_destructive:
+            raise ScopeViolationError(
+                "Destructive probe blocked: set restrictions.avoid_destructive: false only when the program explicitly permits this test"
+            )
+
     def filter_targets(self, targets: list[str]) -> list[str]:
         return [target for target in targets if self.is_in_scope(target)]
 
