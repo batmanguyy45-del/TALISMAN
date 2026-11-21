@@ -152,3 +152,31 @@ def test_wildcard_host_with_path_scope():
     assert scope.is_in_scope("https://nested.api.example.com/api/users")
     assert not scope.is_in_scope("https://api.example.com/private/users")
     assert not scope.is_in_scope("http://api.example.com/api/users")
+
+
+
+def test_scope_rejects_malformed_hostname():
+    with pytest.raises(ValueError):
+        ScopeEnforcer(ScopeConfig(include=["https://example.com@attacker.test"], service_allowlist=[]))
+    with pytest.raises(ValueError):
+        ScopeEnforcer(ScopeConfig(include=["bad_host.example"], service_allowlist=[]))
+
+
+def test_scope_rejects_non_boolean_policy_values(tmp_path):
+    scope_file = tmp_path / "scope.yaml"
+    scope_file.write_text(
+        "include:\n  - example.com\nrestrictions:\n  allow_state_changing_requests: 'false'\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="must be true or false"):
+        ScopeConfig.from_file(scope_file)
+
+
+def test_scope_rejects_excessive_request_rate(tmp_path):
+    scope_file = tmp_path / "scope.yaml"
+    scope_file.write_text(
+        "include:\n  - example.com\nrestrictions:\n  max_requests_per_second: 1000\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="no greater than"):
+        ScopeConfig.from_file(scope_file)
