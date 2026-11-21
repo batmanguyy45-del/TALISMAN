@@ -115,6 +115,8 @@ def _origin(url: str) -> tuple[str, str, int | None]:
         port = parsed.port
     except ValueError:
         return scheme, host, -1
+    if port is None:
+        port = 443 if scheme == "https" else 80 if scheme == "http" else None
     return scheme, host, port
 
 
@@ -217,7 +219,11 @@ class TalismanHTTPClient:
     ) -> httpx.Response:
         scope = None if (self.scope_exempt or scope_exempt) else get_active_scope()
         if scope is not None:
-            scope.assert_in_scope(url)
+            try:
+                scope.assert_in_scope(url)
+            except ScopeViolationError:
+                log.warning("out_of_scope_request_blocked", url=url)
+                raise
 
         await self._enforce_rate_limit()
         if self._client is None:
