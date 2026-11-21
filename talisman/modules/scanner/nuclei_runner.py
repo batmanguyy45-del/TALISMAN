@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import shutil
 from pathlib import Path
 from typing import Any
@@ -49,6 +50,22 @@ async def run(
             "(install: go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest)[/dim]"
         )
         return {"target": target, "findings": [], "count": 0, "skipped": True}
+
+    if proxy and not os.environ.get("TALISMAN_ALLOW_UNPINNED_PROXY", "").strip().lower() in {"1", "true", "yes"}:
+        return {
+            "target": target,
+            "findings": [],
+            "count": 0,
+            "error": "proxy_not_allowed_without_explicit_TALISMAN_ALLOW_UNPINNED_PROXY=1",
+        }
+
+    if templates_dir and os.environ.get("TALISMAN_ALLOW_CUSTOM_NUCLEI_TEMPLATES", "").strip().lower() not in {"1", "true", "yes"}:
+        return {
+            "target": target,
+            "findings": [],
+            "count": 0,
+            "error": "custom_nuclei_templates_disabled_by_default",
+        }
 
     if templates_dir:
         template_path = Path(templates_dir).expanduser()
