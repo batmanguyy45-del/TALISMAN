@@ -4,6 +4,8 @@ import hashlib
 import json
 import re
 from typing import Any
+
+from talisman.engine.scope import ScopeViolationError
 import mmh3
 from talisman.utils.http_client import TalismanHTTPClient
 from talisman.utils.logger import get_logger, console
@@ -86,11 +88,17 @@ async def run(
  **kwargs: Any,
 ) -> dict[str, Any]:
  url = target if "://" in target else f"https://{target}"
+ if scope is None:
+  return {"target": url, "technologies": [], "waf": None, "favicon_hash": None, "error": "scope_enforcer_required"}
+ try:
+  scope.assert_in_scope(url)
+ except ScopeViolationError as exc:
+  return {"target": url, "technologies": [], "waf": None, "favicon_hash": None, "error": str(exc)}
  console.print(f"\n[module][+] Technology Detection[/module] -> [target]{url}[/target]")
  detected_tech: list[str] = []
  detected_waf: str | None = None
  favicon: str | None = None
- async with TalismanHTTPClient(proxy=proxy, timeout=15) as client:
+ async with TalismanHTTPClient(proxy=proxy, timeout=15, scope=scope) as client:
   try:
    r = await client.get(url)
    headers = {k.lower(): v for k, v in r.headers.items()}
