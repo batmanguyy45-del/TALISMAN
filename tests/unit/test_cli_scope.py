@@ -40,7 +40,7 @@ def test_no_scope_file_uses_exact_target_scope():
 def test_explicit_scope_symlink_is_rejected(tmp_path):
     target_scope = tmp_path / "actual-scope.yaml"
     target_scope.write_text(
-        "include:\\n  - example.com\\n",
+        "include:\n  - example.com\n",
         encoding="utf-8",
     )
     linked_scope = tmp_path / "scope-link.yaml"

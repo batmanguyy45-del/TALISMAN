@@ -406,7 +406,7 @@ async def test_exclusive_network_activity_blocks_http_request_slots():
 def test_false_restrictions_mapping_is_rejected(tmp_path):
     scope_file = tmp_path / "scope.yaml"
     scope_file.write_text(
-        "include:\\n  - example.com\\nrestrictions: false\\n",
+        "include:\n  - example.com\nrestrictions: false\n",
         encoding="utf-8",
     )
 
