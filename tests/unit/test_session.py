@@ -302,3 +302,29 @@ async def test_session_database_access_fails_clearly_after_close(tmp_path):
     with pytest.raises(RuntimeError, match="Session is not open"):
         await sess.get_targets()
 
+
+@pytest.mark.asyncio
+async def test_open_failure_resets_active_scope_context(tmp_path):
+    from talisman.engine.scope import (
+        ScopeConfig,
+        ScopeEnforcer,
+        get_active_scope,
+        set_active_scope,
+    )
+
+    sess = Session("open-failure-scope", tmp_path)
+    scope = ScopeEnforcer(
+        ScopeConfig(include=["example.com"], service_allowlist=[])
+    )
+    sess._scope_token = set_active_scope(scope)
+    external_db = tmp_path / "external.db"
+    external_db.write_text("must not be followed", encoding="utf-8")
+    sess.db_path.symlink_to(external_db)
+
+    with pytest.raises(ValueError, match="database must not be a symbolic link"):
+        await sess.open()
+
+    assert sess._db is None
+    assert sess._scope_token is None
+    assert get_active_scope() is None
+

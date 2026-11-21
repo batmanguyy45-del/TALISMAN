@@ -138,6 +138,14 @@ class Session:
   self._db: aiosqlite.Connection | None = None
   self._scope_token: Any = None
 
+ def _reset_scope_context(self) -> None:
+  """Restore the previous active scope exactly once."""
+  token = self._scope_token
+  self._scope_token = None
+  if token is not None:
+   from talisman.engine.scope import reset_active_scope
+   reset_active_scope(token)
+
  @property
  def db(self) -> aiosqlite.Connection:
   """Return the open SQLite connection or fail clearly when the session is closed."""
@@ -148,20 +156,30 @@ class Session:
  async def open(self) -> Session:
   if self._db is not None:
    return self
-  if self.db_path.is_symlink():
-   raise ValueError("Session database must not be a symbolic link")
-  connection = await aiosqlite.connect(str(self.db_path))
-  self._db = connection
+  connection: aiosqlite.Connection | None = None
   try:
+   if self.db_path.is_symlink():
+    raise ValueError("Session database must not be a symbolic link")
+   connection = await aiosqlite.connect(str(self.db_path))
+   self._db = connection
    os.chmod(self.db_path, 0o600)
    connection.row_factory = aiosqlite.Row
    # Execute schema statements separately so failures are not silently hidden.
    for stmt in (item.strip() for item in SCHEMA.split(";") if item.strip()):
     await connection.execute(stmt)
    await connection.commit()
-  except Exception:
+  except BaseException:
    self._db = None
-   await connection.close()
+   try:
+    if connection is not None:
+     await connection.close()
+   except BaseException as cleanup_error:
+    log.warning(
+     "session_open_cleanup_failed",
+     error=type(cleanup_error).__name__,
+    )
+   finally:
+    self._reset_scope_context()
    raise
   log.info("session_opened", name=self.name, db=str(self.db_path))
   return self
@@ -173,10 +191,7 @@ class Session:
    if connection is not None:
     await connection.close()
   finally:
-   if self._scope_token is not None:
-    from talisman.engine.scope import reset_active_scope
-    reset_active_scope(self._scope_token)
-    self._scope_token = None
+   self._reset_scope_context()
 
  async def __aenter__(self) -> Session:
   return await self.open()
