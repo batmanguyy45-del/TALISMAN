@@ -35,6 +35,7 @@ async def test_nuclei_requires_scope_before_checking_binary(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_nuclei_receives_safe_flags_and_discards_out_of_scope_results(monkeypatch):
+    monkeypatch.setenv("TALISMAN_ALLOW_UNPINNED_NUCLEI", "1")
     scope = _active_scope()
     monkeypatch.setattr(nuclei_runner.shutil, "which", lambda _: "/usr/bin/nuclei")
 
@@ -128,6 +129,7 @@ async def test_nuclei_out_of_scope_target_is_blocked_before_process_launch(monke
 
 @pytest.mark.asyncio
 async def test_nuclei_output_is_bounded_and_process_is_killed_on_limit(monkeypatch):
+    monkeypatch.setenv("TALISMAN_ALLOW_UNPINNED_NUCLEI", "1")
     scope = _active_scope()
     monkeypatch.setattr(nuclei_runner.shutil, "which", lambda _: "/usr/bin/nuclei")
     monkeypatch.setattr(nuclei_runner, "MAX_NUCLEI_OUTPUT_BYTES", 32)
@@ -178,6 +180,7 @@ async def test_nuclei_output_is_bounded_and_process_is_killed_on_limit(monkeypat
 
 @pytest.mark.asyncio
 async def test_nuclei_skips_when_configured_rate_is_below_its_minimum(monkeypatch):
+    monkeypatch.setenv("TALISMAN_ALLOW_UNPINNED_NUCLEI", "1")
     scope = ScopeEnforcer(
         ScopeConfig(
             include=["example.com"],
@@ -205,6 +208,7 @@ async def test_nuclei_skips_when_configured_rate_is_below_its_minimum(monkeypatc
 
 @pytest.mark.asyncio
 async def test_nuclei_requires_explicit_destructive_permission_before_binary_lookup(monkeypatch):
+    monkeypatch.setenv("TALISMAN_ALLOW_UNPINNED_NUCLEI", "1")
     scope = ScopeEnforcer(
         ScopeConfig(include=["example.com"], service_allowlist=[])
     )
@@ -221,3 +225,23 @@ async def test_nuclei_requires_explicit_destructive_permission_before_binary_loo
     assert result["skipped"] is True
     assert result["findings"] == []
     assert "Explicit destructive-scope permission is required" in result["reason"]
+
+
+
+@pytest.mark.asyncio
+async def test_nuclei_requires_unpinned_dns_acknowledgement_before_binary_lookup(monkeypatch):
+    monkeypatch.delenv("TALISMAN_ALLOW_UNPINNED_NUCLEI", raising=False)
+    scope = _active_scope()
+
+    def should_not_lookup_binary(*args, **kwargs):
+        raise AssertionError("Nuclei binary must not be inspected without unpinned DNS acknowledgement")
+
+    monkeypatch.setattr(nuclei_runner.shutil, "which", should_not_lookup_binary)
+    result = await nuclei_runner.run(
+        target="https://example.com",
+        scope=scope,
+    )
+
+    assert result["skipped"] is True
+    assert result["findings"] == []
+    assert "TALISMAN_ALLOW_UNPINNED_NUCLEI=1" in result["reason"]
