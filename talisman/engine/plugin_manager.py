@@ -1,17 +1,18 @@
 """Plugin manager — discovers, registers, and bridges external plugins into the module registry."""
 from __future__ import annotations
-import asyncio
+
 import importlib
 import inspect
-import json
 import os
 import shutil
 import subprocess
 import sys
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
-from talisman.utils.logger import get_logger, console
+from typing import Any
+
+from talisman.utils.logger import get_logger
 
 log = get_logger(__name__)
 
@@ -123,10 +124,17 @@ def register_plugins_to_registry(module_registry_map: dict[str, str]) -> dict[st
     Returns an updated copy of the registry map with plugin entries added.
     """
     updated = dict(module_registry_map)
-    if os.environ.get("TALISMAN_ENABLE_UNTRUSTED_PLUGINS", "").strip().lower() not in {"1", "true", "yes"}:
+    plugin_opt_in = os.environ.get(
+        "TALISMAN_ENABLE_UNTRUSTED_PLUGINS", ""
+    ).strip().lower()
+    if plugin_opt_in not in {"1", "true", "yes"}:
         log.warning(
             "plugin_autoload_disabled",
-            message="Community plugins are untrusted code. Set TALISMAN_ENABLE_UNTRUSTED_PLUGINS=1 only after reviewing installed plugins."
+            message=(
+                "Community plugins are untrusted code. Set "
+                "TALISMAN_ENABLE_UNTRUSTED_PLUGINS=1 only after reviewing "
+                "installed plugins."
+            ),
         )
         return updated
 
@@ -220,7 +228,7 @@ def install_plugin(plugin_name: str, repo_url: str | None = None) -> dict[str, A
                 capture_output=True, text=True, check=True, timeout=60,
             )
         else:
-            url = f"https://github.com/batmanguyy45-del/TALISMAN-plugins.git"
+            url = "https://github.com/batmanguyy45-del/TALISMAN-plugins.git"
             clone_dir = Path(tempfile.mkdtemp())
             subprocess.run(
                 ["git", "clone", "--depth", "1", url, str(clone_dir)],
