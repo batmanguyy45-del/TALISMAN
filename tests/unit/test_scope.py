@@ -315,3 +315,55 @@ def test_internal_ssrf_probe_setting_rejects_string_boolean(tmp_path):
     )
     with pytest.raises(ValueError, match="must be true or false"):
         ScopeConfig.from_file(scope_file)
+
+
+def test_max_concurrent_requests_is_validated_from_scope_file(tmp_path):
+    scope_file = tmp_path / "scope.yaml"
+    scope_file.write_text(
+        "include:\\n  - example.com\\nrestrictions:\\n  max_concurrent_requests: 3\\n",
+        encoding="utf-8",
+    )
+    config = ScopeConfig.from_file(scope_file)
+    assert config.max_concurrent_requests == 3
+
+    for value in ("3", "true", "0", "21"):
+        scope_file.write_text(
+            "include:\\n  - example.com\\nrestrictions:\\n"
+            f"  max_concurrent_requests: {value}\\n",
+            encoding="utf-8",
+        )
+        with pytest.raises(ValueError, match="max_concurrent_requests"):
+            ScopeConfig.from_file(scope_file)
+
+
+@pytest.mark.asyncio
+async def test_scope_concurrency_slot_bounds_in_flight_operations():
+    import asyncio
+
+    scope = ScopeEnforcer(
+        ScopeConfig(
+            include=["example.com"],
+            service_allowlist=[],
+            max_concurrent_requests=1,
+        )
+    )
+    release_first = asyncio.Event()
+    second_entered = asyncio.Event()
+
+    async def first():
+        async with scope.request_concurrency_slot():
+            await release_first.wait()
+
+    async def second():
+        async with scope.request_concurrency_slot():
+            second_entered.set()
+
+    first_task = asyncio.create_task(first())
+    await asyncio.sleep(0)
+    second_task = asyncio.create_task(second())
+    await asyncio.sleep(0.01)
+    assert not second_entered.is_set()
+
+    release_first.set()
+    await asyncio.gather(first_task, second_task)
+    assert second_entered.is_set()
