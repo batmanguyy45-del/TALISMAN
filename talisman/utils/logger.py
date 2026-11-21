@@ -10,6 +10,8 @@ from rich.logging import RichHandler
 from rich.theme import Theme
 from rich.panel import Panel
 
+from talisman.utils.redaction import redact_sensitive_text
+
 TALISMAN_THEME = Theme({
  "info":    "cyan",
  "success":   "bold green",
@@ -39,6 +41,37 @@ SEVERITY_COLORS = {
 
 _logging_configured = False
 
+class SensitiveDataRedactionFilter(logging.Filter):
+    """Redact credentials from rendered log messages before handlers emit them."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            message = redact_sensitive_text(record.getMessage())
+            if record.exc_info:
+                exception_text = logging.Formatter().formatException(record.exc_info)
+                if exception_text:
+                    message += "\n" + redact_sensitive_text(exception_text)
+                # Preserve useful diagnostics, but do not let a handler re-render
+                # the original unsanitized exception object.
+                record.exc_info = None
+                record.exc_text = None
+            elif record.exc_text:
+                message += "\n" + redact_sensitive_text(record.exc_text)
+                record.exc_text = None
+            if record.stack_info:
+                message += "\n" + redact_sensitive_text(record.stack_info)
+                record.stack_info = None
+            record.msg = message
+            record.args = ()
+        except Exception:
+            # Logging must fail closed if redaction or message formatting fails.
+            record.msg = "[log message suppressed because redaction failed]"
+            record.args = ()
+            record.exc_info = None
+            record.exc_text = None
+            record.stack_info = None
+        return True
+
 
 def setup_logging(level: str = "INFO", log_file: Path | None = None) -> None:
  global _logging_configured
@@ -61,6 +94,10 @@ def setup_logging(level: str = "INFO", log_file: Path | None = None) -> None:
    logging.Formatter("%(asctime)s %(name)s %(levelname)s %(message)s")
   )
   handlers.append(fh)
+
+ redaction_filter = SensitiveDataRedactionFilter()
+ for handler in handlers:
+  handler.addFilter(redaction_filter)
 
  logging.basicConfig(level=log_level, handlers=handlers, force=True)
 
