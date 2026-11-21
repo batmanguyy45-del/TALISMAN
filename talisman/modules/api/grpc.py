@@ -131,6 +131,8 @@ async def run(
     **kwargs: Any,
 ) -> dict[str, Any]:
     url = target if "://" in target else f"https://{target}"
+    if scope is not None:
+        scope.assert_in_scope(url)
     host = url.split("://")[-1].split("/")[0].split(":")[0]
     console.print(f"\n[module][+] gRPC Security Scanner[/module] -> [target]{host}[/target]")
     findings: list[dict[str, Any]] = []
