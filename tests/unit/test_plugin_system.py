@@ -169,3 +169,31 @@ def test_plugin_load_requires_explicit_opt_in(monkeypatch):
     monkeypatch.delenv("TALISMAN_ENABLE_UNTRUSTED_PLUGINS", raising=False)
     plugin = discover_plugins()["example-scanner"]
     assert load_plugin(plugin) is None
+
+
+
+def test_plugin_tree_symlinks_are_rejected(tmp_path):
+    from talisman.engine.plugin_manager import _contains_symlinks
+
+    plugin_root = tmp_path / "plugin"
+    plugin_root.mkdir()
+    (plugin_root / "plugin.yaml").write_text(
+        "name: sample\ntype: scanner\nentrypoint: scanner.Plugin\n",
+        encoding="utf-8",
+    )
+    outside = tmp_path / "outside.txt"
+    outside.write_text("outside", encoding="utf-8")
+
+    try:
+        (plugin_root / "linked.txt").symlink_to(outside)
+    except OSError:
+        pytest.skip("symlinks are not supported on this platform")
+
+    assert _contains_symlinks(plugin_root)
+
+
+def test_plugin_github_repo_url_rejects_unusual_port():
+    from talisman.engine.plugin_manager import _validate_repo_url
+
+    with pytest.raises(ValueError):
+        _validate_repo_url("https://github.com:8443/owner/repo")
