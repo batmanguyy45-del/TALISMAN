@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import httpx
 import pytest
+from ipaddress import ip_address
 
 from talisman.engine.scope import ScopeConfig, ScopeEnforcer, ScopeViolationError
 from talisman.utils.http_client import TalismanHTTPClient
@@ -11,8 +12,9 @@ from talisman.utils.http_client import TalismanHTTPClient
 def _mock_client(scope, handler, **kwargs):
     async def allow_test_destination(url, method="GET"):
         scope.assert_request_allowed(url, method)
+        return (ip_address("93.184.216.34"),)
 
-    scope.assert_network_destination_allowed = allow_test_destination
+    scope.resolve_network_destination = allow_test_destination
     client = TalismanHTTPClient(scope=scope, **kwargs)
     client._build_client = lambda: httpx.AsyncClient(
         transport=httpx.MockTransport(handler)
