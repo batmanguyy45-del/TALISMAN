@@ -1,4 +1,6 @@
 """Tests for HTTP response-boundary parsing in request-smuggling confirmation."""
+import pytest
+
 from talisman.modules.scanner.smuggling import (
     SMUGGLING_PREFIX,
     _http_response_bodies,
