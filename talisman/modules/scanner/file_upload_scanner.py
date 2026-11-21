@@ -246,10 +246,16 @@ async def run(
     **kwargs: Any,
 ) -> dict[str, Any]:
     url = target if "://" in target else f"https://{target}"
+    if scope is None:
+        return {"target": url, "findings": [], "count": 0, "error": "scope_enforcer_required"}
+    try:
+        scope.assert_destructive_allowed(url, "POST")
+    except Exception as exc:
+        return {"target": url, "findings": [], "count": 0, "skipped": True, "reason": str(exc)}
     console.print(f"\n[module][+] File Upload Vulnerability Scanner[/module] -> [target]{url}[/target]")
     findings: list[dict[str, Any]] = []
 
-    async with TalismanHTTPClient(proxy=proxy, timeout=15) as client:
+    async with TalismanHTTPClient(proxy=proxy, timeout=15, scope=scope) as client:
         console.print(f"  Testing {len(UPLOAD_ENDPOINTS)} upload endpoints...")
         for endpoint in UPLOAD_ENDPOINTS:
             # -- 1. Script upload acceptance ------------------------------------------
