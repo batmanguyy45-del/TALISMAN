@@ -413,3 +413,158 @@ async def test_rate_limit_fixture_produces_candidate_not_confirmed_finding(monke
     assert result["candidate_count"] == 1
     assert result["candidates"][0]["confidence"] == "candidate"
     assert result["observations"][0]["attempts"] == 3
+
+
+@pytest.mark.asyncio
+async def test_graphql_discovery_uses_read_only_get_requests(monkeypatch):
+    from talisman.modules.api import graphql
+
+    class Client:
+        methods = []
+
+        def __init__(self, *args, **kwargs):
+            assert kwargs.get("scope") is not None
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def get(self, *args, **kwargs):
+            self.methods.append("GET")
+            return _Response()
+
+        async def post(self, *args, **kwargs):
+            raise AssertionError("GraphQL discovery must not send POST mutations")
+
+    monkeypatch.setattr(graphql, "TalismanHTTPClient", Client)
+    result = await graphql.run(
+        "https://example.com",
+        scope=_scope(),
+    )
+
+    assert result["findings"] == []
+    assert result["count"] == 0
+    assert result["state_changing_probes_sent"] == 0
+
+
+@pytest.mark.asyncio
+async def test_oauth_discovery_performs_no_token_or_authorization_posts(monkeypatch):
+    from talisman.modules.api import oauth
+
+    class Client:
+        def __init__(self, *args, **kwargs):
+            assert kwargs.get("scope") is not None
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def get(self, *args, **kwargs):
+            return _Response()
+
+        async def post(self, *args, **kwargs):
+            raise AssertionError("OAuth discovery must not exchange tokens")
+
+    monkeypatch.setattr(oauth, "TalismanHTTPClient", Client)
+    result = await oauth.run(
+        "https://example.com",
+        scope=_scope(),
+        client_id="disposable-client",
+    )
+
+    assert result["findings"] == []
+    assert result["active_tests_performed"] is False
+
+
+@pytest.mark.asyncio
+async def test_swagger_requires_scope_and_does_not_probe_mutating_endpoints(monkeypatch):
+    from talisman.modules.api import swagger_audit
+
+    missing = await swagger_audit.run("https://example.com")
+    assert missing["error"] == "scope_enforcer_required"
+
+    class Client:
+        def __init__(self, *args, **kwargs):
+            assert kwargs.get("scope") is not None
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def get(self, *args, **kwargs):
+            return _Response()
+
+        async def request(self, *args, **kwargs):
+            raise AssertionError("OpenAPI audit must not execute PUT/DELETE/PATCH probes")
+
+    monkeypatch.setattr(swagger_audit, "TalismanHTTPClient", Client)
+    result = await swagger_audit.run(
+        "https://example.com",
+        scope=_scope(),
+        test_endpoints=True,
+    )
+
+    assert result["findings"] == []
+    assert result["active_endpoint_tests_performed"] is False
+
+
+@pytest.mark.asyncio
+async def test_jwt_offline_weak_secret_result_never_returns_secret(monkeypatch):
+    import base64
+    import hashlib
+    import hmac
+    import json
+
+    from talisman.modules.api import jwt
+
+    secret = "fixture-only-secret"
+    monkeypatch.setattr(jwt, "JWT_WEAK_SECRETS", [secret])
+
+    header = {"alg": "HS256", "typ": "JWT"}
+    payload = {"sub": "test-user", "role": "user"}
+    encoded_header = jwt._encode_b64(header)
+    encoded_payload = jwt._encode_b64(payload)
+    message = f"{encoded_header}.{encoded_payload}".encode()
+    signature = base64.urlsafe_b64encode(
+        hmac.new(secret.encode(), message, hashlib.sha256).digest()
+    ).rstrip(b"=").decode()
+    token = f"{encoded_header}.{encoded_payload}.{signature}"
+
+    result = await jwt.run(
+        target="example.com",
+        token=token,
+        crack_secret=True,
+    )
+
+    assert result["findings"] == []
+    assert result["count"] == 0
+    assert result["candidates"][0]["type"] == "jwt_weak_hmac_secret"
+    assert result["candidates"][0]["secret_value"] == "[REDACTED]"
+    assert secret not in str(result)
+
+
+@pytest.mark.asyncio
+async def test_jwt_live_endpoint_requires_scope_and_destructive_permission():
+    from talisman.modules.api import jwt
+
+    missing = await jwt.run(
+        target="example.com",
+        token="eyJhbGciOiJub25lIn0.eyJzdWIiOiJ0ZXN0In0.",
+        endpoint="https://example.com/account",
+    )
+    assert missing["error"] == "scope_enforcer_required_for_live_jwt_tests"
+
+    blocked = await jwt.run(
+        target="example.com",
+        token="eyJhbGciOiJub25lIn0.eyJzdWIiOiJ0ZXN0In0.",
+        endpoint="https://example.com/account",
+        scope=_scope(),
+    )
+    assert blocked["skipped"] is True
+    assert blocked["findings"] == []
