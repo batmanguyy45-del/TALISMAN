@@ -12,6 +12,9 @@ from __future__ import annotations
 import asyncio
 import re
 from typing import Any
+
+from talisman.engine.scope import ScopeViolationError
+from talisman.utils.oast import normalize_oast_domain
 from talisman.utils.http_client import TalismanHTTPClient
 from talisman.utils.payload_engine import XXE_PAYLOADS
 from talisman.utils.logger import get_logger, console, print_finding
@@ -95,6 +98,17 @@ async def run(
  **kwargs: Any,
 ) -> dict[str, Any]:
  url = target if "://" in target else f"https://{target}"
+ if scope is None:
+  return {"target": url, "findings": [], "count": 0, "error": "scope_enforcer_required"}
+ try:
+  scope.assert_destructive_allowed(url, "POST")
+ except ScopeViolationError as exc:
+  return {"target": url, "findings": [], "count": 0, "skipped": True, "reason": str(exc)}
+ if oast_domain:
+  try:
+   oast_domain = normalize_oast_domain(oast_domain)
+  except ValueError as exc:
+   return {"target": url, "findings": [], "count": 0, "error": str(exc)}
  console.print(f"\n[module][+] XXE Scanner[/module] -> [target]{url}[/target]")
  findings: list[dict[str, Any]] = []
 
@@ -115,7 +129,7 @@ async def run(
   test_cases.append((p, "application/xml"))
  test_cases.extend(oob_payloads)
 
- async with TalismanHTTPClient(proxy=proxy, timeout=15) as client:
+ async with TalismanHTTPClient(proxy=proxy, timeout=15, scope=scope) as client:
   tasks = [_test_xxe_endpoint(url, payload, ct, client) for payload, ct in test_cases]
   results = await asyncio.gather(*tasks, return_exceptions=True)
 
