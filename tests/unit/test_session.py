@@ -285,3 +285,20 @@ async def test_session_notes_redact_serialized_credentials(tmp_path):
 
     assert note_secret not in str(notes)
     assert "[REDACTED]" in str(notes)
+
+
+@pytest.mark.asyncio
+async def test_session_database_access_fails_clearly_after_close(tmp_path):
+    sess = Session("closed-session", tmp_path)
+    await sess.open()
+    await sess.close()
+
+    with pytest.raises(RuntimeError, match="Session is not open"):
+        _ = sess.db
+
+    with pytest.raises(RuntimeError, match="Session is not open"):
+        await sess.add_note("must not persist after close")
+
+    with pytest.raises(RuntimeError, match="Session is not open"):
+        await sess.get_targets()
+

@@ -41,10 +41,19 @@ def test_setup_logging_redacts_terminal_and_file_handlers(tmp_path, monkeypatch)
         Console(file=terminal_output, force_terminal=False, no_color=True, highlight=False),
     )
     log_path = tmp_path / "talisman.log"
+    captured = {}
 
+    def capture_basic_config(*, level, handlers, force):
+        captured["level"] = level
+        captured["handlers"] = handlers
+        captured["force"] = force
+
+    monkeypatch.setattr(logger_module.logging, "basicConfig", capture_basic_config)
     logger_module.setup_logging(level="INFO", log_file=log_path)
-    handlers = list(logging.getLogger().handlers)
+    handlers = captured["handlers"]
 
+    assert captured["level"] == logging.INFO
+    assert captured["force"] is True
     assert len(handlers) == 2
     assert all(
         any(
@@ -55,9 +64,17 @@ def test_setup_logging_redacts_terminal_and_file_handlers(tmp_path, monkeypatch)
     )
 
     secret_url = "https://user:pass123@example.com/?api_key=opaque-api-key"
-    logging.getLogger("talisman.test.redaction").warning("request_url=%s", secret_url)
-
+    record = logging.LogRecord(
+        name="talisman.test.redaction",
+        level=logging.WARNING,
+        pathname=__file__,
+        lineno=1,
+        msg="request_url=%s",
+        args=(secret_url,),
+        exc_info=None,
+    )
     for handler in handlers:
+        handler.handle(record)
         handler.flush()
 
     terminal_text = terminal_output.getvalue()
@@ -66,6 +83,8 @@ def test_setup_logging_redacts_terminal_and_file_handlers(tmp_path, monkeypatch)
         assert "pass123" not in rendered
         assert "opaque-api-key" not in rendered
         assert "[REDACTED]" in rendered
+    for handler in handlers:
+        handler.close()
 
 
 def test_redaction_filter_sanitizes_exception_details():
