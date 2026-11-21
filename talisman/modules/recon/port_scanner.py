@@ -102,7 +102,11 @@ async def run(
 
     async def scan_one(port: int) -> None:
         async with sem:
-            await scope.acquire_request_slot()
+            try:
+                scope.assert_request_allowed(f"http://{host}:{port}/", "GET")
+                await scope.acquire_request_slot()
+            except ScopeViolationError:
+                return
             _, status = await _tcp_connect(host, port)
             if status == "open":
                 open_ports.append(port)
