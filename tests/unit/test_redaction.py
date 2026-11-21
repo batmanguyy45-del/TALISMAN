@@ -58,3 +58,38 @@ def test_bounds_redaction_input_size():
     safe = redact_sensitive_text("x" * 100, max_chars=10)
     assert len(safe) < 100
     assert "[TRUNCATED" in safe
+
+
+def test_redacts_sensitive_mapping_keys_even_for_opaque_values():
+    raw = {
+        "access_token": "opaque-access-token",
+        "nested": {
+            "client-secret": "opaque-client-secret",
+            "api_key": "opaque-api-key",
+            "safe_label": "keep-this-label",
+        },
+        "headers": [{"Authorization": "opaque-auth-value"}],
+    }
+
+    safe = redact_sensitive_value(raw)
+
+    assert safe["access_token"] == "[REDACTED]"
+    assert safe["nested"]["client-secret"] == "[REDACTED]"
+    assert safe["nested"]["api_key"] == "[REDACTED]"
+    assert safe["headers"][0]["Authorization"] == "[REDACTED]"
+    assert safe["nested"]["safe_label"] == "keep-this-label"
+
+
+def test_redacts_quoted_json_secrets_with_spaces_and_signed_url_params():
+    raw = (
+        '{"password": "opaque password with spaces", '
+        '"refresh_token": "opaque-refresh-token"} '
+        "https://example.com/callback?X-Amz-Signature=opaque-signed-secret"
+    )
+
+    safe = redact_sensitive_text(raw)
+
+    assert "opaque password with spaces" not in safe
+    assert "opaque-refresh-token" not in safe
+    assert "opaque-signed-secret" not in safe
+    assert "[REDACTED]" in safe
