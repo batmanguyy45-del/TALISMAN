@@ -30,11 +30,14 @@ DATABASE_PORTS = {
 
 async def _tcp_connect(host: str, port: int, scope: Any, timeout: float = 3.0) -> bool:
     request_url = f"http://{host}:{port}/"
-    scope.assert_request_allowed(request_url, "GET")
+    addresses = await scope.resolve_network_destination(request_url, "GET")
     await scope.acquire_request_slot()
     writer: asyncio.StreamWriter | None = None
     try:
-        _, writer = await asyncio.wait_for(asyncio.open_connection(host, port), timeout=timeout)
+        _, writer = await asyncio.wait_for(
+            asyncio.open_connection(str(addresses[0]), port),
+            timeout=timeout,
+        )
         return True
     except (OSError, TimeoutError):
         return False
@@ -50,11 +53,11 @@ async def _tcp_connect(host: str, port: int, scope: Any, timeout: float = 3.0) -
 async def _test_redis(host: str, port: int, scope: Any) -> dict[str, Any] | None:
     """Check whether Redis permits a harmless INFO command without credentials."""
     request_url = f"http://{host}:{port}/"
-    scope.assert_request_allowed(request_url, "GET")
+    addresses = await scope.resolve_network_destination(request_url, "GET")
     await scope.acquire_request_slot()
 
     def probe() -> str:
-        with socket.create_connection((host, port), timeout=3) as sock:
+        with socket.create_connection((str(addresses[0]), port), timeout=3) as sock:
             sock.settimeout(3)
             sock.sendall(b"INFO server\r\n")
             data = sock.recv(4096)
