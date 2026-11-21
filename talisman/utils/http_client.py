@@ -6,6 +6,7 @@ import json
 import os
 import re
 import time
+from contextvars import ContextVar, Token
 from typing import Any
 from urllib.parse import urljoin
 
@@ -15,6 +16,72 @@ from talisman.engine.scope import ScopeEnforcer, ScopeViolationError, get_active
 from talisman.utils.logger import get_logger
 
 log = get_logger(__name__)
+
+_PINNED_DESTINATION: ContextVar[tuple[str, str] | None] = ContextVar(
+    "talisman_pinned_destination",
+    default=None,
+)
+
+
+class _PinnedNetworkBackend:
+    """Pin direct HTTP socket connects to the address approved by scope.
+
+    The URL hostname remains unchanged in httpx/httpcore, so TLS SNI,
+    certificate hostname validation and the HTTP Host header continue to use
+    the original hostname. Only the TCP connect host is replaced.
+    """
+
+    def __init__(self, backend: Any):
+        self._backend = backend
+
+    async def connect_tcp(
+        self,
+        host: str,
+        port: int,
+        timeout: float | None = None,
+        local_address: str | None = None,
+        socket_options: Any = None,
+    ) -> Any:
+        pinned = _PINNED_DESTINATION.get()
+        connect_host = host
+        if pinned is not None and host.rstrip(".").lower() == pinned[0]:
+            connect_host = pinned[1]
+        return await self._backend.connect_tcp(
+            connect_host,
+            port,
+            timeout=timeout,
+            local_address=local_address,
+            socket_options=socket_options,
+        )
+
+    async def connect_unix_socket(
+        self,
+        path: str,
+        timeout: float | None = None,
+        socket_options: Any = None,
+    ) -> Any:
+        return await self._backend.connect_unix_socket(
+            path,
+            timeout=timeout,
+            socket_options=socket_options,
+        )
+
+    async def sleep(self, seconds: float) -> None:
+        await self._backend.sleep(seconds)
+
+
+def _install_pinned_network_backend(client: httpx.AsyncClient) -> bool:
+    """Install the backend adapter; fail closed if httpx internals differ."""
+    transport = getattr(client, "_transport", None)
+    pool = getattr(transport, "_pool", None)
+    backend = getattr(pool, "_network_backend", None)
+    if pool is None or backend is None:
+        return False
+    if not isinstance(backend, _PinnedNetworkBackend):
+        pool._network_backend = _PinnedNetworkBackend(backend)
+    return True
+
+
 
 DEFAULT_USER_AGENT = "TALISMAN/1.1 (+authorized security testing)"
 SAFE_REDIRECT_METHODS = {"GET", "HEAD", "OPTIONS"}
@@ -103,7 +170,13 @@ def _build_httpx_client(
         return httpx.AsyncClient(proxy=proxy, **kwargs)
     if _has_h2():
         kwargs["http2"] = True
-    return httpx.AsyncClient(**kwargs)
+    client = httpx.AsyncClient(**kwargs)
+    if not _install_pinned_network_backend(client):
+        asyncio.create_task(client.aclose())
+        raise RuntimeError(
+            "TALISMAN could not install destination IP pinning for this httpx version"
+        )
+    return client
 
 
 class TalismanHTTPClient:
@@ -195,15 +268,20 @@ class TalismanHTTPClient:
                 await asyncio.sleep(delay)
             self._last_request_time = time.monotonic()
 
-    async def _assert_allowed(self, url: str, method: str) -> ScopeEnforcer:
+    async def _assert_allowed(
+        self,
+        url: str,
+        method: str,
+    ) -> tuple[ScopeEnforcer, str, str]:
         scope = self.scope or get_active_scope()
         if scope is None:
             raise ScopeViolationError(
                 "HTTP request blocked: no active target scope. Invoke the scanner "
                 "through an authorized assessment or pass ScopeEnforcer explicitly."
             )
-        await scope.assert_network_destination_allowed(url, method)
-        return scope
+        addresses = await scope.resolve_network_destination(url, method)
+        host = httpx.URL(url).host.rstrip(".").lower()
+        return scope, host, str(addresses[0])
 
     async def request(
         self,
@@ -231,7 +309,18 @@ class TalismanHTTPClient:
         current_url = url
         current_params = params
         for redirect_index in range(self.max_redirects + 1):
-            active_scope = await self._assert_allowed(current_url, method)
+            active_scope, pin_host, pin_ip = await self._assert_allowed(
+                current_url,
+                method,
+            )
+            if self.proxy and os.environ.get(
+                "TALISMAN_ALLOW_UNPINNED_PROXY", ""
+            ).strip().lower() not in {"1", "true", "yes"}:
+                raise ScopeViolationError(
+                    "Proxy request blocked because the proxy resolves the target "
+                    "independently. Set TALISMAN_ALLOW_UNPINNED_PROXY=1 only when "
+                    "the explicitly configured proxy is trusted."
+                )
             attempts = self.max_retries if method in SAFE_REDIRECT_METHODS else 1
             last_exc: Exception | None = None
             response: httpx.Response | None = None
@@ -239,6 +328,9 @@ class TalismanHTTPClient:
             for attempt in range(attempts):
                 await active_scope.acquire_request_slot()
                 await self._enforce_rate_limit()
+                pin_token: Token[tuple[str, str] | None] | None = None
+                if self.proxy is None:
+                    pin_token = _PINNED_DESTINATION.set((pin_host, pin_ip))
                 try:
                     response = await self._client.request(
                         method=method,
@@ -273,6 +365,9 @@ class TalismanHTTPClient:
                         error=type(exc).__name__,
                     )
                     raise
+                finally:
+                    if pin_token is not None:
+                        _PINNED_DESTINATION.reset(pin_token)
 
             if response is None:
                 raise last_exc or RuntimeError(f"HTTP request failed for {current_url}")
@@ -287,8 +382,8 @@ class TalismanHTTPClient:
                 return response
 
             next_url = urljoin(str(response.url), location)
-            # Check scope before the next connection; never delegate this to httpx.
-            active_scope = await self._assert_allowed(next_url, method)
+            # The next loop iteration revalidates and pins the redirect target
+            # before opening another connection.
             old_origin = httpx.URL(str(response.url))
             new_origin = httpx.URL(next_url)
             if (old_origin.scheme, old_origin.host, old_origin.port) != (
