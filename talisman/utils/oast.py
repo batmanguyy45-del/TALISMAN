@@ -102,7 +102,7 @@ class OASTClient:
   self._tokens: dict[str, dict[str, Any]] = {}
 
  def register(self) -> str:
-  """Generate a unique OAST interaction token."""
+  """Generate and retain a unique OAST interaction token."""
   token = "".join(random.choices(string.ascii_lowercase + string.digits, k=16))
   full = f"{token}.{self.server}"
   self._tokens[token] = {
@@ -113,15 +113,27 @@ class OASTClient:
   return full
 
  def get_payload_url(self, prefix: str = "") -> str:
-  """Get a unique URL for OOB testing."""
+  """Get and retain a unique URL for OOB testing."""
+  if prefix and not re.fullmatch(r"[a-z0-9-]{1,32}", prefix.lower()):
+   raise ValueError("OAST payload prefix may contain only letters, digits and hyphens")
   token = "".join(random.choices(string.ascii_lowercase + string.digits, k=12))
-  if prefix:
-   return f"http://{prefix}-{token}.{self.server}/"
-  return f"http://{token}.{self.server}/"
+  full = f"{prefix.lower()}-{token}.{self.server}" if prefix else f"{token}.{self.server}"
+  self._tokens[token] = {
+   "full": full,
+   "registered_at": time.time(),
+   "hits": [],
+  }
+  return f"http://{full}/"
 
  async def poll(self, token: str, timeout: int = 30) -> list[dict[str, Any]]:
-  """Poll interactsh for callbacks matching token."""
+  """Poll interactsh for a token created by this client."""
   domain_part = token.split(".")[0] if "." in token else token
+  if not re.fullmatch(r"[a-z0-9]{12,16}", domain_part):
+   raise ValueError("Invalid OAST token")
+  if domain_part not in self._tokens:
+   raise ValueError("OAST token was not registered by this client")
+  if timeout < 0 or timeout > 300:
+   raise ValueError("OAST poll timeout must be between 0 and 300 seconds")
   hits: list[dict[str, Any]] = []
   deadline = time.monotonic() + timeout
   poll_scope = ScopeEnforcer(
@@ -140,7 +152,8 @@ class OASTClient:
    while time.monotonic() < deadline:
     try:
      r = await client.get(
-      f"https://{self.server}/poll?id={domain_part}",
+      f"https://{self.server}/poll",
+      params={"id": domain_part},
       timeout=10,
      )
      if r.status_code == 200:
