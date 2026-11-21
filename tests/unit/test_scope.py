@@ -1,6 +1,7 @@
 """Unit tests for scope enforcement."""
 import pytest
-from talisman.engine.scope import ScopeEnforcer, ScopeConfig, ScopeViolationError
+
+from talisman.engine.scope import ScopeConfig, ScopeEnforcer, ScopeViolationError
 
 
 def _make_scope(include, exclude=None):
@@ -157,7 +158,12 @@ def test_wildcard_host_with_path_scope():
 
 def test_scope_rejects_malformed_hostname():
     with pytest.raises(ValueError):
-        ScopeEnforcer(ScopeConfig(include=["https://example.com@attacker.test"], service_allowlist=[]))
+        ScopeEnforcer(
+            ScopeConfig(
+                include=["https://example.com@attacker.test"],
+                service_allowlist=[],
+            )
+        )
     with pytest.raises(ValueError):
         ScopeEnforcer(ScopeConfig(include=["bad_host.example"], service_allowlist=[]))
 
