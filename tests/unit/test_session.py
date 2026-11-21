@@ -81,3 +81,40 @@ def test_session_manager(tmp_session_dir):
  assert sm.exists("bounty-q1")
  sm.delete("bounty-q1")
  assert not sm.exists("bounty-q1")
+
+
+
+def test_session_names_cannot_escape_base_directory(tmp_path):
+    from talisman.engine.session import Session
+
+    with pytest.raises(ValueError):
+        Session("../outside", tmp_path)
+    with pytest.raises(ValueError):
+        Session("nested/name", tmp_path)
+
+
+def test_session_directory_permissions_are_private(tmp_path):
+    import stat
+
+    sess = Session("private-session", tmp_path)
+    assert stat.S_IMODE(sess.dir.stat().st_mode) == 0o700
+    assert stat.S_IMODE(sess.raw_dir.stat().st_mode) == 0o700
+
+
+@pytest.mark.asyncio
+async def test_empty_evidence_does_not_hide_distinct_findings(tmp_path):
+    sess = Session("empty-evidence", tmp_path)
+    async with sess:
+        first = await sess.add_finding("https://example.com", "scanner", "issue", "low", "low", "First")
+        second = await sess.add_finding("https://example.com", "scanner", "issue", "low", "low", "Second")
+        assert first is not None
+        assert second is not None
+        assert len(await sess.get_findings()) == 2
+
+
+def test_session_manager_rejects_traversal_for_delete_and_exists(tmp_path):
+    sm = SessionManager(tmp_path)
+    with pytest.raises(ValueError):
+        sm.exists("../outside")
+    with pytest.raises(ValueError):
+        sm.delete("../outside")
