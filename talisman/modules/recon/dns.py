@@ -120,11 +120,17 @@ async def run(
    ns_host = ns.rstrip(".")
    # AXFR is an active request to a nameserver. Only query nameservers
    # explicitly included in the authorized scope.
-   if not scope.is_in_scope(ns_host):
-    continue
    try:
+    addresses = await scope.resolve_network_destination(
+     f"http://{ns_host}:53/",
+     "GET",
+    )
     await scope.acquire_request_slot()
-    transferred = await asyncio.to_thread(_zone_transfer_sync, domain, ns_host)
+    transferred = await asyncio.to_thread(
+     _zone_transfer_sync,
+     domain,
+     str(addresses[0]),
+    )
     if transferred:
      print_finding(f"DNS zone transfer allowed from {ns_host}", "medium", domain)
      results["zone_transfer"] = {"ns": ns_host, "records": transferred[:50]}
