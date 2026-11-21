@@ -251,7 +251,6 @@ async def run(
                 evidence=cl_te_result.get("evidence", ""),
                 reproduction="Send a POST with both CL and TE headers where CL is short and the chunked body overflows.",
                 remediation="1. Reject requests with both Content-Length and Transfer-Encoding. 2. Use HTTP/2 end-to-end. 3. Normalize TE headers at the proxy.",
-                cvss_score=9.8, cwe="CWE-444",
             )
 
     # -- 2. TE.CL -------------------------------------------------------------------
