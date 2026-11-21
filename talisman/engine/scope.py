@@ -19,6 +19,7 @@ from talisman.utils.logger import get_logger
 
 log = get_logger(__name__)
 MAX_REQUESTS_PER_SECOND = 20.0
+HOST_LABEL_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 
 # Hosts used only as passive data providers by built-in modules. Custom providers
 # must be added explicitly to the scope file's service_allowlist.
@@ -90,9 +91,8 @@ def _normalize_host(host: str) -> str:
 
     if len(normalized) > 253:
         return ""
-    label_re = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
     labels = normalized.split(".")
-    if any(not label_re.fullmatch(label) for label in labels):
+    if any(not HOST_LABEL_RE.fullmatch(label) for label in labels):
         return ""
     return normalized
 
