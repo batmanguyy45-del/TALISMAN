@@ -2,13 +2,14 @@
 from __future__ import annotations
 
 import asyncio
-from contextlib import asynccontextmanager
 import ipaddress
 import math
 import posixpath
 import re
 import socket
 import time
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from contextvars import ContextVar, Token
 from dataclasses import dataclass, field
 from fnmatch import fnmatchcase
@@ -455,14 +456,18 @@ class ScopeEnforcer:
     ) -> set[ipaddress.IPv4Address | ipaddress.IPv6Address]:
         """Resolve a host once for policy evaluation using the system resolver."""
         try:
-            return {
-                ipaddress.ip_address(result[4][0].split("%", 1)[0])
-                for result in await asyncio.get_running_loop().getaddrinfo(
-                    host,
-                    port,
-                    type=socket.SOCK_STREAM,
-                )
-            }
+            addresses: set[ipaddress.IPv4Address | ipaddress.IPv6Address] = set()
+            results = await asyncio.get_running_loop().getaddrinfo(
+                host,
+                port,
+                type=socket.SOCK_STREAM,
+            )
+            for result in results:
+                raw_address = result[4][0]
+                if not isinstance(raw_address, str):
+                    raise ValueError("Resolver returned a non-string address")
+                addresses.add(ipaddress.ip_address(raw_address.split("%", 1)[0]))
+            return addresses
         except (OSError, ValueError) as exc:
             raise ScopeViolationError(
                 f"Request blocked: destination host '{host}' did not resolve safely"
@@ -534,7 +539,7 @@ class ScopeEnforcer:
         await self.resolve_network_destination(target, method)
 
     @asynccontextmanager
-    async def request_concurrency_slot(self):
+    async def request_concurrency_slot(self) -> AsyncIterator[None]:
         """Bound in-flight work, including DNS resolution, across HTTP clients."""
         await self._request_semaphore.acquire()
         try:
@@ -543,7 +548,7 @@ class ScopeEnforcer:
             self._request_semaphore.release()
 
     @asynccontextmanager
-    async def exclusive_request_activity(self):
+    async def exclusive_request_activity(self) -> AsyncIterator[None]:
         """Reserve every shared HTTP concurrency slot for an external scanner.
 
         Used for subprocess scanners that cannot call the shared transport for
