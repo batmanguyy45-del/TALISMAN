@@ -409,20 +409,25 @@ class ScopeEnforcer:
             raise ScopeViolationError(f"Target '{target}' is out of scope")
 
     def assert_request_allowed(self, target: str, method: str = "GET") -> None:
-        if not (self.is_in_scope(target) or self.is_service_allowed(target)):
+        method = method.upper()
+        target_is_in_scope = self.is_in_scope(target)
+        service_is_allowed = self.is_service_allowed(target)
+        if not target_is_in_scope and not service_is_allowed:
             raise ScopeViolationError(
                 f"Request blocked: '{target}' is neither in target scope nor an approved service"
             )
 
-        method = method.upper()
+        # Passive service providers are never targets: only safe, read-only
+        # requests may be sent to them, even when active testing is enabled.
+        if service_is_allowed and not target_is_in_scope and method not in {"GET", "HEAD", "OPTIONS"}:
+            raise ScopeViolationError(
+                f"{method} blocked: approved external services are read-only data sources"
+            )
+
         if method not in {"GET", "HEAD", "OPTIONS"}:
             if self.config.avoid_writes or not self.config.allow_state_changing_requests:
                 raise ScopeViolationError(
                     f"{method} blocked: enable allow_state_changing_requests in the scope file only when the program permits active testing"
-                )
-            if method == "DELETE" and self.config.avoid_destructive:
-                raise ScopeViolationError(
-                    "DELETE blocked: destructive requests are disabled by this scope"
                 )
 
     def assert_destructive_allowed(self, target: str, method: str = "POST") -> None:
