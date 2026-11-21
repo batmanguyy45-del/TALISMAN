@@ -98,7 +98,6 @@ TIME_PAYLOADS: list[tuple[str, str]] = [
  ("1' AND (SELECT * FROM (SELECT(SLEEP(6)))a)--", "MySQL"),
  ("'; SELECT pg_sleep(6)--", "PostgreSQL"),
  ("1; SELECT pg_sleep(6)--", "PostgreSQL"),
- ("1' AND BENCHMARK(10000000,SHA1(1))--", "MySQL"),
 ]
 
 SLEEP_DURATION = 6
@@ -440,7 +439,7 @@ async def run(
  console.print(
   f"\n[module][+] SQL Injection Candidate Scanner[/module] -> [target]{url}[/target]"
  )
- active_techniques = set(techniques or ["error", "boolean", "time"])
+ active_techniques = set(techniques or ["error", "boolean"])
  supported_techniques = {"error", "boolean", "time"}
  if not active_techniques or active_techniques - supported_techniques:
   return {
@@ -449,6 +448,30 @@ async def run(
    "candidates": [],
    "count": 0,
    "error": "techniques must be selected from error, boolean and time",
+  }
+
+ skipped_techniques: list[str] = []
+ if "time" in active_techniques:
+  try:
+   # Time-delay payloads deliberately add server-side latency and must be
+   # explicitly authorized as destructive testing.
+   scope.assert_destructive_allowed(url, "POST")
+  except ScopeViolationError:
+   active_techniques.remove("time")
+   skipped_techniques.append("time")
+
+ if not active_techniques:
+  return {
+   "target": url,
+   "findings": [],
+   "candidates": [],
+   "count": 0,
+   "skipped": True,
+   "skipped_techniques": skipped_techniques,
+   "reason": (
+    "Time-based SQLi probes require allow_state_changing_requests=true, "
+    "avoid_writes=false and avoid_destructive=false in the scope policy."
+   ),
   }
 
  candidates: list[dict[str, Any]] = []
@@ -540,4 +563,5 @@ async def run(
   "candidates": candidates,
   "count": 0,
   "candidate_count": len(candidates),
+  "skipped_techniques": skipped_techniques,
  }
