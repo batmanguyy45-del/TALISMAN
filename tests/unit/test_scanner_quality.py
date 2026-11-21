@@ -5,6 +5,8 @@ import pytest
 
 from talisman.engine.scope import ScopeConfig, ScopeEnforcer
 from talisman.modules.scanner import (
+    csp_evaluator,
+    dep_confusion,
     file_upload_scanner,
     idor,
     mass_assignment,
@@ -342,3 +344,81 @@ async def test_disabled_mutation_scanners_still_enforce_scope():
         )
         assert result["error"] == "Target 'https://outside.example' is out of scope"
         assert result["findings"] == []
+
+
+@pytest.mark.asyncio
+async def test_csp_posture_is_observation_not_confirmed_vulnerability(monkeypatch):
+    class _CSPResponse:
+        headers = {}
+
+    class _CSPClient:
+        def __init__(self, *args, **kwargs):
+            assert kwargs.get("scope") is not None
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def get(self, *args, **kwargs):
+            return _CSPResponse()
+
+    monkeypatch.setattr(csp_evaluator, "TalismanHTTPClient", _CSPClient)
+    session = _NoFindingSession()
+
+    result = await csp_evaluator.run(
+        target="https://example.com",
+        scope=_scope(),
+        session=session,
+    )
+
+    assert result["findings"] == []
+    assert result["count"] == 0
+    assert result["observation_count"] == 1
+    assert result["observations"][0]["classification"] == "security_posture_observation"
+    assert session.added == []
+
+
+@pytest.mark.asyncio
+async def test_csp_evaluator_requires_explicit_scope():
+    result = await csp_evaluator.run(target="https://example.com")
+
+    assert result["error"] == "scope_enforcer_required"
+    assert result["findings"] == []
+
+
+@pytest.mark.asyncio
+async def test_dependency_confusion_heuristics_are_candidates_not_findings(monkeypatch):
+    async def fake_fetch_package_file(url, path, client):
+        if path != "/package.json":
+            return None
+        return {
+            "path": path,
+            "pm_type": "npm",
+            "content": '{"dependencies":{"internal-widget":"1.2.3"}}',
+            "size": 50,
+        }
+
+    async def public_registry_exists(package_name, scope):
+        return package_name == "internal-widget"
+
+    monkeypatch.setattr(dep_confusion, "_fetch_package_file", fake_fetch_package_file)
+    monkeypatch.setattr(dep_confusion, "_check_npm_registry", public_registry_exists)
+    monkeypatch.setattr(dep_confusion, "TalismanHTTPClient", _FakeClient)
+    session = _NoFindingSession()
+
+    result = await dep_confusion.run(
+        target="https://example.com",
+        scope=_scope(),
+        session=session,
+    )
+
+    assert result["findings"] == []
+    assert result["count"] == 0
+    assert result["candidate_count"] == 1
+    candidate = result["candidates"][0]
+    assert candidate["package"] == "internal-widget"
+    assert candidate["confidence"] == "candidate"
+    assert "Confirm the package name is reserved" in candidate["requires_verification"][0]
+    assert session.added == []
