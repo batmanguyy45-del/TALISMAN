@@ -235,7 +235,8 @@ class ScopeEnforcer:
             or config.max_requests_per_second > MAX_REQUESTS_PER_SECOND
         ):
             raise ValueError(
-                f"max_requests_per_second must be positive and no greater than {MAX_REQUESTS_PER_SECOND:g}"
+                "max_requests_per_second must be positive and no greater than "
+                f"{MAX_REQUESTS_PER_SECOND:g}"
             )
         self._validate_entries(config.include, "include", allow_url=True)
         self._validate_entries(config.exclude, "exclude", allow_url=True)
