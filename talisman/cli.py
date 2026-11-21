@@ -687,21 +687,21 @@ _mkscan("verb","talisman.modules.scanner.verb_tampering",
 _mkscan("upload","talisman.modules.scanner.file_upload_scanner",
  "File Upload — extension bypass, content-type spoof, magic byte injection.\n\n\\b\nExamples:\n talisman scan upload -t https://example.com/upload\n talisman scan upload -t https://example.com/api/upload")
 _mkscan("git","talisman.modules.scanner.git_exposure",
- "Git Exposure — .git/config, .env, credential disclosure, 80+ sensitive paths.\n\n\\b\nExamples:\n talisman scan git -t https://example.com\n talisman scan git -t https://github.com/org/repo")
+ "Git/file exposure inventory — read-only path checks; exposed content is a candidate until the file and any secret are validated.\n\n\\b\nExample:\n talisman scan git -t https://example.com")
 _mkscan("depconf","talisman.modules.scanner.dep_confusion",
  "Dependency Confusion — package.json, requirements.txt, Gemfile, public registry cross-check.\n\n\\b\nExamples:\n talisman scan depconf -t https://example.com\n talisman scan depconf -t https://example.com/src")
 _mkscan("hpp","talisman.modules.scanner.hpp",
- "HTTP Parameter Pollution — query, body, header, mixed-source HPP bypass.\n\n\\b\nExamples:\n talisman scan hpp -t 'https://example.com/api?param=1&param=2'\n talisman scan hpp -t https://example.com")
+ "HTTP Parameter Pollution — reports reflected canary candidates; POST vectors require explicit destructive permission; duplicate-header testing is not supported by the current mapping API.\n\n\\b\nExample:\n talisman scan hpp -t 'https://example.com/api?param=1&param=2'")
 _mkscan("ldap","talisman.modules.scanner.ldap_injection",
- "LDAP Injection — wildcard, auth bypass, blind extraction payloads.\n\n\\b\nExamples:\n talisman scan ldap -t https://example.com/login\n talisman scan ldap -t https://example.com/search")
+ "LDAP injection candidates — active login/search POST probes run only with explicit destructive scope permission; results require controlled authorization validation.\n\n\\b\nExample:\n talisman scan ldap -t https://example.com/login")
 _mkscan("ssji","talisman.modules.scanner.ssji",
- "Server-Side JS Injection — Node.js eval, timing, error, reflection probes.\n\n\\b\nExamples:\n talisman scan ssji -t https://example.com/api\n talisman scan ssji -t 'https://example.com/eval?code=FUZZ'")
+ "Server-Side JavaScript Injection — disabled pending a dedicated disposable fixture and reliable execution oracle; no generic command or filesystem probes are sent.\n\n\\b\nExample:\n talisman scan ssji -t https://example.com/api")
 _mkscan("domclobber","talisman.modules.scanner.dom_clobbering",
- "DOM Clobbering — 10+ HTML element collisions, global sink overwrite.\n\n\\b\nExamples:\n talisman scan domclobber -t https://example.com\n talisman scan domclobber -t https://example.com/page")
+ "DOM Clobbering candidates — requires browser parsing, a real application gadget, and demonstrated security impact; POST probes require explicit destructive permission.\n\n\\b\nExample:\n talisman scan domclobber -t https://example.com")
 _mkscan("dangle","talisman.modules.scanner.dangling_markup",
- "Dangling Markup — unquoted attr, form hijack, script src injection.\n\n\\b\nExamples:\n talisman scan dangle -t https://example.com\n talisman scan dangle -t https://example.com/search?q=FUZZ")
+ "Dangling-markup reflection candidates — browser-side parsing and controlled canary capture must be verified manually; payload URLs use a reserved non-routable domain.\n\n\\b\nExample:\n talisman scan dangle -t https://example.com")
 _mkscan("unicode","talisman.modules.scanner.unicode_attacks",
- "Unicode Attacks — Bidi override, invisible chars, homoglyph, normalization bypass.\n\n\\b\nExamples:\n talisman scan unicode -t https://example.com\n talisman scan unicode -t 'https://example.com/search?q=FUZZ'")
+ "Unicode posture observations and candidate input-filter differences; active POST probes require explicit destructive scope permission, and reflection alone is not a bypass.\n\n\\b\nExample:\n talisman scan unicode -t https://example.com")
 _mkscan("grpc","talisman.modules.api.grpc",
  "gRPC Security — reflection API, TLS check, health check, gRPC-Web probing.\n\n\\b\nExamples:\n talisman scan grpc -t https://example.com\n talisman scan grpc -t grpc://api.example.com:50051")
 _mkscan("email","talisman.modules.network.email_security",
