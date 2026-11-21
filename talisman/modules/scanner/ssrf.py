@@ -133,6 +133,34 @@ def _is_internal_ssrf_target(value: str) -> bool:
   return True
 
 
+def _validate_oast_domain(value: str) -> str:
+ """Accept a hostname-only, public OAST callback domain."""
+ raw = value.strip()
+ candidate = raw if "://" in raw else f"https://{raw}"
+ try:
+  parsed = urllib.parse.urlsplit(candidate)
+  host = (parsed.hostname or "").rstrip(".").lower()
+  if (
+   parsed.scheme not in {"http", "https"}
+   or not host
+   or parsed.username is not None
+   or parsed.password is not None
+   or parsed.port is not None
+   or parsed.path not in {"", "/"}
+   or parsed.query
+   or parsed.fragment
+   or any(character.isspace() for character in raw)
+   or _is_internal_ssrf_target(f"https://{host}/")
+  ):
+   raise ValueError
+  return host
+ except ValueError as exc:
+  raise ValueError(
+   "OAST domain must be a hostname-only public callback domain; "
+   "local, private, link-local and non-HTTP targets are not allowed"
+  ) from exc
+
+
 def _check_ssrf_response(text: str) -> tuple[bool, str, str]:
  """
  Return (confirmed, description, severity) if response contains
@@ -307,6 +335,18 @@ async def run(
   scope.assert_in_scope(url)
  except ScopeViolationError as exc:
   return {"target": url, "findings": [], "count": 0, "error": str(exc)}
+ if oast_domain:
+  try:
+   oast_domain = _validate_oast_domain(oast_domain)
+  except ValueError as exc:
+   return {
+    "target": url,
+    "findings": [],
+    "candidates": [],
+    "count": 0,
+    "error": str(exc),
+   }
+
  console.print(
   f"\n[module][+] SSRF Scanner[/module] -> [target]{url}[/target]"
  )
