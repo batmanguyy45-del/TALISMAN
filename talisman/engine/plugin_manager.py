@@ -338,15 +338,38 @@ def install_plugin(plugin_name: str, repo_url: str | None = None) -> dict[str, A
 
         with tempfile.TemporaryDirectory(prefix="talisman-plugin-") as temp_dir:
             clone_dir = Path(temp_dir) / "repository"
+            git_environment = {
+                "PATH": os.environ.get("PATH", ""),
+                "HOME": str(Path.home()),
+                "GIT_CONFIG_NOSYSTEM": "1",
+                "GIT_CONFIG_SYSTEM": os.devnull,
+                "GIT_CONFIG_GLOBAL": os.devnull,
+                "GIT_TERMINAL_PROMPT": "0",
+                "GIT_ALLOW_PROTOCOL": "https",
+                "GIT_LFS_SKIP_SMUDGE": "1",
+            }
             subprocess.run(
                 [
-                    "git", "clone", "--depth", "1", "--",
-                    source_url, str(clone_dir),
+                    "git",
+                    "-c",
+                    "core.hooksPath=/dev/null",
+                    "-c",
+                    "http.followRedirects=false",
+                    "-c",
+                    "credential.helper=",
+                    "clone",
+                    "--depth",
+                    "1",
+                    "--single-branch",
+                    "--",
+                    source_url,
+                    str(clone_dir),
                 ],
                 capture_output=True,
                 text=True,
                 check=True,
                 timeout=60,
+                env=git_environment,
             )
 
             plugin_src = clone_dir if repo_url else clone_dir / plugin_name
