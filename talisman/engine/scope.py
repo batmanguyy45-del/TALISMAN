@@ -97,7 +97,7 @@ def _normalize_host(host: str) -> str:
     return normalized
 
 
-def _parse_url(value: str) -> SplitResult | None:
+def _parse_url(value: str, allow_wildcard_host: bool = False) -> SplitResult | None:
     raw = value.strip()
     if not raw or "\\" in raw or any(ord(char) < 0x21 or ord(char) == 0x7F for char in raw):
         return None
@@ -116,7 +116,14 @@ def _parse_url(value: str) -> SplitResult | None:
             return None
         # Accessing .port validates malformed and out-of-range ports.
         _ = parsed.port
-        host = _normalize_host(parsed.hostname)
+        parsed_host = parsed.hostname
+        if parsed_host.startswith("*.") and allow_wildcard_host:
+            suffix = _normalize_host(parsed_host[2:])
+            if not suffix:
+                return None
+            host = f"*.{suffix}"
+        else:
+            host = _normalize_host(parsed_host)
         if not host:
             return None
         netloc = f"[{host}]" if ":" in host else host
@@ -255,7 +262,7 @@ class ScopeEnforcer:
                     raise ValueError(f"Invalid wildcard target in '{field_name}': {entry!r}")
                 continue
             if allow_url and ("://" in value or "/" in value or "?" in value):
-                if _parse_url(value) is None:
+                if _parse_url(value, allow_wildcard_host=True) is None:
                     raise ValueError(f"Invalid URL target in '{field_name}': {entry!r}")
                 continue
             if not _normalize_host(value):
@@ -292,7 +299,7 @@ class ScopeEnforcer:
 
     @staticmethod
     def _url_pattern_matches(candidate: SplitResult, pattern: str) -> bool:
-        expected = _parse_url(pattern)
+        expected = _parse_url(pattern, allow_wildcard_host=True)
         if expected is None:
             return False
         if "://" in pattern and candidate.scheme != expected.scheme:
