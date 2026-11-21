@@ -18,6 +18,7 @@ CORRECT APPROACH:
 """
 from __future__ import annotations
 import asyncio
+import ipaddress
 import re
 import urllib.parse
 from typing import Any
@@ -96,7 +97,7 @@ def _is_internal_ssrf_target(value: str) -> bool:
    return True
 
   try:
-   address = __import__("ipaddress").ip_address(host)
+   address = ipaddress.ip_address(host)
    return not address.is_global
   except ValueError:
    pass
@@ -107,7 +108,7 @@ def _is_internal_ssrf_target(value: str) -> bool:
    try:
     address_int = int(host, 10)
     if 0 <= address_int <= 0xFFFFFFFF:
-     return not __import__("ipaddress").ip_address(address_int).is_global
+     return not ipaddress.ip_address(address_int).is_global
    except ValueError:
     return True
 
@@ -119,7 +120,7 @@ def _is_internal_ssrf_target(value: str) -> bool:
       str(int(part, 8) if len(part) > 1 and part.startswith("0") else int(part, 10))
       for part in octets
      )
-     return not __import__("ipaddress").ip_address(normalized).is_global
+     return not ipaddress.ip_address(normalized).is_global
    except ValueError:
     return True
 
