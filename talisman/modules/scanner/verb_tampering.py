@@ -31,7 +31,10 @@ METHOD_OVERRIDE_HEADERS = [
 
 
 async def _test_methods(
-    url: str, endpoint: str, client: TalismanHTTPClient,
+    url: str,
+    endpoint: str,
+    client: TalismanHTTPClient,
+    methods: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Test all HTTP methods on an endpoint and report unexpected acceptances."""
     findings: list[dict[str, Any]] = []
@@ -48,7 +51,7 @@ async def _test_methods(
     except Exception:
         pass
 
-    for method in HTTP_METHODS:
+    for method in (methods or HTTP_METHODS):
         try:
             r = await client.request(method, test_url, timeout=8)
             # Consider 200, 201, 204, 301, 302, 303, 307, 308 as "accepted"
@@ -224,7 +227,7 @@ async def run(
         scope=scope,
     ) as client:
         for endpoint in SENSITIVE_ENDPOINTS:
-            method_results = await _test_methods(url, endpoint, client)
+            method_results = await _test_methods(url, endpoint, client, methods=methods)
             for result in method_results:
                 item = {
                     **result,
