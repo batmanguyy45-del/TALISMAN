@@ -60,7 +60,7 @@ async def _harvest_emails(domain: str, client: TalismanHTTPClient) -> list[str]:
  ]
  for url in sources:
   try:
-   r = await client.get(url, timeout=10)
+   r = await client.get(url, timeout=10, scope_exempt=True)
    if r.status_code == 200:
     found = email_re.findall(r.text)
     emails.update(found)
@@ -81,6 +81,7 @@ async def _check_pastebin(domain: str, client: TalismanHTTPClient) -> list[dict[
   r = await client.get(
    f"https://psbdmp.ws/api/v3/search/{domain}",
    timeout=10,
+   scope_exempt=True,
   )
   if r.status_code == 200:
    data = r.json()
