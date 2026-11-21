@@ -37,6 +37,8 @@ async def run(
  threads: int = 100,
  **kwargs: Any,
 ) -> dict[str, Any]:
+ if scope is not None:
+  scope.assert_in_scope(target)
  host = target.replace("https://", "").replace("http://", "").split("/")[0].split(":")[0]
  console.print(f"\n[module][+] Port Scanner[/module] -> [target]{host}[/target]")
 
