@@ -2,6 +2,7 @@
 from __future__ import annotations
 import asyncio
 from typing import Any
+from talisman.engine.scope import ScopeViolationError
 from talisman.utils.http_client import TalismanHTTPClient
 from talisman.utils.payload_engine import PayloadEngine
 from talisman.modules.waf.vendors import cloudflare, akamai
@@ -59,13 +60,21 @@ async def _score_payload(
    kw in r.text.lower()
    for kw in ["blocked", "forbidden", "access denied", "cloudflare", "incapsula"]
   )
-  passed = not blocked and not waf_page
+  not_blocked = not blocked and not waf_page
   return {
    "payload": payload,
    "param": param,
    "status": r.status_code,
-   "passed": passed,
+   "passed": not_blocked,
+   "not_blocked": not_blocked,
    "blocked": blocked or waf_page,
+   "confidence": "candidate",
+   "requires_application_verification": True,
+   "verification_required": (
+    "A response that is not an obvious WAF block page does not prove the "
+    "payload reached an interpreter or changed application behavior. Verify "
+    "a harmless, application-specific effect before claiming a WAF bypass."
+   ),
   }
  except Exception as e:
   return {"payload": payload, "param": param, "status": 0, "passed": False, "blocked": False, "error": str(e)}
@@ -82,10 +91,44 @@ async def run(
  **kwargs: Any,
 ) -> dict[str, Any]:
  url = target if "://" in target else f"https://{target}"
- console.print(f"\n[module][+] WAF Bypass Engine[/module] -> [target]{url}[/target] ({waf})")
+ if scope is None:
+  return {
+   "target": url,
+   "bypasses": [],
+   "candidates": [],
+   "findings": [],
+   "count": 0,
+   "error": "scope_enforcer_required",
+  }
+ try:
+  scope.assert_in_scope(url)
+ except ScopeViolationError as exc:
+  return {
+   "target": url,
+   "bypasses": [],
+   "candidates": [],
+   "findings": [],
+   "count": 0,
+   "error": str(exc),
+  }
+
+ param = kwargs.get("param", "q")
+ if not isinstance(param, str) or not param or len(param) > 128:
+  return {
+   "target": url,
+   "bypasses": [],
+   "candidates": [],
+   "findings": [],
+   "count": 0,
+   "error": "param must be a non-empty string of at most 128 characters",
+  }
+
+ console.print(
+  f"\n[module][+] WAF Response-Handling Assessment[/module] -> "
+  f"[target]{url}[/target] ({waf})"
+ )
 
  if waf == "auto" or waf not in VENDOR_BYPASS_MAP:
-  # Use generic payloads
   from talisman.utils.payload_engine import XSS_PAYLOADS, SQLI_PAYLOADS
   payloads = (
    XSS_PAYLOADS.get("waf_bypass", []) if vuln_type == "xss"
@@ -95,27 +138,54 @@ async def run(
   payloads = VENDOR_BYPASS_MAP.get(waf, {}).get(vuln_type, [])
 
  if not payloads:
-  console.print(" [dim]No vendor-specific bypasses available[/dim]")
-  return {"target": url, "bypasses": [], "waf": waf}
+  console.print(" [dim]No vendor-specific payloads available[/dim]")
+  return {
+   "target": url,
+   "bypasses": [],
+   "candidates": [],
+   "findings": [],
+   "count": 0,
+   "waf": waf,
+  }
 
- # Test each bypass payload and score
- import urllib.parse
- param = kwargs.get("param", "q")
- passed: list[dict[str, Any]] = []
+ candidates: list[dict[str, Any]] = []
+ async with TalismanHTTPClient(
+  proxy=proxy,
+  timeout=12,
+  scope=scope,
+ ) as client:
+  sem = asyncio.Semaphore(min(20, scope.config.max_concurrent_requests))
 
- async with TalismanHTTPClient(proxy=proxy, timeout=12) as client:
-  tasks = [_score_payload(url, param, p, client) for p in payloads[:20]]
-  results = await asyncio.gather(*tasks, return_exceptions=True)
-  for r in results:
-   if isinstance(r, dict) and r.get("passed"):
-    passed.append(r)
-    console.print(f" [success][+] Bypass passed:[/success] {r['payload'][:80]}")
+  async def score_one(payload: str) -> dict[str, Any] | None:
+   async with sem:
+    return await _score_payload(url, param, payload, client)
 
- console.print(f" {len(passed)}/{len(payloads)} payloads bypassed WAF")
+  results = await asyncio.gather(
+   *(score_one(payload) for payload in payloads[:20]),
+   return_exceptions=True,
+  )
+  for result in results:
+   if isinstance(result, dict) and result.get("not_blocked"):
+    candidates.append(result)
+    console.print(
+     f" [success][+] Response not visibly blocked (candidate):[/success] "
+     f"{result['payload'][:80]}"
+    )
+
+ console.print(
+  f" {len(candidates)}/{min(len(payloads), 20)} responses were not visibly blocked; "
+  "application behavior still requires verification"
+ )
  return {
   "target": url,
   "waf": waf,
   "vuln_type": vuln_type,
-  "tested": len(payloads),
-  "bypasses": passed,
+  "tested": min(len(payloads), 20),
+  "candidates": candidates,
+  "responses_not_blocked": candidates,
+  "bypasses": candidates,
+  "findings": [],
+  "count": 0,
+  "candidate_count": len(candidates),
+  "confirmed_bypasses": 0,
  }

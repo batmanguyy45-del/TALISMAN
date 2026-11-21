@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 from typing import Any
+from talisman.engine.scope import ScopeViolationError
 from talisman.utils.http_client import TalismanHTTPClient
 from talisman.utils.logger import get_logger, console, print_finding
 
@@ -75,6 +76,11 @@ async def _probe_path(
  return None
 
 
+MAX_PATHS_PER_RUN = 5000
+MAX_WORDLIST_ENTRIES = 4000
+MAX_CONCURRENCY = 32
+
+
 async def run(
  target: str,
  session: Any = None,
@@ -88,67 +94,143 @@ async def run(
  **kwargs: Any,
 ) -> dict[str, Any]:
  url = target if "://" in target else f"https://{target}"
+ if scope is None:
+  return {
+   "target": url,
+   "found": [],
+   "candidates": [],
+   "findings": [],
+   "count": 0,
+   "error": "scope_enforcer_required",
+  }
+ try:
+  scope.assert_in_scope(url)
+ except ScopeViolationError as exc:
+  return {
+   "target": url,
+   "found": [],
+   "candidates": [],
+   "findings": [],
+   "count": 0,
+   "error": str(exc),
+  }
+
+ if isinstance(threads, bool) or not isinstance(threads, int) or threads < 1:
+  return {
+   "target": url,
+   "found": [],
+   "candidates": [],
+   "findings": [],
+   "count": 0,
+   "error": "threads must be a positive integer",
+  }
+ scope_concurrency = scope.config.max_concurrent_requests
+ concurrency = min(threads, MAX_CONCURRENCY, scope_concurrency)
+
  console.print(f"\n[module][+] Path Fuzzer[/module] -> [target]{url}[/target]")
 
  paths_to_test = list(BUILT_IN_PATHS)
 
- # Load custom wordlist
+ # Load a bounded, regular-file wordlist. Never follow a symlink supplied as
+ # the input file, and reject control characters and oversized path entries.
  if wordlist:
-  wl_path = Path(wordlist)
-  if wl_path.exists():
-   with open(wl_path) as f:
-    paths_to_test.extend(line.strip() for line in f if line.strip())
+  wl_path = Path(wordlist).expanduser()
+  if wl_path.is_symlink() or not wl_path.is_file():
+   return {
+    "target": url,
+    "found": [],
+    "candidates": [],
+    "findings": [],
+    "count": 0,
+    "error": "wordlist must be a regular, non-symlink file",
+   }
+  try:
+   with wl_path.open(encoding="utf-8", errors="replace") as handle:
+    for _, line in zip(range(MAX_WORDLIST_ENTRIES), handle):
+     item = line.strip()
+     if (
+      item
+      and len(item) <= 256
+      and "\\" not in item
+      and not any(ord(char) < 0x20 or ord(char) == 0x7f for char in item)
+     ):
+      paths_to_test.append(item)
+  except OSError as exc:
+   return {
+    "target": url,
+    "found": [],
+    "candidates": [],
+    "findings": [],
+    "count": 0,
+    "error": f"could_not_read_wordlist: {type(exc).__name__}",
+   }
 
- # Add extension variants
- ext_list = extensions or DEFAULT_EXTENSIONS[:5]
+ # Add only safe, bounded extension variants.
+ ext_list: list[str] = []
+ for extension in extensions or DEFAULT_EXTENSIONS[:5]:
+  if not isinstance(extension, str):
+   continue
+  normalized = extension.strip().lstrip(".")
+  if normalized and len(normalized) <= 12 and normalized.isalnum():
+   ext_list.append(normalized)
  base_paths = list(paths_to_test)
- for path in base_paths[:50]: # Limit ext testing to first 50
+ for path in base_paths[:50]:
   if "." not in path:
-   for ext in ext_list:
-    paths_to_test.append(f"{path}.{ext}")
+   for extension in ext_list:
+    paths_to_test.append(f"{path}.{extension}")
 
- paths_to_test = list(set(paths_to_test))
- console.print(f" Testing {len(paths_to_test)} paths...")
+ paths_to_test = list(dict.fromkeys(paths_to_test))[:MAX_PATHS_PER_RUN]
+ console.print(
+  f" Testing {len(paths_to_test)} paths (max concurrency {concurrency})..."
+ )
 
  found: list[dict[str, Any]] = []
- sem = asyncio.Semaphore(threads)
+ sem = asyncio.Semaphore(concurrency)
 
- async with TalismanHTTPClient(proxy=proxy, timeout=10) as client:
+ async with TalismanHTTPClient(
+  proxy=proxy,
+  timeout=10,
+  scope=scope,
+ ) as client:
   async def _probe(path: str) -> None:
    async with sem:
-    if scope and not scope.is_in_scope(f"{url}/{path}"):
+    candidate_url = f"{url.rstrip('/')}/{path.lstrip('/')}"
+    if not scope.is_in_scope(candidate_url):
      return
     result = await _probe_path(url, path, client)
     if result:
-     found.append(result)
-     status = result["status"]
-     color = {200: "green", 403: "yellow", 401: "yellow",
-        500: "red"}.get(status, "cyan")
+     candidate = {
+      **result,
+      "confidence": "candidate",
+      "classification": "path_access_observation",
+      "requires_content_verification": True,
+      "verification_required": (
+       "Inspect the response body and confirm it contains sensitive data or "
+       "configuration that should not be public. An HTTP status code, response "
+       "size, login page, SPA fallback, or server error alone does not prove "
+       "sensitive information disclosure."
+      ),
+     }
+     found.append(candidate)
+     status = candidate["status"]
+     color = {200: "green", 403: "yellow", 401: "yellow", 500: "red"}.get(status, "cyan")
      console.print(
-      f" [{color}]{status}[/{color}] /{result['path']}"
-      f" ({result['size']} bytes)"
-      + (f" -> {result['redirect']}" if result["redirect"] else "")
+      f" [{color}]{status}[/{color}] /{candidate['path']}"
+      f" ({candidate['size']} bytes)"
+      + (f" -> {candidate['redirect']}" if candidate["redirect"] else "")
+      + " [dim](candidate)[/dim]"
      )
-     # Flag sensitive finds
-     interesting_paths = [".git", ".env", "phpinfo", "server-status",
-          "actuator/env", "web.xml", "backup", ".sql"]
-     if any(ip in result["path"].lower() for ip in interesting_paths):
-      severity = "high" if status == 200 else "medium"
-      if session:
-       await session.add_finding(
-        target=url, module="path_fuzzer",
-        vuln_type="sensitive_path_exposure",
-        severity=severity, confidence="confirmed",
-        title=f"Sensitive path accessible: /{result['path']}",
-        description=f"HTTP {status} for /{result['path']}",
-        evidence=f"Status: {status}, Size: {result['size']}",
-        request=f"GET /{result['path']} HTTP/1.1",
-        cwe="CWE-200",
-       )
 
-  await asyncio.gather(*[_probe(p) for p in paths_to_test], return_exceptions=True)
+  await asyncio.gather(*[_probe(path) for path in paths_to_test], return_exceptions=True)
 
- # Sort by status
- found.sort(key=lambda x: (x["status"] != 200, x["status"]))
- console.print(f"\n Found {len(found)} accessible paths")
- return {"target": url, "found": found, "count": len(found)}
+ found.sort(key=lambda item: (item["status"] != 200, item["status"]))
+ console.print(f"\n Found {len(found)} accessible-path candidates")
+ return {
+  "target": url,
+  "found": found,
+  "candidates": found,
+  "findings": [],
+  "count": len(found),
+  "candidate_count": len(found),
+  "confirmed_findings": 0,
+ }
