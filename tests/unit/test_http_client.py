@@ -236,3 +236,79 @@ def test_hackerone_username_header_rejects_crlf(monkeypatch):
 
     with pytest.raises(ValueError, match="line break"):
         _load_extra_headers()
+
+
+
+@pytest.mark.asyncio
+async def test_pinned_backend_substitutes_only_the_validated_origin_host():
+    from talisman.utils.http_client import (
+        _PINNED_DESTINATION,
+        _PinnedNetworkBackend,
+    )
+
+    class FakeBackend:
+        def __init__(self):
+            self.calls = []
+
+        async def connect_tcp(
+            self,
+            host,
+            port,
+            timeout=None,
+            local_address=None,
+            socket_options=None,
+        ):
+            self.calls.append((host, port))
+            return "stream"
+
+        async def connect_unix_socket(self, path, timeout=None, socket_options=None):
+            return "unix-stream"
+
+        async def sleep(self, seconds):
+            return None
+
+    backend = FakeBackend()
+    pinned_backend = _PinnedNetworkBackend(backend)
+    token = _PINNED_DESTINATION.set(("example.com", "93.184.216.34"))
+    try:
+        await pinned_backend.connect_tcp("example.com", 443)
+        await pinned_backend.connect_tcp("other.example", 443)
+    finally:
+        _PINNED_DESTINATION.reset(token)
+
+    assert backend.calls == [
+        ("93.184.216.34", 443),
+        ("other.example", 443),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_explicit_proxy_requires_unpinned_proxy_opt_in(monkeypatch):
+    from ipaddress import ip_address
+
+    from talisman.engine.scope import ScopeConfig, ScopeEnforcer, ScopeViolationError
+
+    scope = ScopeEnforcer(
+        ScopeConfig(include=["example.com"], service_allowlist=[])
+    )
+
+    async def approved_addresses(url, method="GET"):
+        scope.assert_request_allowed(url, method)
+        return (ip_address("93.184.216.34"),)
+
+    scope.resolve_network_destination = approved_addresses
+    monkeypatch.delenv("TALISMAN_ALLOW_UNPINNED_PROXY", raising=False)
+
+    client = TalismanHTTPClient(
+        scope=scope,
+        proxy="http://127.0.0.1:8080",
+    )
+    client._build_client = lambda: httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(200, request=request)
+        )
+    )
+
+    async with client:
+        with pytest.raises(ScopeViolationError, match="proxy resolves the target"):
+            await client.get("https://example.com/")
