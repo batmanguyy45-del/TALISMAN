@@ -362,9 +362,16 @@ class TalismanHTTPClient:
                     )
                 body.extend(chunk)
 
+            # The body has already been decompressed by httpx. Preserve
+            # unrelated response metadata but remove wire-level encodings and
+            # lengths that no longer describe the materialized body.
+            normalized_headers = httpx.Headers(response.headers)
+            normalized_headers.pop("content-encoding", None)
+            normalized_headers.pop("transfer-encoding", None)
+            normalized_headers["content-length"] = str(len(body))
             return httpx.Response(
                 status_code=response.status_code,
-                headers=response.headers,
+                headers=normalized_headers,
                 content=bytes(body),
                 request=request,
             )
@@ -403,10 +410,11 @@ class TalismanHTTPClient:
                 await self._assert_allowed(current_url, method)
                 raise RuntimeError("Scope validation unexpectedly returned without a scope")
             async with scope_for_slot.request_concurrency_slot():
-                active_scope, pin_host, pin_ip = await self._assert_allowed(
-                    current_url,
-                    method,
-                )
+                async with asyncio.timeout(float(effective_timeout)):
+                    active_scope, pin_host, pin_ip = await self._assert_allowed(
+                        current_url,
+                        method,
+                    )
                 if self.proxy and os.environ.get(
                     "TALISMAN_ALLOW_UNPINNED_PROXY", ""
                 ).strip().lower() not in {"1", "true", "yes"}:
