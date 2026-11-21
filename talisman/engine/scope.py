@@ -118,6 +118,7 @@ class ScopeConfig:
     service_allowlist: list[str] = field(default_factory=lambda: list(DEFAULT_SERVICE_HOSTS))
     max_requests_per_second: float = 2.0
     avoid_writes: bool = False
+    allow_state_changing_requests: bool = False
     avoid_destructive: bool = True
     respect_robots_txt: bool = False
 
@@ -154,6 +155,7 @@ class ScopeConfig:
             service_allowlist=services,
             max_requests_per_second=rate,
             avoid_writes=bool(restrictions.get("avoid_writes", False)),
+            allow_state_changing_requests=bool(restrictions.get("allow_state_changing_requests", False)),
             avoid_destructive=bool(restrictions.get("avoid_destructive", True)),
             respect_robots_txt=bool(restrictions.get("respect_robots_txt", False)),
         )
@@ -302,12 +304,22 @@ class ScopeEnforcer:
         if not self.is_in_scope(target):
             raise ScopeViolationError(f"Target '{target}' is out of scope")
 
-    def assert_request_allowed(self, target: str) -> None:
-        if self.is_in_scope(target) or self.is_service_allowed(target):
-            return
-        raise ScopeViolationError(
-            f"Request blocked: '{target}' is neither in target scope nor an approved service"
-        )
+    def assert_request_allowed(self, target: str, method: str = "GET") -> None:
+        if not (self.is_in_scope(target) or self.is_service_allowed(target)):
+            raise ScopeViolationError(
+                f"Request blocked: '{target}' is neither in target scope nor an approved service"
+            )
+
+        method = method.upper()
+        if method not in {"GET", "HEAD", "OPTIONS"}:
+            if self.config.avoid_writes or not self.config.allow_state_changing_requests:
+                raise ScopeViolationError(
+                    f"{method} blocked: enable allow_state_changing_requests in the scope file only when the program permits active testing"
+                )
+            if method == "DELETE" and self.config.avoid_destructive:
+                raise ScopeViolationError(
+                    "DELETE blocked: destructive requests are disabled by this scope"
+                )
 
     def filter_targets(self, targets: list[str]) -> list[str]:
         return [target for target in targets if self.is_in_scope(target)]
