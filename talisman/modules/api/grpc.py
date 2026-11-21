@@ -122,8 +122,13 @@ async def run(
     discovered_ports: list[int] = []
 
     # -- 1. Port discovery -----------------------------------------------------------
-    ports_to_check = [port] if port else GRPC_PORTS
-    console.print(f"  Probing {len(ports_to_check)} ports for gRPC services")
+    ports_to_check = [] if proxy else ([port] if port else GRPC_PORTS)
+    if proxy:
+        console.print(
+            "  [dim]Raw gRPC port probes skipped because they cannot honor the HTTP proxy[/dim]"
+        )
+    else:
+        console.print(f"  Probing {len(ports_to_check)} ports for gRPC services")
 
     for check_port in ports_to_check:
         for use_tls in [True, False]:
@@ -244,4 +249,10 @@ async def run(
                     pass
 
     console.print(f"  gRPC scanning complete -- {len(findings)} issues")
-    return {"target": host, "discovered_ports": discovered_ports, "findings": findings, "count": len(findings)}
+    return {
+        "target": host,
+        "discovered_ports": discovered_ports,
+        "raw_port_probes_skipped": bool(proxy),
+        "findings": findings,
+        "count": len(findings),
+    }
