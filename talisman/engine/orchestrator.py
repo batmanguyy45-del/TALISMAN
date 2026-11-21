@@ -396,15 +396,25 @@ class ChainOrchestrator:
 
  @staticmethod
  def load_chain(name: str) -> Chain:
-  candidates = [
-   CHAINS_DIR / f"{name}.yaml",
-   CHAINS_DIR / f"{name}.yml",
-   Path(name) if Path(name).exists() else None,
-  ]
-  for path in candidates:
-   if path and path.exists():
-    return Chain.from_yaml(path)
-  raise FileNotFoundError(f"Chain '{name}' not found in {CHAINS_DIR}")
+  if not isinstance(name, str) or not name.strip():
+   raise ValueError("Chain name or path is required")
+
+  raw_path = Path(name).expanduser()
+  if raw_path.name == name and _CHAIN_ID_RE.fullmatch(name):
+   candidates = [
+    CHAINS_DIR / f"{name}.yaml",
+    CHAINS_DIR / f"{name}.yml",
+   ]
+   for candidate in candidates:
+    if candidate.is_file() and not candidate.is_symlink():
+     return Chain.from_yaml(candidate)
+   raise FileNotFoundError(f"Chain '{name}' not found in {CHAINS_DIR}")
+
+  if raw_path.is_symlink() or not raw_path.is_file():
+   raise FileNotFoundError("Custom chain path must be an existing, non-symlink file")
+  if raw_path.suffix.lower() not in {".yaml", ".yml"}:
+   raise ValueError("Custom chain files must use a .yaml or .yml extension")
+  return Chain.from_yaml(raw_path.resolve())
 
  @staticmethod
  def list_chains() -> list[dict[str, str]]:
@@ -433,6 +443,11 @@ class ChainOrchestrator:
  async def _execute_step(
   self, step: ChainStep, target: str, context: dict[str, Any]
  ) -> Any:
+  reserved_args = {"target", "session", "scope", "rate_limiter", "proxy"}
+  if reserved_args.intersection(step.args):
+   raise ValueError(
+    f"Step '{step.id}' cannot override assessment-controlled arguments"
+   )
   resolved_args = self._resolve_template(step.args, context)
   log.info("chain_step_start", step=step.id, module=step.module, target=target)
   if self.dry_run:
@@ -462,18 +477,21 @@ class ChainOrchestrator:
    return result or {}
   except Exception as e:
    elapsed = time.monotonic() - start
-   log.error("chain_step_error", step=step.id, error=str(e))
-   await self.session.complete_module_run(run_id, status="error", error=str(e))
+   log.error("chain_step_error", step=step.id, error=type(e).__name__)
+   await self.session.complete_module_run(run_id, status="error", error=type(e).__name__)
    if step.on_error == "stop":
     raise
    return {}
 
  async def run(self, chain: Chain, target: str) -> dict[str, Any]:
+  self.scope.assert_in_scope(target)
+  if len(chain.steps) > _MAX_CHAIN_STEPS:
+   raise ValueError(f"Chain cannot contain more than {_MAX_CHAIN_STEPS} steps")
   console.print(f"\n[chain]> Chain: {chain.name}[/chain] on [target]{target}[/target]\n")
   context: dict[str, Any] = {
+   **chain.variables,
    "target": target,
    "session": self.session.name,
-   **chain.variables,
   }
   completed: set[str] = set()
   self._step_outputs = {}
@@ -485,8 +503,11 @@ class ChainOrchestrator:
     if all(dep in completed for dep in s.depends_on)
    ]
    if not ready:
-    log.error("chain_deadlock", pending=[s.id for s in pending])
-    break
+    pending_ids = [step.id for step in pending]
+    log.error("chain_deadlock", pending=pending_ids)
+    raise ValueError(
+     f"Chain dependency graph is not executable; pending steps: {', '.join(pending_ids)}"
+    )
    parallel_steps = [s for s in ready if s.parallel]
    sequential_steps = [s for s in ready if not s.parallel]
    if parallel_steps:
@@ -497,7 +518,7 @@ class ChainOrchestrator:
     results = await asyncio.gather(*tasks, return_exceptions=True)
     for step, result in zip(parallel_steps, results):
      if isinstance(result, Exception):
-      log.error("parallel_step_failed", step=step.id, error=str(result))
+      log.error("parallel_step_failed", step=step.id, error=type(result).__name__)
       if step.on_error == "stop":
        raise result
      else:
