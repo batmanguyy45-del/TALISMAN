@@ -10,6 +10,7 @@ from typing import Any
 
 import aiosqlite
 from talisman.utils.logger import get_logger
+from talisman.utils.redaction import redact_sensitive_text, redact_sensitive_value
 
 log = get_logger(__name__)
 SESSIONS_DIR = Path.home() / ".talisman" / "sessions"
@@ -203,22 +204,33 @@ class Session:
   self, target: str, module: str, vuln_type: str, severity: str,
   confidence: str, title: str, **kwargs: Any
  ) -> str | None:
+  safe_target = redact_sensitive_text(target)
+  safe_module = redact_sensitive_text(module)
+  safe_vuln_type = redact_sensitive_text(vuln_type)
+  safe_severity = redact_sensitive_text(severity)
+  safe_confidence = redact_sensitive_text(confidence)
+  safe_title = redact_sensitive_text(title)
+  safe_kwargs = redact_sensitive_value(kwargs)
+
+  evidence_value = safe_kwargs.get("evidence", "") or ""
   async with self.db.execute(
    "SELECT id FROM findings WHERE session_id=? AND target=? AND module=? "
    "AND vuln_type=? AND ((? <> '' AND COALESCE(evidence, '') = ?) "
    "OR (? = '' AND title = ?))",
    (
-    self.id, target, module, vuln_type,
-    kwargs.get("evidence", "") or "",
-    kwargs.get("evidence", "") or "",
-    kwargs.get("evidence", "") or "",
-    title,
+    self.id, safe_target, safe_module, safe_vuln_type,
+    evidence_value, evidence_value, evidence_value, safe_title,
    )
   ) as cur:
    existing = await cur.fetchone()
   if existing:
-   log.debug("finding_duplicate_skipped", target=target, vuln_type=vuln_type)
+   log.debug(
+    "finding_duplicate_skipped",
+    target=safe_target,
+    vuln_type=safe_vuln_type,
+   )
    return None
+
   fid = _uid()
   now = _now()
   await self.db.execute(
@@ -227,18 +239,32 @@ class Session:
     description,request,response,evidence,reproduction,remediation,
     cvss_score,cwe,cve_refs,ref_urls,extra,status,created_at,updated_at)
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-   (fid, self.id, target, module, vuln_type, severity, confidence, title,
-    kwargs.get("description"), kwargs.get("request"), kwargs.get("response"),
-    kwargs.get("evidence"), kwargs.get("reproduction"), kwargs.get("remediation"),
-    kwargs.get("cvss_score"), kwargs.get("cwe"),
-    json.dumps(kwargs.get("cve_refs", [])),
-    json.dumps(kwargs.get("references", [])),
-    json.dumps(kwargs.get("extra", {})),
-    kwargs.get("status", "open"),
-    now, now)
+   (
+    fid, self.id, safe_target, safe_module, safe_vuln_type,
+    safe_severity, safe_confidence, safe_title,
+    safe_kwargs.get("description"),
+    safe_kwargs.get("request"),
+    safe_kwargs.get("response"),
+    evidence_value,
+    safe_kwargs.get("reproduction"),
+    safe_kwargs.get("remediation"),
+    safe_kwargs.get("cvss_score"),
+    safe_kwargs.get("cwe"),
+    json.dumps(safe_kwargs.get("cve_refs", [])),
+    json.dumps(safe_kwargs.get("references", [])),
+    json.dumps(safe_kwargs.get("extra", {})),
+    safe_kwargs.get("status", "open"),
+    now, now,
+   )
   )
   await self.db.commit()
-  log.info("finding_saved", id=fid, title=title, severity=severity, target=target)
+  log.info(
+   "finding_saved",
+   id=fid,
+   title=safe_title,
+   severity=safe_severity,
+   target=safe_target,
+  )
   return fid
 
  async def get_findings(
