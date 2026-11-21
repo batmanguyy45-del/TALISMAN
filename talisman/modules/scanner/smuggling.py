@@ -125,43 +125,44 @@ async def _raw_send(
     request_url: str,
     timeout: int = 10,
 ) -> bytes:
-    """Send one raw probe only after scope, write-policy and rate checks."""
-    scope.assert_destructive_allowed(request_url, "POST")
-    addresses = await scope.resolve_network_destination(request_url, "POST")
-    connect_ip = str(addresses[0])
-    await scope.acquire_request_slot()
+    """Send one raw probe within the shared scope policy and concurrency budget."""
+    async with scope.request_concurrency_slot():
+        scope.assert_destructive_allowed(request_url, "POST")
+        addresses = await scope.resolve_network_destination(request_url, "POST")
+        connect_ip = str(addresses[0])
+        await scope.acquire_request_slot()
 
-    def _sync_send() -> bytes:
-        sock: socket.socket | None = None
-        try:
-            sock = socket.create_connection((connect_ip, port), timeout=timeout)
-            if use_tls:
-                # Keep normal CA and hostname verification enabled.
-                ctx = ssl.create_default_context()
-                wrapped = ctx.wrap_socket(sock, server_hostname=host)
-                sock = wrapped
-            sock.settimeout(timeout)
-            sock.sendall(data)
-            response = bytearray()
-            while len(response) < 65536:
-                try:
-                    chunk = sock.recv(4096)
-                except socket.timeout:
-                    break
-                if not chunk:
-                    break
-                response.extend(chunk)
-            return bytes(response)
-        except Exception as exc:
-            return f"ERROR: {type(exc).__name__}: {exc}".encode()
-        finally:
-            if sock is not None:
-                try:
-                    sock.close()
-                except OSError:
-                    pass
+        def _sync_send() -> bytes:
+            sock: socket.socket | None = None
+            try:
+                sock = socket.create_connection((connect_ip, port), timeout=timeout)
+                if use_tls:
+                    # Keep normal CA and hostname verification enabled.
+                    ctx = ssl.create_default_context()
+                    wrapped = ctx.wrap_socket(sock, server_hostname=host)
+                    sock = wrapped
+                sock.settimeout(timeout)
+                sock.sendall(data)
+                response = bytearray()
+                while len(response) < 65536:
+                    try:
+                        chunk = sock.recv(4096)
+                    except socket.timeout:
+                        break
+                    if not chunk:
+                        break
+                    response.extend(chunk)
+                return bytes(response)
+            except Exception as exc:
+                return f"ERROR: {type(exc).__name__}: {exc}".encode()
+            finally:
+                if sock is not None:
+                    try:
+                        sock.close()
+                    except OSError:
+                        pass
 
-    return await asyncio.to_thread(_sync_send)
+        return await asyncio.to_thread(_sync_send)
 
 
 async def _detect_timing_differential(
