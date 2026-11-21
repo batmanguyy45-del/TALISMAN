@@ -14,6 +14,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
+from talisman.engine.scope import ScopeConfig, ScopeEnforcer
+from talisman.utils.http_client import TalismanHTTPClient
 from talisman.utils.logger import get_logger
 
 log = get_logger(__name__)
@@ -298,9 +300,20 @@ PLUGIN_REGISTRY_URL = "https://raw.githubusercontent.com/batmanguyy45-del/TALISM
 
 async def search_registry(query: str = "") -> list[dict[str, Any]]:
     """Search the community plugin registry for available plugins."""
-    import httpx
     try:
-        async with httpx.AsyncClient(timeout=15) as client:
+        registry_scope = ScopeEnforcer(
+            ScopeConfig(
+                include=["raw.githubusercontent.com"],
+                exclude=[],
+                service_allowlist=[],
+            )
+        )
+        async with TalismanHTTPClient(
+            timeout=15,
+            verify_ssl=True,
+            follow_redirects=False,
+            scope=registry_scope,
+        ) as client:
             r = await client.get(PLUGIN_REGISTRY_URL)
             if r.status_code != 200:
                 return []
