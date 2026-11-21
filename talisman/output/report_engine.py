@@ -18,9 +18,9 @@ from talisman.utils.logger import get_logger, console
 
 log = get_logger(__name__)
 _SESSION_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
-ALLOWED_SEVERITIES = set(SEVERITY_ORDER)
 
 SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
+ALLOWED_SEVERITIES = set(SEVERITY_ORDER)
 SEVERITY_COLORS = {
  "critical": "#dc2626",
  "high":  "#ea580c",
@@ -204,8 +204,19 @@ class ReportEngine:
   for i, f in enumerate(self.findings, 1):
    sev = f.get("severity", "info").lower()
    color = SEVERITY_COLORS.get(sev, "#6b7280")
-   req_html = f"<pre class='code'>{self._esc(f.get('request',''))}</pre>" if f.get("request") else ""
-   evidence_html = f"<pre class='code'>{self._esc(str(f.get('evidence',''))[:800])}</pre>" if f.get("evidence") else ""
+   cvss = _safe_cvss(f.get("cvss_score"))
+   cvss_html = (
+    f"<tr><td>CVSS</td><td>{cvss:g}</td></tr>"
+    if cvss is not None else ""
+   )
+   req_html = (
+    f"<pre class='code'>{self._esc(f.get('request', ''))}</pre>"
+    if f.get("request") else ""
+   )
+   evidence_html = (
+    f"<pre class='code'>{self._esc(str(f.get('evidence', ''))[:800])}</pre>"
+    if f.get("evidence") else ""
+   )
    findings_html += f"""
 <div class='finding' id='finding-{i}'>
  <div class='finding-header' style='border-left:4px solid {color}'>
@@ -217,7 +228,7 @@ class ReportEngine:
  <table class='meta'>
   <tr><td>Module</td><td>{self._esc(f.get('module',''))}</td></tr>
   <tr><td>Confidence</td><td>{self._esc(f.get('confidence',''))}</td></tr>
-  {'<tr><td>CVSS</td><td>' + str(f.get('cvss_score','')) + '</td></tr>' if f.get('cvss_score') else ''}
+  {cvss_html}
   {'<tr><td>CWE</td><td>' + self._esc(f.get('cwe','')) + '</td></tr>' if f.get('cwe') else ''}
  </table>
  <h4>Description</h4><p>{self._esc(f.get('description',''))}</p>
