@@ -57,11 +57,28 @@ def test_assert_raises_out_of_scope():
         scope.assert_in_scope("evil.com")
 
 
-def test_from_target():
+def test_from_target_is_exact_host_by_default():
     cfg = ScopeConfig.from_target("https://example.com")
     scope = ScopeEnforcer(cfg)
     assert scope.is_in_scope("example.com")
+    assert not scope.is_in_scope("api.example.com")
+
+
+def test_from_target_accepts_explicit_wildcard():
+    cfg = ScopeConfig.from_target("*.example.com")
+    scope = ScopeEnforcer(cfg)
     assert scope.is_in_scope("api.example.com")
+    assert not scope.is_in_scope("example.com")
+
+
+def test_path_exclusion_without_scheme_applies_to_http_and_https():
+    scope = _make_scope(
+        ["example.com"],
+        ["example.com/private/*"],
+    )
+    assert scope.is_in_scope("https://example.com/public")
+    assert not scope.is_in_scope("https://example.com/private/account")
+    assert not scope.is_in_scope("http://example.com/private/account")
 
 
 def test_rejects_userinfo_and_malformed_urls():
