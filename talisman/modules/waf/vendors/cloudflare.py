@@ -4,6 +4,8 @@ import asyncio
 import re
 from typing import Any
 import httpx
+from urllib.parse import urlsplit
+from talisman.engine.scope import ScopeViolationError
 from talisman.utils.http_client import TalismanHTTPClient
 from talisman.utils.logger import get_logger, console
 
@@ -100,16 +102,20 @@ async def _shodan_ips(domain: str, api_key: str, client: TalismanHTTPClient) -> 
  return list(set(ips))
 
 
-async def _mx_ips(domain: str) -> list[str]:
+async def _mx_ips(domain: str, scope: Any) -> list[str]:
  """MX records often not behind Cloudflare."""
  import aiodns
  resolver = aiodns.DNSResolver()
  ips: list[str] = []
  try:
-  mx_records = await resolver.query(domain, "MX")
+  async with scope.request_concurrency_slot():
+   await scope.acquire_request_slot()
+   mx_records = await resolver.query(domain, "MX")
   for mx in mx_records:
    try:
-    a_records = await resolver.query(str(mx.host), "A")
+    async with scope.request_concurrency_slot():
+     await scope.acquire_request_slot()
+     a_records = await resolver.query(str(mx.host), "A")
     ips.extend(r.host for r in a_records)
    except Exception:
     pass
@@ -141,18 +147,46 @@ async def find_origin(
  target: str,
  proxy: str | None = None,
  shodan_key: str | None = None,
+ scope: Any = None,
  **kwargs: Any,
 ) -> dict[str, Any]:
- domain = target.replace("https://", "").replace("http://", "").split("/")[0]
- console.print(f"\n[module][+] Cloudflare Origin Finder[/module] -> [target]{domain}[/target]")
+ parsed_target = urlsplit(target if "://" in target else f"https://{target}")
+ domain = (parsed_target.hostname or "").rstrip(".").lower()
+ if not domain:
+  return {"domain": target, "candidates": [], "confirmed_origins": [], "origin_found": False, "error": "invalid_target"}
+ if scope is None:
+  return {
+   "domain": domain,
+   "candidates": [],
+   "confirmed_origins": [],
+   "origin_found": False,
+   "error": "scope_enforcer_required",
+  }
+ try:
+  scope.assert_in_scope(target)
+ except ScopeViolationError as exc:
+  return {
+   "domain": domain,
+   "candidates": [],
+   "confirmed_origins": [],
+   "origin_found": False,
+   "error": str(exc),
+  }
+
+ console.print(
+  f"\n[module][+] Scoped Cloudflare Origin Candidate Discovery[/module] -> [target]{domain}[/target]"
+ )
 
  candidates: list[str] = []
  confirmed: list[str] = []
+ out_of_scope_candidates: list[str] = []
 
- async with TalismanHTTPClient(proxy=proxy, timeout=20) as client:
+ async with TalismanHTTPClient(
+  proxy=proxy, timeout=20, scope=scope, follow_redirects=False
+ ) as client:
   tasks = [
    _crtsh_ips(domain, client),
-   _mx_ips(domain),
+   _mx_ips(domain, scope),
   ]
   if shodan_key:
    tasks.append(_shodan_ips(domain, shodan_key, client))
@@ -162,40 +196,57 @@ async def find_origin(
    if isinstance(result, list):
     candidates.extend(result)
 
-  # Filter out Cloudflare IPs
+  # Filter out Cloudflare addresses and malformed records.
   import ipaddress
   cf_nets = []
   for cidr in CLOUDFLARE_IP_RANGES:
    try:
     cf_nets.append(ipaddress.ip_network(cidr))
-   except Exception:
+   except ValueError:
     pass
 
   non_cf_candidates: list[str] = []
-  for ip in set(candidates):
+  for value in set(candidates):
    try:
-    addr = ipaddress.ip_address(ip)
-    if not any(addr in net for net in cf_nets):
-     non_cf_candidates.append(ip)
-   except Exception:
+    address = ipaddress.ip_address(value)
+    if not any(address in network for network in cf_nets):
+     non_cf_candidates.append(str(address))
+   except ValueError:
     pass
 
-  console.print(f" {len(non_cf_candidates)} non-Cloudflare candidate IPs — verifying...")
+  # Discovery does not authorize a new destination. Only actively verify an
+  # origin address if the operator explicitly listed that IP/CIDR in scope.
+  authorized_candidates = [
+   ip for ip in non_cf_candidates if scope.is_in_scope(ip)
+  ]
+  out_of_scope_candidates = [
+   ip for ip in non_cf_candidates if not scope.is_in_scope(ip)
+  ]
 
-  verify_tasks = [_verify_origin(domain, ip, client) for ip in non_cf_candidates[:20]]
+  console.print(
+   f" {len(non_cf_candidates)} non-Cloudflare candidates; "
+   f"{len(authorized_candidates)} explicitly authorized for verification"
+  )
+
+  verify_tasks = [
+   _verify_origin(domain, ip, client)
+   for ip in authorized_candidates[:20]
+  ]
   verify_results = await asyncio.gather(*verify_tasks, return_exceptions=True)
 
-  for ip, is_origin in zip(non_cf_candidates[:20], verify_results):
+  for ip, is_origin in zip(authorized_candidates[:20], verify_results):
    if is_origin is True:
     confirmed.append(ip)
-    console.print(f" [success][+] Origin IP found: {ip}[/success]")
+    console.print(f" [success][+] In-scope origin candidate responds as {domain}: {ip}[/success]")
 
  if not confirmed:
-  console.print(" [dim]No confirmed origin IPs found via automated methods[/dim]")
+  console.print(" [dim]No in-scope origin IP was confirmed[/dim]")
 
  return {
   "domain": domain,
   "candidates": non_cf_candidates,
+  "verified_candidates": authorized_candidates,
+  "out_of_scope_candidates": out_of_scope_candidates,
   "confirmed_origins": confirmed,
   "origin_found": len(confirmed) > 0,
  }
