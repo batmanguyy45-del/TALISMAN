@@ -141,3 +141,55 @@ async def test_open_is_idempotent_and_scope_is_reset_on_close(tmp_path):
 
     await sess.close()
     assert get_active_scope() is None
+
+
+
+@pytest.mark.asyncio
+async def test_summary_exposes_dashboard_compatible_counts(tmp_path):
+    sess = Session("dashboard-summary", tmp_path)
+    async with sess:
+        await sess.add_target("example.com")
+        await sess.add_finding(
+            "https://example.com",
+            "scanner",
+            "xss",
+            "medium",
+            "likely",
+            "Possible XSS",
+            evidence="controlled evidence",
+        )
+        await sess.start_module_run("scanner.xss", "https://example.com")
+        summary = await sess.summary()
+
+    assert summary["targets_count"] == 1
+    assert summary["severity_breakdown"]["medium"] == 1
+    assert summary["total_findings"] == 1
+    assert summary["modules_run"] == 1
+
+
+def test_session_constructor_rejects_database_symlink(tmp_path):
+    import pytest
+
+    session_dir = tmp_path / "session"
+    session_dir.mkdir()
+    external_db = tmp_path / "external.db"
+    external_db.write_text("do not overwrite", encoding="utf-8")
+    (session_dir / "session.db").symlink_to(external_db)
+
+    with pytest.raises(ValueError, match="database must not be a symbolic link"):
+        Session("session", tmp_path)
+
+
+def test_session_manager_ignores_symlinked_session_directories(tmp_path):
+    import pytest
+
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "session.db").write_text("", encoding="utf-8")
+    sm = SessionManager(tmp_path / "sessions")
+    try:
+        (sm._base / "linked-session").symlink_to(outside, target_is_directory=True)
+    except OSError:
+        pytest.skip("symlinks are not available on this platform")
+
+    assert "linked-session" not in sm.list_sessions()
