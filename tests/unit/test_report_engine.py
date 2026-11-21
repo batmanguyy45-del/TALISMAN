@@ -75,3 +75,31 @@ def test_report_refuses_to_overwrite_symlink(tmp_path):
     with pytest.raises(ValueError, match="symlink"):
         engine.generate_json()
     assert outside.read_text(encoding="utf-8") == "untouched"
+
+
+def test_json_report_redacts_sensitive_target_metadata(tmp_path):
+    secrets = {
+        "password": "opaque-report-password-98",
+        "access_token": "opaque-report-token-99",
+    }
+    engine = ReportEngine(
+        "private-session",
+        [],
+        [{
+            "host": "example.com",
+            "metadata": secrets,
+            "nested": [{"client_secret": "opaque-report-client-secret-100"}],
+        }],
+        tmp_path / "reports",
+    )
+
+    report_path = engine.generate_json()
+    serialized = report_path.read_text(encoding="utf-8")
+
+    for secret in (
+        secrets["password"],
+        secrets["access_token"],
+        "opaque-report-client-secret-100",
+    ):
+        assert secret not in serialized
+    assert "[REDACTED]" in serialized
