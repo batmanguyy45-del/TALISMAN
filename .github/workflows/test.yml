@@ -30,12 +30,15 @@ jobs:
       run: ruff check talisman/ tests/ --output-format=github
 
     - name: Type check with mypy
+      if: always()
       run: mypy talisman/ --ignore-missing-imports
 
     - name: Test with pytest
+      if: always()
       run: python -m pytest tests/ -v --tb=short --cov=talisman --cov-report=xml
 
     - name: Test module resolution
+      if: always()
       run: |
         python -c "
         from talisman.engine.orchestrator import ModuleRegistry
@@ -56,6 +59,7 @@ jobs:
         "
 
     - name: Test chain parsing
+      if: always()
       run: |
         python -c "
         from pathlib import Path
