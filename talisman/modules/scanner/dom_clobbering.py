@@ -5,7 +5,8 @@ import random
 import re
 import string
 from typing import Any
-from talisman.engine.scope import ScopeViolationError\nfrom talisman.utils.http_client import TalismanHTTPClient
+from talisman.engine.scope import ScopeViolationError
+from talisman.utils.http_client import TalismanHTTPClient
 from talisman.utils.logger import get_logger, console, print_finding
 
 log = get_logger(__name__)
