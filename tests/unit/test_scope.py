@@ -143,3 +143,12 @@ def test_control_characters_and_backslashes_are_rejected():
     scope = _make_scope(["example.com"])
     assert not scope.is_in_scope("https://example.com/\n.evil.test/")
     assert not scope.is_in_scope("https://example.com\\@evil.test/")
+
+
+
+def test_wildcard_host_with_path_scope():
+    scope = _make_scope(["https://*.example.com/api/*"])
+    assert scope.is_in_scope("https://api.example.com/api/users")
+    assert scope.is_in_scope("https://nested.api.example.com/api/users")
+    assert not scope.is_in_scope("https://api.example.com/private/users")
+    assert not scope.is_in_scope("http://api.example.com/api/users")
