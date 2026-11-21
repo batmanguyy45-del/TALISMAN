@@ -74,6 +74,25 @@ async def run(
     except ScopeViolationError as exc:
         return {"target": target, "findings": [], "count": 0, "error": str(exc)}
 
+    # Nuclei owns its network stack and templates can issue POST/PUT/DELETE.
+    # TALISMAN cannot apply its per-request method gate inside that subprocess,
+    # so require explicit permission for destructive/state-changing probes
+    # before even inspecting or launching the external binary.
+    try:
+        scope.assert_destructive_allowed(target, "POST")
+    except ScopeViolationError as exc:
+        return {
+            "target": target,
+            "findings": [],
+            "count": 0,
+            "skipped": True,
+            "reason": (
+                "Nuclei templates can issue state-changing requests that TALISMAN "
+                "cannot method-gate individually. Explicit destructive-scope "
+                f"permission is required: {exc}"
+            ),
+        }
+
     configured_rate = float(scope.config.max_requests_per_second)
     if configured_rate < 1.0:
         return {
