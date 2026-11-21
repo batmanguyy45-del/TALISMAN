@@ -3,10 +3,10 @@ from __future__ import annotations
 
 import asyncio
 import ipaddress
-import time
 import math
 import posixpath
 import re
+import time
 from contextvars import ContextVar, Token
 from dataclasses import dataclass, field
 from fnmatch import fnmatchcase
@@ -179,7 +179,8 @@ class ScopeConfig:
             raise ValueError("max_requests_per_second must be a positive number") from exc
         if not math.isfinite(rate) or rate <= 0 or rate > MAX_REQUESTS_PER_SECOND:
             raise ValueError(
-                f"max_requests_per_second must be positive and no greater than {MAX_REQUESTS_PER_SECOND:g}"
+                "max_requests_per_second must be positive and no greater than "
+                f"{MAX_REQUESTS_PER_SECOND:g}"
             )
 
         def boolean_option(name: str, default: bool) -> bool:
@@ -295,7 +296,10 @@ class ScopeEnforcer:
             address = ipaddress.ip_address(host)
         except ValueError:
             return False
-        return any(address.version == network.version and address in network for network in networks)
+        return any(
+            address.version == network.version and address in network
+            for network in networks
+        )
 
     @staticmethod
     def _url_pattern_matches(candidate: SplitResult, pattern: str) -> bool:
@@ -373,7 +377,10 @@ class ScopeEnforcer:
         return self._host_matches(host, entry) or self._matches_network(host, networks)
 
     def is_in_scope(self, target: str) -> bool:
-        if not any(self._matches_entry(target, entry, self._include_nets) for entry in self.config.include):
+        if not any(
+            self._matches_entry(target, entry, self._include_nets)
+            for entry in self.config.include
+        ):
             log.debug("out_of_scope", target=target)
             return False
 
@@ -419,7 +426,11 @@ class ScopeEnforcer:
 
         # Passive service providers are never targets: only safe, read-only
         # requests may be sent to them, even when active testing is enabled.
-        if service_is_allowed and not target_is_in_scope and method not in {"GET", "HEAD", "OPTIONS"}:
+        if (
+            service_is_allowed
+            and not target_is_in_scope
+            and method not in {"GET", "HEAD", "OPTIONS"}
+        ):
             raise ScopeViolationError(
                 f"{method} blocked: approved external services are read-only data sources"
             )
@@ -427,7 +438,8 @@ class ScopeEnforcer:
         if method not in {"GET", "HEAD", "OPTIONS"}:
             if self.config.avoid_writes or not self.config.allow_state_changing_requests:
                 raise ScopeViolationError(
-                    f"{method} blocked: enable allow_state_changing_requests in the scope file only when the program permits active testing"
+                    f"{method} blocked: enable allow_state_changing_requests only "
+                    "when the program permits active testing"
                 )
 
     def assert_destructive_allowed(self, target: str, method: str = "POST") -> None:
@@ -435,7 +447,9 @@ class ScopeEnforcer:
         self.assert_request_allowed(target, method)
         if self.config.avoid_destructive:
             raise ScopeViolationError(
-                "Destructive probe blocked: set restrictions.avoid_destructive: false only when the program explicitly permits this test"
+                "Destructive probe blocked: set "
+                "restrictions.avoid_destructive: false only when the program "
+                "explicitly permits this test"
             )
 
     def filter_targets(self, targets: list[str]) -> list[str]:
