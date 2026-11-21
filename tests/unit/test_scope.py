@@ -275,3 +275,15 @@ async def test_private_literal_requires_explicit_ip_scope():
 async def test_private_literal_is_allowed_when_explicitly_scoped():
     scope = _make_scope(["10.0.0.1"])
     await scope.assert_network_destination_allowed("http://10.0.0.1/")
+
+
+
+def test_explicit_exclusion_cannot_be_bypassed_by_service_allowlist():
+    scope = ScopeEnforcer(ScopeConfig(
+        include=["example.com"],
+        exclude=["example.com/private/*"],
+        service_allowlist=["example.com"],
+    ))
+    assert not scope.is_in_scope("https://example.com/private/admin")
+    with pytest.raises(ScopeViolationError, match="explicit scope exclusion"):
+        scope.assert_request_allowed("https://example.com/private/admin", "GET")
