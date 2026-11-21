@@ -190,7 +190,8 @@ class Session:
   confidence: str, title: str, **kwargs: Any
  ) -> str | None:
   async with self._db.execute(
-   "SELECT id FROM findings WHERE session_id=? AND target=? AND module=? AND vuln_type=? AND COALESCE(evidence, '') = ?",
+   "SELECT id FROM findings WHERE session_id=? AND target=? AND module=? "
+   "AND vuln_type=? AND COALESCE(evidence, '') = ?",
    (self.id, target, module, vuln_type, kwargs.get("evidence", "") or "")
   ) as cur:
    existing = await cur.fetchone()
