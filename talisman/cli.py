@@ -663,7 +663,7 @@ _mkscan("websocket","talisman.modules.scanner.websocket",
 _mkscan("crlf","talisman.modules.scanner.crlf",
  "CRLF Injection / HTTP Response Splitting — header injection, response splitting.\n\n\\b\nExamples:\n talisman scan crlf -t https://example.com\n talisman scan crlf -t 'https://example.com/redirect?url=FUZZ'")
 _mkscan("nuclei","talisman.modules.scanner.nuclei_runner",
- "Nuclei — run Nuclei CVE/community templates against target.\n\n\\b\nExamples:\n talisman scan nuclei -t https://example.com\n talisman scan nuclei -t https://example.com -s bounty")
+ "Nuclei — external template execution is disabled by default because its resolver cannot be pinned to TALISMAN-approved IPs. Requires explicit TALISMAN_ALLOW_UNPINNED_NUCLEI=1 plus destructive scope permission.\n\n\\b\nExample:\n talisman scan nuclei -t https://example.com -s bounty")
 _mkscan("ratelimit","talisman.modules.scanner.rate_limit",
  "Rate Limit Testing — auth, OTP, password reset, API endpoint burst testing.\n\n\\b\nExamples:\n talisman scan ratelimit -t https://example.com/login\n talisman scan ratelimit -t https://example.com/api")
 _mkscan("mass","talisman.modules.scanner.mass_assignment",
