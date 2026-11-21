@@ -405,7 +405,7 @@ async def test_http_client_uses_assessment_wide_concurrency_limit():
         nonlocal active, peak_active
         active += 1
         peak_active = max(peak_active, active)
-        await asyncio.sleep(0.03)
+        await asyncio.sleep(0.12)
         active -= 1
         return httpx.Response(200, request=request)
 
