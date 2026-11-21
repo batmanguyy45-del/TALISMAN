@@ -30,7 +30,7 @@ jobs:
       run: ruff check talisman/ tests/ --output-format=github
 
     - name: Type check with mypy
-      run: mypy talisman/ --ignore-missing-imports || true
+      run: mypy talisman/ --ignore-missing-imports
 
     - name: Test with pytest
       run: python -m pytest tests/ -v --tb=short --cov=talisman --cov-report=xml
