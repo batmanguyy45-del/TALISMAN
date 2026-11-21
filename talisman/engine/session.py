@@ -2,6 +2,7 @@
 from __future__ import annotations
 import json
 import uuid
+from pathlib import PurePath
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -88,6 +89,22 @@ def _now() -> str:
 def _uid() -> str:
     return str(uuid.uuid4())
 
+
+def _validate_session_name(name: str) -> str:
+    """Reject path components so a session name cannot escape its storage root."""
+    if (
+        not isinstance(name, str)
+        or not name
+        or name in {".", ".."}
+        or name.strip() != name
+        or "/" in name
+        or "\\" in name
+        or "\x00" in name
+        or PurePath(name).is_absolute()
+    ):
+        raise ValueError("Invalid session name: use a single directory name, not a path")
+    return name
+
 def _finding_fingerprint(finding: dict) -> str:
     target = finding.get("target", "")
     module = finding.get("module", "")
@@ -97,10 +114,17 @@ def _finding_fingerprint(finding: dict) -> str:
 
 class Session:
  def __init__(self, name: str, session_dir: Path | None = None):
-  self.name = name
-  self.id = name
-  self.dir = (session_dir or SESSIONS_DIR) / name
+  self.name = _validate_session_name(name)
+  self.id = self.name
+  base_dir = session_dir or SESSIONS_DIR
+  base_dir.mkdir(parents=True, exist_ok=True)
+  resolved_base = base_dir.resolve()
+  self.dir = resolved_base / self.name
+  if self.dir.is_symlink():
+   raise ValueError("Session directory must not be a symbolic link")
   self.dir.mkdir(parents=True, exist_ok=True)
+  if self.dir.resolve().parent != resolved_base:
+   raise ValueError("Session path escapes the session storage directory")
   self.db_path = self.dir / "session.db"
   self.raw_dir = self.dir / "raw"
   self.raw_dir.mkdir(exist_ok=True)
@@ -279,6 +303,7 @@ class SessionManager:
  def __init__(self, base_dir: Path | None = None):
   self._base = base_dir or SESSIONS_DIR
   self._base.mkdir(parents=True, exist_ok=True)
+  self._base = self._base.resolve()
 
  def list_sessions(self) -> list[str]:
   return sorted(p.name for p in self._base.iterdir() if p.is_dir())
@@ -292,11 +317,20 @@ class SessionManager:
   return s
 
  def exists(self, name: str) -> bool:
-  return (self._base / name).exists()
+  safe_name = _validate_session_name(name)
+  path = self._base / safe_name
+  if path.is_symlink():
+   return False
+  return path.exists() and path.resolve().parent == self._base
 
  def delete(self, name: str) -> None:
   import shutil
-  path = self._base / name
+  safe_name = _validate_session_name(name)
+  path = self._base / safe_name
+  if path.is_symlink():
+   raise ValueError("Refusing to delete a symbolic-link session path")
   if path.exists():
+   if path.resolve().parent != self._base:
+    raise ValueError("Refusing to delete a session outside the storage directory")
    shutil.rmtree(path)
-   log.info("session_deleted", name=name)
+   log.info("session_deleted", name=safe_name)
