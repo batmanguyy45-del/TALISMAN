@@ -17,6 +17,14 @@ from talisman.utils.logger import get_logger
 
 log = get_logger(__name__)
 
+DEFAULT_MAX_RESPONSE_BYTES = 10 * 1024 * 1024
+MAX_ALLOWED_RESPONSE_BYTES = 100 * 1024 * 1024
+
+
+class ResponseTooLargeError(RuntimeError):
+    """Raised when a target response exceeds the configured memory budget."""
+
+
 _PINNED_DESTINATION: ContextVar[tuple[str, str] | None] = ContextVar(
     "talisman_pinned_destination",
     default=None,
@@ -205,6 +213,7 @@ class TalismanHTTPClient:
         rate_limit: float = 0.0,
         scope: ScopeEnforcer | None = None,
         max_redirects: int = 5,
+        max_response_bytes: int = DEFAULT_MAX_RESPONSE_BYTES,
     ):
         if timeout <= 0:
             raise ValueError("timeout must be positive")
@@ -214,6 +223,16 @@ class TalismanHTTPClient:
             raise ValueError("max_redirects cannot be negative")
         if rate_limit < 0:
             raise ValueError("rate_limit cannot be negative")
+        if (
+            isinstance(max_response_bytes, bool)
+            or not isinstance(max_response_bytes, int)
+            or max_response_bytes <= 0
+            or max_response_bytes > MAX_ALLOWED_RESPONSE_BYTES
+        ):
+            raise ValueError(
+                "max_response_bytes must be an integer between 1 and "
+                f"{MAX_ALLOWED_RESPONSE_BYTES}"
+            )
 
         self.proxy = proxy
         self.timeout = timeout
@@ -226,6 +245,7 @@ class TalismanHTTPClient:
         self.rate_limit = rate_limit
         self.scope = scope
         self.max_redirects = max_redirects
+        self.max_response_bytes = max_response_bytes
         self._last_request_time = 0.0
         self._rate_lock = asyncio.Lock()
         self._client: httpx.AsyncClient | None = None
@@ -290,6 +310,67 @@ class TalismanHTTPClient:
         host = httpx.URL(url).host.rstrip(".").lower()
         return scope, host, str(addresses[0])
 
+    async def _send_bounded_response(
+        self,
+        method: str,
+        url: str,
+        headers: dict[str, str],
+        params: dict[str, Any] | None,
+        data: Any,
+        json_body: Any,
+        content: bytes | str | None,
+        timeout: httpx.Timeout,
+    ) -> httpx.Response:
+        """Read a response incrementally and cap its decoded body size.
+
+        httpx.AsyncClient.request() buffers the entire response before returning.
+        A streamed send lets us enforce the limit after decompression, preventing
+        oversized bodies and compressed-response expansion from exhausting memory.
+        """
+        if self._client is None:
+            raise RuntimeError("HTTP client is not open")
+
+        request = self._client.build_request(
+            method=method,
+            url=url,
+            headers=headers,
+            params=params,
+            data=data,
+            json=json_body,
+            content=content,
+            timeout=timeout,
+        )
+        response = await self._client.send(
+            request,
+            stream=True,
+            follow_redirects=False,
+        )
+        try:
+            declared_length = response.headers.get("content-length", "").strip()
+            if declared_length.isdigit() and int(declared_length) > self.max_response_bytes:
+                raise ResponseTooLargeError(
+                    f"Response from {url} declared {declared_length} bytes; "
+                    f"limit is {self.max_response_bytes}"
+                )
+
+            body = bytearray()
+            async for chunk in response.aiter_bytes():
+                if len(body) + len(chunk) > self.max_response_bytes:
+                    raise ResponseTooLargeError(
+                        f"Response from {url} exceeded the "
+                        f"{self.max_response_bytes}-byte decoded body limit"
+                    )
+                body.extend(chunk)
+
+            return httpx.Response(
+                status_code=response.status_code,
+                headers=response.headers,
+                content=bytes(body),
+                request=request,
+            )
+        finally:
+            await response.aclose()
+
     async def request(
         self,
         method: str,
@@ -308,7 +389,8 @@ class TalismanHTTPClient:
         follow = self.follow_redirects if allow_redirects is None else allow_redirects
         # Automatic redirection of writes is deliberately prohibited.
         follow = bool(follow and method in SAFE_REDIRECT_METHODS)
-        request_timeout = httpx.Timeout(timeout if timeout is not None else self.timeout)
+        effective_timeout = timeout if timeout is not None else self.timeout
+        request_timeout = httpx.Timeout(effective_timeout)
 
         if self._client is None:
             self._client = self._build_client()
@@ -339,20 +421,20 @@ class TalismanHTTPClient:
                 if self.proxy is None:
                     pin_token = _PINNED_DESTINATION.set((pin_host, pin_ip))
                 try:
-                    response = await self._client.request(
-                        method=method,
-                        url=current_url,
-                        headers=request_headers,
-                        params=current_params,
-                        data=data,
-                        json=json,
-                        content=content,
-                        follow_redirects=False,
-                        timeout=request_timeout,
-                    )
+                    async with asyncio.timeout(float(effective_timeout)):
+                        response = await self._send_bounded_response(
+                            method=method,
+                            url=current_url,
+                            headers=request_headers,
+                            params=current_params,
+                            data=data,
+                            json_body=json,
+                            content=content,
+                            timeout=request_timeout,
+                        )
                     self._request_count += 1
                     break
-                except (httpx.ConnectError, httpx.TimeoutException, httpx.ReadError) as exc:
+                except (httpx.ConnectError, httpx.TimeoutException, httpx.ReadError, TimeoutError) as exc:
                     self._error_count += 1
                     last_exc = exc
                     if attempt + 1 < attempts:
