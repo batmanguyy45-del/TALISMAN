@@ -825,24 +825,39 @@ def waf_detect(
 @waf_app.command("origin")
 def waf_origin(
  target: str = typer.Option(..., "-t", "--target", help="Domain behind CDN/WAF"),
+ session_name: str = typer.Option("default", "-s", "--session", help="Session for scope-bound assessment"),
+ scope_file: Optional[Path] = typer.Option(None, "--scope", help="Scope YAML including any origin IPs authorized for active verification"),
  proxy: Optional[str] = typer.Option(None, "--proxy"),
  shodan_key: Optional[str] = typer.Option(None, "--shodan-key", envvar="SHODAN_API_KEY"),
  debug: bool = typer.Option(False, "--debug"),
 ):
  """
- Find real origin IP behind Cloudflare/CDN — bypass WAF entirely.
+ Discover possible origin IPs. Only IPs explicitly included in scope are actively verified.
 
  \b
- Methods: crt.sh CT logs, MX correlation, Shodan, favicon hash, subdomain enum
+ Passive sources: certificate-transparency records, MX correlation and Shodan.
+ Discovered origin IPs are candidates, not authorization to connect to them.
 
  \b
  Examples:
-  talisman waf origin -t example.com
-  talisman waf origin -t example.com --shodan-key YOUR_KEY
+  talisman waf origin -t example.com --scope ./scope.yaml
+  talisman waf origin -t example.com --scope ./scope.yaml --shodan-key YOUR_KEY
  """
  setup_logging("DEBUG" if debug else "INFO"); print_banner()
  from talisman.modules.waf.vendors.cloudflare import find_origin
- _run(find_origin(target=target, proxy=proxy, shodan_key=shodan_key))
+ async def _r():
+  sess, scope = await _session_scope(session_name, target, scope_file)
+  async with sess:
+   result = await find_origin(
+    target=target, proxy=proxy, shodan_key=shodan_key, scope=scope
+   )
+   if result.get("out_of_scope_candidates"):
+    console.print(
+     f" [dim]{len(result['out_of_scope_candidates'])} discovered IPs were not "
+     "verified because they are not explicitly included in scope[/dim]"
+    )
+   return result
+ _run(_r())
 
 @waf_app.command("bypass")
 def waf_bypass(
