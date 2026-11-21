@@ -9,7 +9,7 @@ from talisman.engine.scope import ScopeConfig, ScopeEnforcer
 
 
 def _test_scope():
-    return ScopeEnforcer(
+    scope = ScopeEnforcer(
         ScopeConfig(
             include=["test.com"],
             service_allowlist=[],
@@ -17,6 +17,12 @@ def _test_scope():
             avoid_writes=False,
         )
     )
+
+    async def allow_mock_destination(url, method="GET"):
+        scope.assert_request_allowed(url, method)
+
+    scope.assert_network_destination_allowed = allow_mock_destination
+    return scope
 
 
 def _is_coroutine(mod):
