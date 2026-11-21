@@ -4,9 +4,10 @@ import json
 import os
 import re
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
+
 import aiosqlite
 from talisman.utils.logger import get_logger
 
@@ -92,7 +93,7 @@ CREATE INDEX IF NOT EXISTS idx_targets_session ON targets(session_id);
 """
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 def _uid() -> str:
     return str(uuid.uuid4())
@@ -128,7 +129,7 @@ class Session:
   self._db: aiosqlite.Connection | None = None
   self._scope_token: Any = None
 
- async def open(self) -> "Session":
+ async def open(self) -> Session:
   if self._db is not None:
    return self
   self._db = await aiosqlite.connect(str(self.db_path))
@@ -188,8 +189,6 @@ class Session:
   self, target: str, module: str, vuln_type: str, severity: str,
   confidence: str, title: str, **kwargs: Any
  ) -> str | None:
-  probe = {"target": target, "module": module, "vuln_type": vuln_type, "evidence": kwargs.get("evidence", "")}
-  fp = _finding_fingerprint(probe)
   async with self._db.execute(
    "SELECT id FROM findings WHERE session_id=? AND target=? AND module=? AND vuln_type=? AND COALESCE(evidence, '') = ?",
    (self.id, target, module, vuln_type, kwargs.get("evidence", "") or "")
