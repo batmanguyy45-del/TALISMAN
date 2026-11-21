@@ -46,6 +46,7 @@ def _validate_repo_url(repo_url: str) -> str:
         or parsed.hostname != "github.com"
         or parsed.username is not None
         or parsed.password is not None
+        or parsed.port not in {None, 443}
         or parsed.query
         or parsed.fragment
         or len(segments) != 2
@@ -92,6 +93,16 @@ def _validated_manifest(manifest: Any, fallback_name: str) -> dict[str, Any] | N
 
 def _untrusted_plugins_enabled() -> bool:
     return os.environ.get(_PLUGIN_OPT_IN, "").strip().lower() in {"1", "true", "yes"}
+
+def _contains_symlinks(root: Path) -> bool:
+    """Reject plugin trees containing file or directory symlinks."""
+    for current, directories, files in os.walk(root, followlinks=False):
+        for name in directories + files:
+            if (Path(current) / name).is_symlink():
+                return True
+    return False
+
+
 
 
 def discover_plugins() -> dict[str, dict[str, Any]]:
@@ -344,6 +355,9 @@ def install_plugin(plugin_name: str, repo_url: str | None = None) -> dict[str, A
                     "success": False,
                     "error": f"Plugin '{plugin_name}' not found in repository",
                 }
+
+            if _contains_symlinks(plugin_src):
+                return {"success": False, "error": "Plugin tree contains symlinks"}
 
             manifest_path = plugin_src / "plugin.yaml"
             if manifest_path.is_symlink() or not manifest_path.is_file():
