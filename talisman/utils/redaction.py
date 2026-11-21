@@ -23,7 +23,7 @@ _QUOTED_SECRET_PATTERN = re.compile(
     r"""(?i)(["'](?:authorization|proxy[_-]?authorization|cookie|set[_-]?cookie|api[_-]?key|access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?secret|secret[_-]?key|secret|password|passwd|pwd|token|jwt|private[_-]?key|ssh[_-]?private[_-]?key|credential|credentials|signature|sig|x-amz-(?:signature|credential|security-token))["']\s*:\s*["'])[^"']*(["'])"""
 )
 _URL_SECRET_PATTERN = re.compile(
-    r"(?i)([?&](?:access_token|refresh_token|id_token|client_secret|api[_-]?key|apikey|secret|password|passwd|token|jwt|session|signature|sig|credential|x-amz-(?:signature|credential|security-token))=)[^&#\\s]+"
+    r"(?i)([?&](?:access_token|refresh_token|id_token|client_secret|api[_-]?key|apikey|secret|password|passwd|token|jwt|session|signature|sig|credential|x-amz-(?:signature|credential|security-token))=)[^&#\s]+"
 )
 
 _PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
@@ -100,8 +100,8 @@ def redact_sensitive_text(value: str, *, max_chars: int = MAX_REDACTION_INPUT_CH
 
     # Handle JSON-like serialized evidence where secrets are stored as
     # quoted key/value pairs, including values containing spaces.
-    text = _QUOTED_SECRET_PATTERN.sub(r"\\1[REDACTED]\\2", text)
-    text = _URL_SECRET_PATTERN.sub(r"\\1[REDACTED]", text)
+    text = _QUOTED_SECRET_PATTERN.sub(r"\1[REDACTED]\2", text)
+    text = _URL_SECRET_PATTERN.sub(r"\1[REDACTED]", text)
 
     if truncated:
         text += "\n[TRUNCATED: redaction input exceeded configured size limit]"
@@ -109,7 +109,7 @@ def redact_sensitive_text(value: str, *, max_chars: int = MAX_REDACTION_INPUT_CH
 
 
 def redact_sensitive_value(value: Any, *, depth: int = 0) -> Any:
-    """Recursively redact string values in JSON-like evidence structures."""
+    """Recursively redact strings and values stored under sensitive keys."""
     if depth > 12:
         return "[MAX_DEPTH]"
     if isinstance(value, str):
