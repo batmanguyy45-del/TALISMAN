@@ -310,13 +310,48 @@ async def run(
     url = target if "://" in target else f"https://{target}"
     parsed = urlsplit(url)
     if parsed.scheme not in {"http", "https"} or not parsed.hostname:
-        return {"target": target, "findings": [], "count": 0, "error": "invalid_http_target"}
+        return {
+            "target": target,
+            "findings": [],
+            "candidates": [],
+            "count": 0,
+            "error": "invalid_http_target",
+        }
     if scope is None:
-        return {"target": url, "findings": [], "count": 0, "error": "scope_enforcer_required"}
+        return {
+            "target": url,
+            "findings": [],
+            "candidates": [],
+            "count": 0,
+            "error": "scope_enforcer_required",
+        }
     try:
         scope.assert_destructive_allowed(url, "POST")
     except ScopeViolationError as exc:
-        return {"target": url, "findings": [], "count": 0, "error": str(exc)}
+        return {
+            "target": url,
+            "findings": [],
+            "candidates": [],
+            "count": 0,
+            "skipped": True,
+            "reason": str(exc),
+        }
+
+    # This module uses raw TCP/TLS sockets to preserve malformed HTTP framing.
+    # It cannot safely tunnel these probes through a generic HTTP proxy. Never
+    # silently bypass the operator's configured proxy.
+    if proxy:
+        return {
+            "target": url,
+            "findings": [],
+            "candidates": [],
+            "count": 0,
+            "skipped": True,
+            "reason": (
+                "Raw request-smuggling probes cannot honor the configured proxy; "
+                "the scan was stopped rather than sending traffic directly."
+            ),
+        }
 
     use_tls = parsed.scheme == "https"
     host = parsed.hostname
@@ -326,93 +361,101 @@ async def run(
     if parsed.query:
         path += "?" + parsed.query
 
-    console.print(f"\n[module][+] HTTP Request Smuggling v2[/module] -> [target]{url}[/target]")
+    console.print(
+        f"\\n[module][+] HTTP Request Smuggling Assessment[/module] -> [target]{url}[/target]"
+    )
     findings: list[dict[str, Any]] = []
+    candidates: list[dict[str, Any]] = []
 
-    # -- 1. CL.TE -------------------------------------------------------------------
-    console.print("  Testing CL.TE (frontend CL, backend TE)...")
-    cl_te_probe = _build_cl_te_probe(host_header, path)
-    cl_te_result = await _confirm_smuggling(host, port, use_tls, "CL.TE", cl_te_probe, scope, url, host_header)
-    if cl_te_result["confirmed"] or cl_te_result["timing_differential"]:
-        severity = "high" if cl_te_result["confirmed"] else "medium"
-        title = f"HTTP Request Smuggling — CL.TE{' (confirmed)' if cl_te_result['confirmed'] else ' (timing oracle)'}"
-        print_finding(title, severity, url)
-        findings.append({"technique": "CL.TE", **cl_te_result})
-        if session:
-            await session.add_finding(
-                target=url, module="smuggling",
-                vuln_type="http_smuggling_cl_te",
-                severity=severity, confidence="confirmed" if cl_te_result["confirmed"] else "likely",
-                title=title,
-                description=f"CL.TE desync detected. Frontend uses Content-Length, backend parses Transfer-Encoding: chunked. {'Confirmed via prefix reflection.' if cl_te_result['confirmed'] else 'Timing oracle suggests backend is waiting for more data.'}",
-                evidence=cl_te_result.get("evidence", ""),
-                reproduction="Send a POST with both CL and TE headers where CL is short and the chunked body overflows.",
-                remediation="1. Reject requests with both Content-Length and Transfer-Encoding. 2. Use HTTP/2 end-to-end. 3. Normalize TE headers at the proxy.",
-            )
+    probes = [
+        ("CL.TE", _build_cl_te_probe(host_header, path)),
+        ("TE.CL", _build_te_cl_probe(host_header, path)),
+        *[
+            (f"TE.TE ({name})", probe)
+            for name, probe in _build_te_te_variants(host_header, path)
+        ],
+        ("H2 downgrade", _build_h2_downgrade_probe(host_header, path)),
+    ]
 
-    # -- 2. TE.CL -------------------------------------------------------------------
-    console.print("  Testing TE.CL (frontend TE, backend CL)...")
-    te_cl_probe = _build_te_cl_probe(host_header, path)
-    te_cl_result = await _confirm_smuggling(host, port, use_tls, "TE.CL", te_cl_probe, scope, url, host_header)
-    if te_cl_result["confirmed"] or te_cl_result["timing_differential"]:
-        severity = "high" if te_cl_result["confirmed"] else "medium"
-        title = f"HTTP Request Smuggling — TE.CL{' (confirmed)' if te_cl_result['confirmed'] else ' (timing oracle)'}"
-        print_finding(title, severity, url)
-        findings.append({"technique": "TE.CL", **te_cl_result})
-        if session:
-            await session.add_finding(
-                target=url, module="smuggling",
-                vuln_type="http_smuggling_te_cl",
-                severity=severity, confidence="confirmed" if te_cl_result["confirmed"] else "likely",
-                title=title,
-                description=f"TE.CL desync detected. Frontend uses Transfer-Encoding, backend parses Content-Length. {'Confirmed via prefix reflection.' if te_cl_result['confirmed'] else 'Timing oracle suggests the backend is waiting for more data.'}",
-                evidence=te_cl_result.get("evidence", ""),
-                remediation="1. Reject requests with both CL and TE. 2. Use HTTP/2 end-to-end. 3. Configure frontend to prefer TE over CL.",
-                cvss_score=9.8, cwe="CWE-444",
-            )
+    for technique, probe in probes:
+        console.print(f"  Testing {technique}...")
+        result = await _confirm_smuggling(
+            host,
+            port,
+            use_tls,
+            technique,
+            probe,
+            scope,
+            url,
+            host_header,
+        )
+        if not isinstance(result, dict):
+            continue
 
-    # -- 3. TE.TE obfuscation variants -----------------------------------------------
-    console.print("  Testing TE.TE obfuscation variants...")
-    te_te_variants = _build_te_te_variants(host_header, path)
-    for variant_name, variant_probe in te_te_variants:
-        v_result = await _confirm_smuggling(host, port, use_tls, f"TE.TE ({variant_name})", variant_probe, scope, url, host_header)
-        if v_result["confirmed"] or v_result["timing_differential"]:
-            severity = "high" if v_result["confirmed"] else "medium"
-            title = f"HTTP Request Smuggling — TE.TE ({variant_name}){' (confirmed)' if v_result['confirmed'] else ' (timing oracle)'}"
+        record = {"technique": technique, **result}
+        if result.get("confirmed") is True:
+            severity = "high"
+            title = f"HTTP Request Smuggling — {technique} (parser-boundary evidence)"
+            record.update({
+                "confidence": "confirmed",
+                "requires_impact_validation": True,
+                "severity": severity,
+            })
+            findings.append(record)
             print_finding(title, severity, url)
-            findings.append({"technique": f"TE.TE_{variant_name}", **v_result})
             if session:
                 await session.add_finding(
-                    target=url, module="smuggling",
-                    vuln_type=f"http_smuggling_te_te_{variant_name}",
-                    severity=severity, confidence="confirmed" if v_result["confirmed"] else "likely",
+                    target=url,
+                    module="smuggling",
+                    vuln_type=f"http_smuggling_{technique.lower().replace(' ', '_').replace('.', '_').replace('(', '').replace(')', '')}",
+                    severity=severity,
+                    confidence="confirmed",
                     title=title,
-                    description=f"TE.TE obfuscation ({variant_name}) desync detected. One server processes the obfuscated TE header while the other ignores it.",
-                    evidence=v_result.get("evidence", ""),
-                    remediation="1. Normalize Transfer-Encoding headers to a canonical form. 2. Reject malformed TE headers. 3. Use a single trusted parser.",
-                    cvss_score=9.8, cwe="CWE-444",
+                    description=(
+                        f"The {technique} probe caused the unique smuggled marker "
+                        "to appear in a separately framed subsequent HTTP response. "
+                        "This confirms a request-parser boundary discrepancy; the "
+                        "impact on other users or application data still requires "
+                        "separate validation."
+                    ),
+                    evidence=str(result.get("evidence", ""))[:2000],
+                    reproduction=(
+                        f"Send the recorded {technique} probe to {url} and verify "
+                        "the unique marker appears in the separately framed "
+                        "subsequent response."
+                    ),
+                    remediation=(
+                        "Reject ambiguous or conflicting message-framing headers, "
+                        "normalize request framing at the edge, and use a consistent "
+                        "HTTP parser across proxy and application tiers."
+                    ),
+                    cwe="CWE-444",
+                    extra={"requires_impact_validation": True},
                 )
-
-    # -- 4. H2 downgrade smuggling ---------------------------------------------------
-    console.print("  Testing H2 downgrade smuggling...")
-    h2_probe = _build_h2_downgrade_probe(host_header, path)
-    h2_result = await _confirm_smuggling(host, port, use_tls, "H2 downgrade", h2_probe, scope, url, host_header)
-    if h2_result["confirmed"] or h2_result["timing_differential"]:
-        severity = "high" if h2_result["confirmed"] else "medium"
-        title = f"HTTP Request Smuggling — H2 Downgrade{' (confirmed)' if h2_result['confirmed'] else ' (timing oracle)'}"
-        print_finding(title, severity, url)
-        findings.append({"technique": "H2_downgrade", **h2_result})
-        if session:
-            await session.add_finding(
-                target=url, module="smuggling",
-                vuln_type="http_smuggling_h2_downgrade",
-                severity=severity, confidence="confirmed" if h2_result["confirmed"] else "likely",
-                title=title,
-                description="HTTP/2 to HTTP/1.1 downgrade smuggling detected. Frontend downgrades H2 to H1.1 but fails to sanitize conflicting Content-Length headers.",
-                evidence=h2_result.get("evidence", ""),
-                remediation="1. Use HTTP/2 end-to-end without downgrade. 2. Sanitize headers during protocol translation. 3. Strip Content-Length from H2 requests.",
-                cvss_score=9.8, cwe="CWE-444",
+        elif result.get("timing_differential") is True:
+            candidate = {
+                **record,
+                "confidence": "candidate",
+                "requires_manual_verification": True,
+                "verification_required": (
+                    "Repeat against a stable baseline and rule out latency, rate "
+                    "limiting, connection reuse, server load, and timeout noise. "
+                    "A timing oracle alone does not establish request smuggling."
+                ),
+            }
+            candidates.append(candidate)
+            console.print(
+                f"  [dim]Timing-only candidate for {technique}; not promoted to finding[/dim]"
             )
 
-    console.print(f"  Smuggling scan complete — {len(findings)} issues")
-    return {"target": url, "findings": findings, "count": len(findings)}
+    console.print(
+        f"  Smuggling assessment complete — {len(findings)} confirmed parser-boundary "
+        f"findings, {len(candidates)} timing candidates"
+    )
+    return {
+        "target": url,
+        "findings": findings,
+        "candidates": candidates,
+        "count": len(findings),
+        "candidate_count": len(candidates),
+    }
