@@ -61,7 +61,7 @@ async def _test_redis(host: str, port: int, scope: Any) -> dict[str, Any] | None
         def probe() -> str:
             with socket.create_connection((str(addresses[0]), port), timeout=3) as sock:
                 sock.settimeout(3)
-                sock.sendall(b"INFO server\\r\\n")
+                sock.sendall(b"INFO server\r\n")
                 data = sock.recv(4096)
                 return data.decode("utf-8", errors="replace")
 
