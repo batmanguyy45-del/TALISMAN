@@ -110,46 +110,60 @@ class Session:
   self.name = _validate_session_name(name)
   self.id = self.name
   base_dir = (session_dir or SESSIONS_DIR).expanduser()
+  if base_dir.is_symlink():
+   raise ValueError("Session base directory must not be a symbolic link")
   base_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+  os.chmod(base_dir, 0o700)
   self.dir = base_dir / self.name
-  if self.dir.exists() and self.dir.is_symlink():
+  if self.dir.is_symlink():
    raise ValueError("Session path must not be a symbolic link")
   self.dir.mkdir(parents=True, exist_ok=True, mode=0o700)
   os.chmod(self.dir, 0o700)
   self.db_path = self.dir / "session.db"
+  if self.db_path.is_symlink():
+   raise ValueError("Session database must not be a symbolic link")
   self.raw_dir = self.dir / "raw"
-  self.raw_dir.mkdir(exist_ok=True, mode=0o700)
-  os.chmod(self.raw_dir, 0o700)
   self.screenshots_dir = self.dir / "screenshots"
-  self.screenshots_dir.mkdir(exist_ok=True, mode=0o700)
-  os.chmod(self.screenshots_dir, 0o700)
   self.exports_dir = self.dir / "exports"
-  self.exports_dir.mkdir(exist_ok=True, mode=0o700)
-  os.chmod(self.exports_dir, 0o700)
+  for private_dir in (
+   self.raw_dir,
+   self.screenshots_dir,
+   self.exports_dir,
+  ):
+   if private_dir.is_symlink():
+    raise ValueError("Session data directories must not be symbolic links")
+   private_dir.mkdir(exist_ok=True, mode=0o700)
+   os.chmod(private_dir, 0o700)
   self._db: aiosqlite.Connection | None = None
   self._scope_token: Any = None
 
  async def open(self) -> Session:
   if self._db is not None:
    return self
-  self._db = await aiosqlite.connect(str(self.db_path))
-  os.chmod(self.db_path, 0o600)
-  self._db.row_factory = aiosqlite.Row
-  # Execute each statement separately to avoid reserved-word issues with executescript
-  for stmt in [s.strip() for s in SCHEMA.split(";") if s.strip()]:
-   try:
-    await self.db.execute(stmt)
-   except Exception as e:
-    log.debug("schema_stmt_skip", error=str(e), stmt=stmt[:60])
-  await self.db.commit()
+  if self.db_path.is_symlink():
+   raise ValueError("Session database must not be a symbolic link")
+  connection = await aiosqlite.connect(str(self.db_path))
+  self._db = connection
+  try:
+   os.chmod(self.db_path, 0o600)
+   connection.row_factory = aiosqlite.Row
+   # Execute schema statements separately so failures are not silently hidden.
+   for stmt in (item.strip() for item in SCHEMA.split(";") if item.strip()):
+    await connection.execute(stmt)
+   await connection.commit()
+  except Exception:
+   self._db = None
+   await connection.close()
+   raise
   log.info("session_opened", name=self.name, db=str(self.db_path))
   return self
 
  async def close(self) -> None:
+  connection = self._db
+  self._db = None
   try:
-   if self._db:
-    await self._db.close()
-    self._db = None
+   if connection is not None:
+    await connection.close()
   finally:
    if self._scope_token is not None:
     from talisman.engine.scope import reset_active_scope
@@ -301,21 +315,40 @@ class Session:
  async def summary(self) -> dict[str, Any]:
   counts = await self.finding_count_by_severity()
   targets = await self.get_targets()
+  async with self.db.execute(
+   "SELECT COUNT(*) FROM module_runs WHERE session_id=?",
+   (self.id,),
+  ) as cursor:
+   row = await cursor.fetchone()
+  modules_run = int(row[0]) if row else 0
+  total_findings = sum(counts.values())
   return {
    "session": self.name,
    "targets": len(targets),
+   "targets_count": len(targets),
    "findings": counts,
-   "total_findings": sum(counts.values()),
+   "severity_breakdown": counts,
+   "total_findings": total_findings,
+   "modules_run": modules_run,
   }
 
 
 class SessionManager:
  def __init__(self, base_dir: Path | None = None):
-  self._base = base_dir or SESSIONS_DIR
-  self._base.mkdir(parents=True, exist_ok=True)
+  self._base = (base_dir or SESSIONS_DIR).expanduser()
+  if self._base.is_symlink():
+   raise ValueError("Session base directory must not be a symbolic link")
+  self._base.mkdir(parents=True, exist_ok=True, mode=0o700)
+  os.chmod(self._base, 0o700)
 
  def list_sessions(self) -> list[str]:
-  return sorted(p.name for p in self._base.iterdir() if p.is_dir())
+  return sorted(
+   path.name
+   for path in self._base.iterdir()
+   if path.is_dir()
+   and not path.is_symlink()
+   and _SESSION_NAME_RE.fullmatch(path.name)
+  )
 
  def get(self, name: str) -> Session:
   return Session(_validate_session_name(name), self._base)
@@ -326,7 +359,10 @@ class SessionManager:
   return s
 
  def exists(self, name: str) -> bool:
-  return (self._base / _validate_session_name(name)).exists()
+  path = self._base / _validate_session_name(name)
+  if path.is_symlink():
+   raise ValueError("Session path must not be a symbolic link")
+  return path.is_dir()
 
  def delete(self, name: str) -> None:
   import shutil
