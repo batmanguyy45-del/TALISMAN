@@ -13,7 +13,7 @@ from rich import print as rprint
 from talisman import __version__
 from talisman.utils.logger import setup_logging, console, print_banner
 from talisman.engine.session import SessionManager
-from talisman.engine.scope import ScopeEnforcer, ScopeConfig, activate_scope
+from talisman.engine.scope import ScopeEnforcer, ScopeConfig, ScopeViolationError, activate_scope
 from talisman.engine.rate_limiter import RateLimiter, RATE_PROFILES
 from talisman.engine.orchestrator import ChainOrchestrator
 
@@ -64,6 +64,9 @@ for _name, _sub in [
 def _run(coro):
  try:
   asyncio.run(coro)
+ except ScopeViolationError as exc:
+  console.print(f"\n[red][!] Scope enforcement stopped the scan: {exc}[/red]")
+  raise typer.Exit(code=2)
  except KeyboardInterrupt:
   console.print("\n[yellow][!] Interrupted[/yellow]")
   sys.exit(0)
