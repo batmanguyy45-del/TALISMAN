@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 from talisman.utils.http_client import TalismanHTTPClient
+from talisman.utils.redaction import redact_sensitive_text
 from talisman.utils.logger import get_logger, console, print_finding
 
 log = get_logger(__name__)
@@ -239,66 +240,64 @@ async def run(
     proxy: str | None = None,
     **kwargs: Any,
 ) -> dict[str, Any]:
+    """Inventory exposed-file candidates without asserting secret validity."""
     url = target if "://" in target else f"https://{target}"
-    console.print(f"\n[module][+] Git/Backup/VCS Exposure Scanner[/module] -> [target]{url}[/target]")
-    findings: list[dict[str, Any]] = []
+    if scope is None:
+        return {
+            "target": url, "findings": [], "candidates": [], "observations": [],
+            "count": 0, "candidate_count": 0, "error": "scope_enforcer_required",
+        }
+    scope.assert_in_scope(url)
 
-    async with TalismanHTTPClient(proxy=proxy, timeout=8) as client:
-        console.print(f"  Testing {len(EXPOSURE_PATHS)} sensitive paths...")
+    console.print(
+        f"\n[module][+] Git/Backup/VCS Exposure Candidate Scanner[/module] -> [target]{url}[/target]"
+    )
+    candidates: list[dict[str, Any]] = []
+    observations: list[dict[str, Any]] = []
+
+    async with TalismanHTTPClient(proxy=proxy, timeout=8, scope=scope) as client:
+        console.print(f"  Checking {len(EXPOSURE_PATHS)} known exposure paths...")
         path_tasks = [_test_path(url, path, client) for path in EXPOSURE_PATHS]
         results = await asyncio.gather(*path_tasks, return_exceptions=True)
 
         for result in results:
-            if isinstance(result, dict) and result.get("path"):
-                exposure_type = result.get("type", "unknown")
-                path = result.get("path", "")
-                sensitive = result.get("sensitive", False)
+            if not isinstance(result, dict) or not result.get("path"):
+                continue
 
-                if exposure_type == "git_exposure":
-                    severity = "critical"
-                    title = f"Git repository exposed: {path}"
-                elif exposure_type == "env_exposure":
-                    severity = "critical"
-                    title = f"Environment file exposed: {path}"
-                elif exposure_type == "ssh_exposure":
-                    severity = "critical"
-                    title = f"SSH private key exposed: {path}"
-                elif exposure_type == "cloud_credentials":
-                    severity = "critical"
-                    title = f"Cloud credentials exposed: {path}"
-                elif exposure_type == "database_exposure":
-                    severity = "critical"
-                    title = f"Database backup exposed: {path}"
-                elif exposure_type == "sensitive_exposure":
-                    severity = "high"
-                    title = f"Sensitive file exposed: {path}"
-                elif exposure_type == "cicd_exposure":
-                    severity = "high"
-                    title = f"CI/CD config exposed: {path}"
-                elif exposure_type == "container_config":
-                    severity = "medium"
-                    title = f"Container configuration exposed: {path}"
-                else:
-                    severity = "medium" if result.get("size", 0) > 100 else "low"
-                    title = f"File exposure: {path}"
+            # File existence, a .git ref, generic key=value text, or a config
+            # keyword is not sufficient to prove that a usable secret or source
+            # repository is exposed. Redact credential-shaped values before
+            # returning evidence to callers or storing it in session state.
+            safe_result = {
+                **result,
+                "evidence": redact_sensitive_text(str(result.get("evidence", ""))[:400]),
+            }
+            observations.append(safe_result)
 
-                print_finding(title, severity, url)
-                findings.append(result)
+            if result.get("sensitive") or result.get("type") not in {"unknown", None}:
+                candidates.append({
+                    **safe_result,
+                    "confidence": "candidate",
+                    "requires_manual_validation": True,
+                    "verification_required": (
+                        "Verify that the response is the intended file rather than "
+                        "a custom error page, confirm the material contains genuine "
+                        "sensitive data, and validate any credential using a safe, "
+                        "read-only provider identity check. A .git/HEAD pointer or "
+                        "generic configuration file alone is not a critical finding."
+                    ),
+                })
 
-                if session and sensitive:
-                    await session.add_finding(
-                        target=url, module="git_exposure",
-                        vuln_type=exposure_type,
-                        severity=severity, confidence="confirmed",
-                        title=title,
-                        description=f"Sensitive file exposed at {path} ({result.get('size', 0)} bytes, HTTP {result.get('status')}). This file contains confidential information that should never be publicly accessible.",
-                        evidence=result.get("evidence", ""),
-                        remediation="1. Remove exposed files from the webroot. 2. Configure web server to deny access to hidden files and directories. 3. Use .htaccess / nginx rules to block /.git and similar paths. 4. Review git history for committed secrets.",
-                        cvss_score={
-                            "critical": 9.1, "high": 7.5, "medium": 5.3, "low": 3.7,
-                        }.get(severity, 5.0),
-                        cwe="CWE-540",
-                    )
-
-    console.print(f"  Exposure scan complete -- {len(findings)} issues")
-    return {"target": url, "findings": findings, "count": len(findings)}
+    console.print(
+        f"  Exposure inventory complete -- {len(candidates)} candidates, "
+        f"{len(observations)} file observations; none promoted automatically"
+    )
+    return {
+        "target": url,
+        "findings": [],
+        "candidates": candidates,
+        "observations": observations,
+        "count": 0,
+        "candidate_count": len(candidates),
+        "observation_count": len(observations),
+    }
