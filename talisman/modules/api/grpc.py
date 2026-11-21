@@ -26,20 +26,32 @@ async def _check_grpc_port(
     host: str, port: int, use_tls: bool, scope: Any, request_url: str
 ) -> dict[str, Any]:
     """Check if a scoped port speaks the HTTP/2 preface used by gRPC."""
-    scope.assert_request_allowed(request_url, "GET")
+    addresses = await scope.resolve_network_destination(request_url, "GET")
     await scope.acquire_request_slot()
-    result: dict[str, Any] = {"port": port, "tls": use_tls, "reachable": False}
+    connect_ip = str(addresses[0])
+    result: dict[str, Any] = {
+        "port": port,
+        "tls": use_tls,
+        "reachable": False,
+        "resolved_ip": connect_ip,
+    }
     try:
         reader: asyncio.StreamReader
         writer: asyncio.StreamWriter
         if use_tls:
             ctx = ssl.create_default_context()
             reader, writer = await asyncio.wait_for(
-                asyncio.open_connection(host, port, ssl=ctx, server_hostname=host), timeout=5
+                asyncio.open_connection(
+                    connect_ip,
+                    port,
+                    ssl=ctx,
+                    server_hostname=host,
+                ),
+                timeout=5,
             )
         else:
             reader, writer = await asyncio.wait_for(
-                asyncio.open_connection(host, port), timeout=5
+                asyncio.open_connection(connect_ip, port), timeout=5
             )
 
         # Send a minimal HTTP/2 preface to check if it's gRPC
