@@ -1,10 +1,12 @@
 """Cloudflare-specific bypass techniques and origin IP discovery."""
 from __future__ import annotations
+
 import asyncio
+import ipaddress
 import re
 from typing import Any
-import httpx
 from urllib.parse import urlsplit
+
 from talisman.engine.scope import ScopeViolationError
 from talisman.utils.http_client import TalismanHTTPClient
 from talisman.utils.logger import get_logger, console
@@ -197,7 +199,6 @@ async def find_origin(
     candidates.extend(result)
 
   # Filter out Cloudflare addresses and malformed records.
-  import ipaddress
   cf_nets = []
   for cidr in CLOUDFLARE_IP_RANGES:
    try:
