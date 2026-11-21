@@ -64,6 +64,8 @@ async def test_nuclei_receives_safe_flags_and_discards_out_of_scope_results(monk
 
     args = captured["args"]
     assert "-disable-redirects" in args
+    assert "-restrict-local-network-access" in args
+    assert "-no-interactsh" in args
     assert "-exclude-tags" in args
     assert "dos,intrusive,fuzz,bruteforce" in args
     assert "-retries" in args and "0" in args
