@@ -15,6 +15,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from talisman.utils.logger import get_logger, console
+from talisman.utils.redaction import redact_sensitive_value
 
 log = get_logger(__name__)
 _SESSION_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
@@ -59,7 +60,7 @@ def _quality_gate(findings: list[dict]) -> list[dict]:
  for original in findings:
   if not isinstance(original, dict):
    continue
-  finding = dict(original)
+  finding = redact_sensitive_value(dict(original))
   severity = str(finding.get("severity", "info")).lower()
   if severity not in ALLOWED_SEVERITIES:
    severity = "info"
