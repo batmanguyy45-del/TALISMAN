@@ -208,7 +208,7 @@ async def test_add_finding_redacts_credentials_before_persistence(tmp_path):
             "high",
             "confirmed",
             "Credential-bearing response",
-            request=f"GET /api\\nAuthorization: Bearer {raw_token}",
+            request=f"GET /api\nAuthorization: Bearer {raw_token}",
             response=f"Set-Cookie: {raw_cookie}",
             evidence=f"Found access token {raw_token}",
             extra={"raw": raw_token},
