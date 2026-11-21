@@ -1,9 +1,10 @@
 """Continuous Monitoring — compares two sessions and alerts on new findings/targets."""
 from __future__ import annotations
-import httpx
 from urllib.parse import urlsplit
 from typing import Any
 from talisman.engine.session import SessionManager
+from talisman.engine.scope import ScopeConfig, ScopeEnforcer
+from talisman.utils.http_client import TalismanHTTPClient
 from talisman.utils.logger import get_logger, console
 
 log = get_logger(__name__)
@@ -84,10 +85,21 @@ async def compare_sessions(old_session_name: str, new_session_name: str, webhook
             )
         else:
             try:
-                async with httpx.AsyncClient(
+                webhook_host = (urlsplit(webhook_url).hostname or "").lower()
+                webhook_scope = ScopeEnforcer(
+                    ScopeConfig(
+                        include=[webhook_host],
+                        exclude=[],
+                        service_allowlist=[],
+                        allow_state_changing_requests=True,
+                        avoid_writes=False,
+                    )
+                )
+                async with TalismanHTTPClient(
                     timeout=10,
-                    verify=True,
+                    verify_ssl=True,
                     follow_redirects=False,
+                    scope=webhook_scope,
                 ) as client:
                     payload = {"content": alert_msg[:2000]}
                     response = await client.post(webhook_url, json=payload)
