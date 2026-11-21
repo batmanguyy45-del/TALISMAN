@@ -64,6 +64,10 @@ async def run(
  delay_minutes: int = 30,
  **kwargs: Any,
 ) -> dict[str, Any]:
+ if scope is not None:
+  scope.assert_in_scope(target)
+  if dc_ip:
+   scope.assert_in_scope(dc_ip)
  host = dc_ip or target.replace("https://", "").replace("http://", "").split("/")[0]
  dom = domain or host
  console.print(f"\n[module][+] Password Spray[/module] -> [target]{host}[/target]")
