@@ -81,6 +81,10 @@ async def run(
  users_list: list[str] | None = None,
  **kwargs: Any,
 ) -> dict[str, Any]:
+ if scope is not None:
+  scope.assert_in_scope(target)
+  if dc_ip:
+   scope.assert_in_scope(dc_ip)
  host = dc_ip or target.replace("https://", "").replace("http://", "").split("/")[0]
  dom = domain or host
  console.print(f"\n[module][+] Kerberos Attacks[/module] -> [target]{host}[/target]")
