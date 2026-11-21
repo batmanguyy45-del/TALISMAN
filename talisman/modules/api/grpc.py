@@ -148,17 +148,40 @@ async def run(
                             remediation="Ensure gRPC services are properly authenticated and authorized. Disable reflection in production.",
                                 )
                 if not use_tls and probe.get("likely_grpc"):
-                    print_finding(f"gRPC plaintext (no TLS) on {host}:{check_port}", "high", f"{host}:{check_port}")
-                    findings.append({"issue": "grpc_no_tls", "port": check_port})
+                    print_finding(
+                        f"gRPC plaintext transport observed on {host}:{check_port}",
+                        "info",
+                        f"{host}:{check_port}",
+                    )
+                    findings.append(
+                        {
+                            "issue": "grpc_plaintext_transport",
+                            "port": check_port,
+                            "severity": "info",
+                            "resolved_ip": probe.get("resolved_ip"),
+                        }
+                    )
                     if session:
                         await session.add_finding(
-                            target=f"{host}:{check_port}", module="grpc",
-                            vuln_type="grpc_no_tls",
-                            severity="high", confidence="confirmed",
-                            title=f"gRPC plaintext connection on port {check_port}",
-                            description="gRPC service accepts plaintext connections without TLS. All data including authentication tokens are transmitted in cleartext.",
-                            remediation="Enforce TLS for all gRPC connections. Disable plaintext listeners.",
-                            cvss_score=7.4, cwe="CWE-319",
+                            target=f"{host}:{check_port}",
+                            module="grpc",
+                            vuln_type="grpc_plaintext_transport",
+                            severity="info",
+                            confidence="confirmed",
+                            title=f"Plaintext gRPC transport observed on port {check_port}",
+                            description=(
+                                "The endpoint accepted an HTTP/2 gRPC preface without TLS. "
+                                "This is a transport-security observation only; it does not "
+                                "prove that authentication material or sensitive data is sent "
+                                "over this listener."
+                            ),
+                            evidence=f"Plaintext HTTP/2 preface accepted on {host}:{check_port}",
+                            remediation=(
+                                "Use TLS where confidentiality or integrity is required, "
+                                "and verify that clients do not send sensitive data over "
+                                "plaintext listeners."
+                            ),
+                            cwe="CWE-319",
                         )
 
     # -- 3. Health check via HTTP transcoding ----------------------------------------
