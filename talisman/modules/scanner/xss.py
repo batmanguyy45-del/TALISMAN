@@ -29,6 +29,7 @@ from typing import Any
 from talisman.engine.scope import ScopeViolationError
 
 from bs4 import BeautifulSoup
+from talisman.engine.scope import ScopeViolationError
 from talisman.utils.http_client import TalismanHTTPClient
 from talisman.utils.logger import get_logger, console, print_finding
 
@@ -292,10 +293,29 @@ async def run(
  console.print(
   f"\n[module][+] Reflected XSS Candidate Scanner[/module] -> [target]{url}[/target]"
  )
+ try:
+  scope.assert_in_scope(url)
+ except ScopeViolationError as exc:
+  return {
+   "target": url,
+   "findings": [],
+   "candidates": [],
+   "count": 0,
+   "error": str(exc),
+  }
+
  parsed = urllib.parse.urlparse(url)
  params = list(dict(urllib.parse.parse_qsl(parsed.query)).keys())
  if not params:
   params = DEFAULT_PARAMS
+
+ methods = ["GET"]
+ skipped_methods: list[str] = []
+ try:
+  scope.assert_destructive_allowed(url, "POST")
+  methods.append("POST")
+ except ScopeViolationError:
+  skipped_methods.append("POST")
 
  candidates: list[dict[str, Any]] = []
  async with TalismanHTTPClient(
@@ -306,7 +326,7 @@ async def run(
   tasks = [
    _test_param(url, param, method, client, waf_bypass)
    for param in params
-   for method in ["GET", "POST"]
+   for method in methods
   ]
   results = await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -337,4 +357,5 @@ async def run(
   "candidates": candidates,
   "count": 0,
   "candidate_count": len(candidates),
+  "skipped_methods": skipped_methods,
  }
