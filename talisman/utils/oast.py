@@ -76,6 +76,20 @@ def normalize_oast_domain(value: str) -> str:
 
 
 
+async def validate_public_oast_domain(value: str) -> str:
+    """Require an OAST hostname that currently resolves only to public IPs."""
+    host = normalize_oast_domain(value)
+    scope = ScopeEnforcer(
+        ScopeConfig(
+            include=[host],
+            exclude=[],
+            service_allowlist=[],
+        )
+    )
+    await scope.resolve_network_destination(f"https://{host}/", "GET")
+    return host
+
+
 class OASTClient:
  """Client for interactsh OAST server."""
 
