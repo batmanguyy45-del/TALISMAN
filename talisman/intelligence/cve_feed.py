@@ -11,7 +11,7 @@ async def lookup_cves(technology: str, version: str | None = None) -> list[dict[
  """Query NVD API for CVEs matching a technology and version."""
  cves: list[dict[str, Any]] = []
  try:
-  async with TalismanHTTPClient(timeout=15) as client:
+  async with TalismanHTTPClient(timeout=15, scope_exempt=True) as client:
    keyword = f"{technology} {version}" if version else technology
    r = await client.get(
     f"https://services.nvd.nist.gov/rest/json/cves/2.0?keywordSearch={keyword}&resultsPerPage=10",
