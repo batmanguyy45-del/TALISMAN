@@ -175,15 +175,17 @@ class ScopeConfig:
         except ValueError:
             pass
 
+        if raw.startswith("*."):
+            wildcard_host = _normalize_host(raw[2:])
+            if not wildcard_host:
+                raise ValueError(f"Invalid wildcard target: {target!r}")
+            return cls(include=[f"*.{wildcard_host}"])
+
         parsed = _parse_url(raw)
         if parsed is None:
             raise ValueError(f"Invalid target: {target!r}")
         host = _normalize_host(parsed.hostname or "")
-        try:
-            ipaddress.ip_address(host)
-            return cls(include=[host])
-        except ValueError:
-            return cls(include=[host, f"*.{host}"])
+        return cls(include=[host])
 
 
 class ScopeEnforcer:
