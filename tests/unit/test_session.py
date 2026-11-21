@@ -81,3 +81,14 @@ def test_session_manager(tmp_session_dir):
  assert sm.exists("bounty-q1")
  sm.delete("bounty-q1")
  assert not sm.exists("bounty-q1")
+
+
+@pytest.mark.parametrize("bad_name", ["..", "../escape", "/tmp/escape", "nested/name", "nested\\\\name"])
+def test_session_names_cannot_escape_storage_root(tmp_path, bad_name):
+ manager = SessionManager(tmp_path / "sessions")
+ with pytest.raises(ValueError):
+  manager.get(bad_name)
+ with pytest.raises(ValueError):
+  manager.exists(bad_name)
+ with pytest.raises(ValueError):
+  manager.delete(bad_name)
