@@ -155,14 +155,6 @@ async def _test_mass_assignment(
     except Exception:
         pass
 
-    # Step 5: Try form-encoded injection too
-    form_payload = {f"user[{f}]": "admin" if "admin" in f.lower() or "role" in f.lower() else "injected" for f in candidate_fields[:10]}
-    form_payload.update({"email": "test@test.com", "name": "test"})
-    try:
-        r = await client.post(test_url, data=form_payload, headers={"Content-Type": "application/x-www-form-urlencoded"}, timeout=10)
-    except Exception:
-        pass
-
     return findings
 
 
@@ -187,34 +179,59 @@ async def run(
 ) -> dict[str, Any]:
     url = target if "://" in target else f"https://{target}"
     if scope is None:
-        return {"target": url, "findings": [], "count": 0, "error": "scope_enforcer_required"}
+        return {
+            "target": url,
+            "findings": [],
+            "candidates": [],
+            "count": 0,
+            "error": "scope_enforcer_required",
+        }
     try:
-        scope.assert_destructive_allowed(url, "POST")
+        scope.assert_destructive_allowed(url, "PATCH")
     except Exception as exc:
-        return {"target": url, "findings": [], "count": 0, "skipped": True, "reason": str(exc)}
-    console.print(f"\n[module][+] Mass Assignment Scanner[/module] -> [target]{url}[/target]")
-    findings: list[dict[str, Any]] = []
+        return {
+            "target": url,
+            "findings": [],
+            "candidates": [],
+            "count": 0,
+            "skipped": True,
+            "reason": str(exc),
+        }
 
-    async with TalismanHTTPClient(proxy=proxy, timeout=12, scope=scope) as client:
-        console.print(f"  Testing {len(API_UPDATE_ENDPOINTS)} endpoints for mass assignment...")
+    console.print(
+        f"\n[module][+] Mass Assignment Candidate Scanner[/module] -> [target]{url}[/target]"
+    )
+    candidates: list[dict[str, Any]] = []
+
+    async with TalismanHTTPClient(
+        proxy=proxy,
+        timeout=12,
+        scope=scope,
+    ) as client:
         for endpoint in API_UPDATE_ENDPOINTS:
-            endpoint_findings = await _test_mass_assignment(url, endpoint, client, auth)
-            for f in endpoint_findings:
-                field = f["field"]
-                title = f"Mass assignment: writable field '{field}' at {endpoint}"
-                print_finding(title, f["severity"], url)
-                findings.append({"endpoint": endpoint, **f})
-                if session:
-                    await session.add_finding(
-                        target=url, module="mass_assignment",
-                        vuln_type="mass_assignment",
-                        severity=f["severity"], confidence="confirmed",
-                        title=title,
-                        description=f"Privileged field '{field}' was accepted and persisted at {endpoint}. Injected value: {f['injected_value']}, confirmed: {f['confirmed_value']}.",
-                        evidence=f"Field '{field}' = '{f['confirmed_value']}' persisted across separate requests",
-                        remediation="1. Use allowlists for permitted parameters. 2. Never auto-bind request bodies to models. 3. Validate each field against a predefined schema.",
-                        cvss_score=9.1 if f["severity"] == "critical" else 7.5, cwe="CWE-915",
-                    )
+            endpoint_results = await _test_mass_assignment(url, endpoint, client, auth)
+            for result in endpoint_results:
+                candidate = {
+                    "endpoint": endpoint,
+                    **result,
+                    "confidence": "candidate",
+                    "requires_impact_verification": True,
+                    "verification_required": (
+                        "Verify the changed field affects a security-relevant "
+                        "authorization or trust boundary, use a dedicated test account, "
+                        "and establish the before/after state without affecting a real "
+                        "user or privileged production account."
+                    ),
+                }
+                candidates.append(candidate)
 
-    console.print(f"  Mass assignment scan complete -- {len(findings)} issues")
-    return {"target": url, "findings": findings, "count": len(findings)}
+    console.print(
+        f"  Found {len(candidates)} writable-field candidates requiring impact verification"
+    )
+    return {
+        "target": url,
+        "findings": [],
+        "candidates": candidates,
+        "count": 0,
+        "candidate_count": len(candidates),
+    }
