@@ -121,6 +121,14 @@ async def run(
   oast_client = OASTClient(server=oast_domain)
   callback_url = oast_client.get_payload_url(prefix="xxe")
   oast_token = urlsplit(callback_url).hostname
+  if not oast_token:
+   return {
+    "target": url,
+    "findings": [],
+    "candidates": [],
+    "count": 0,
+    "error": "could_not_generate_oast_token",
+   }
   oob_payloads = [
    (payload, "application/xml")
    for payload in oast_client.get_xxe_payloads(oast_token)
@@ -140,7 +148,7 @@ async def run(
 
   for result in results:
    if isinstance(result, dict):
-    severity = "critical"
+    severity = "high"
     title = f"XXE injection — {result['indicator']}"
     print_finding(title, severity, url)
     findings.append(result)
@@ -164,7 +172,7 @@ async def run(
        "3. In PHP: libxml_disable_entity_loader(true)\n"
        "4. Use JSON instead of XML where possible."
       ),
-      cvss_score=9.1, cwe="CWE-611",
+      cwe="CWE-611",
       references=["https://owasp.org/www-community/vulnerabilities/XML_External_Entity_(XXE)_Processing"],
      )
     break
