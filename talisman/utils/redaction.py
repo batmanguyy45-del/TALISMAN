@@ -6,6 +6,26 @@ from typing import Any
 
 MAX_REDACTION_INPUT_CHARS = 2_000_000
 
+_SENSITIVE_KEYS = frozenset(
+    {
+        "authorization", "proxyauthorization", "cookie", "setcookie",
+        "password", "passwd", "pwd", "secret", "secretkey", "clientsecret",
+        "accesstoken", "refreshtoken", "idtoken", "token", "jwt",
+        "apikey", "xapikey", "authtoken", "privatekey", "sshprivatekey",
+        "credential", "credentials", "signature", "sig",
+        "xamzsignature", "xamzcredential", "xamzsecuritytoken",
+        "session", "sessionid", "sessiontoken", "csrftoken", "xsrftoken",
+        "clientassertion", "awssecretaccesskey", "awssessiontoken",
+    }
+)
+
+_QUOTED_SECRET_PATTERN = re.compile(
+    r"""(?i)(["'](?:authorization|proxy[_-]?authorization|cookie|set[_-]?cookie|api[_-]?key|access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?secret|secret[_-]?key|secret|password|passwd|pwd|token|jwt|private[_-]?key|ssh[_-]?private[_-]?key|credential|credentials|signature|sig|x-amz-(?:signature|credential|security-token))["']\s*:\s*["'])[^"']*(["'])"""
+)
+_URL_SECRET_PATTERN = re.compile(
+    r"(?i)([?&](?:access_token|refresh_token|id_token|client_secret|api[_-]?key|apikey|secret|password|passwd|token|jwt|session|signature|sig|credential|x-amz-(?:signature|credential|security-token))=)[^&#\\s]+"
+)
+
 _PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (
         re.compile(r"(?im)(\bauthorization\s*:\s*(?:bearer|basic)\s+)[^\s,;]+"),
@@ -78,6 +98,11 @@ def redact_sensitive_text(value: str, *, max_chars: int = MAX_REDACTION_INPUT_CH
     for pattern, replacement in _PATTERNS:
         text = pattern.sub(replacement, text)
 
+    # Handle JSON-like serialized evidence where secrets are stored as
+    # quoted key/value pairs, including values containing spaces.
+    text = _QUOTED_SECRET_PATTERN.sub(r"\\1[REDACTED]\\2", text)
+    text = _URL_SECRET_PATTERN.sub(r"\\1[REDACTED]", text)
+
     if truncated:
         text += "\n[TRUNCATED: redaction input exceeded configured size limit]"
     return text
@@ -94,8 +119,14 @@ def redact_sensitive_value(value: Any, *, depth: int = 0) -> Any:
     if isinstance(value, tuple):
         return tuple(redact_sensitive_value(item, depth=depth + 1) for item in value[:1000])
     if isinstance(value, dict):
-        return {
-            str(key)[:200]: redact_sensitive_value(item, depth=depth + 1)
-            for key, item in list(value.items())[:1000]
-        }
+        redacted: dict[str, Any] = {}
+        for key, item in list(value.items())[:1000]:
+            safe_key = str(key)[:200]
+            normalized_key = re.sub(r"[^a-z0-9]", "", safe_key.lower())
+            redacted[safe_key] = (
+                "[REDACTED]"
+                if normalized_key in _SENSITIVE_KEYS
+                else redact_sensitive_value(item, depth=depth + 1)
+            )
+        return redacted
     return value
