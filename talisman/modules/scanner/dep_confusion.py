@@ -234,11 +234,11 @@ def _identify_confusion_candidates(deps: list[dict[str, Any]]) -> list[dict[str,
 
 async def _check_npm_registry(package_name: str) -> bool:
     """Check if a package exists on the public npm registry."""
-    import httpx as _httpx
     try:
-        async with _httpx.AsyncClient() as client:
-            r = await client.get(f"https://registry.npmjs.org/{package_name}", timeout=8)
-            return r.status_code == 200
+        url = f"https://registry.npmjs.org/{package_name}"
+        async with TalismanHTTPClient(timeout=8) as client:
+            response = await client.get(url)
+            return response.status_code == 200
     except Exception:
         return False
 
@@ -252,10 +252,16 @@ async def run(
     **kwargs: Any,
 ) -> dict[str, Any]:
     url = target if "://" in target else f"https://{target}"
+    if scope is None:
+        return {"target": url, "findings": [], "count": 0, "error": "scope_enforcer_required"}
+    try:
+        scope.assert_in_scope(url)
+    except Exception as exc:
+        return {"target": url, "findings": [], "count": 0, "error": str(exc)}
     console.print(f"\n[module][+] Dependency Confusion Scanner[/module] -> [target]{url}[/target]")
     findings: list[dict[str, Any]] = []
 
-    async with TalismanHTTPClient(proxy=proxy, timeout=10) as client:
+    async with TalismanHTTPClient(proxy=proxy, timeout=10, scope=scope) as client:
         console.print(f"  Checking {len(PACKAGE_FILES)} package file paths...")
         fetch_tasks = [_fetch_package_file(url, path, client) for path in PACKAGE_FILES]
         fetch_results = await asyncio.gather(*fetch_tasks, return_exceptions=True)
