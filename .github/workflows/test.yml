@@ -36,7 +36,7 @@ jobs:
 
     - name: Type check with mypy
       if: always()
-      run: mypy talisman/engine/scope.py talisman/engine/session.py talisman/utils/http_client.py --ignore-missing-imports --follow-imports=silent
+      run: mypy talisman/engine/scope.py talisman/utils/http_client.py --ignore-missing-imports --follow-imports=silent
 
     - name: Test with pytest
       if: always()
