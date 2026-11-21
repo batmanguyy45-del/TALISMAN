@@ -39,9 +39,7 @@ async def _tcp_connect(host: str, port: int, timeout: float = 2.0) -> tuple[int,
 
 
 def _parse_ports(ports: str) -> list[int]:
-    if ports in {"common", "top-100", "top-1000"}:
-        # Until curated, audited top-port lists are shipped, these presets
-        # intentionally use the conservative common-port set.
+    if ports == "common":
         return list(COMMON_PORTS)
 
     try:
@@ -93,7 +91,11 @@ async def run(
     except ValueError as exc:
         return {"target": host, "open_ports": [], "count": 0, "error": str(exc)}
 
-    concurrency = max(1, min(int(threads), MAX_CONCURRENCY))
+    try:
+        requested_concurrency = int(threads)
+    except (TypeError, ValueError):
+        requested_concurrency = 1
+    concurrency = max(1, min(requested_concurrency, MAX_CONCURRENCY))
     console.print(f"\n[module][+] Scoped Port Scanner[/module] -> [target]{host}[/target]")
     console.print(f" Scanning {len(port_list)} ports (max concurrency {concurrency})...")
 
