@@ -175,7 +175,10 @@ def _build_httpx_client(
         "trust_env": False,
     }
     if proxy:
-        if os.environ.get("TALISMAN_ALLOW_UNPINNED_PROXY", "").strip().lower() not in {"1", "true", "yes"}:
+        if (
+            os.environ.get("TALISMAN_ALLOW_UNPINNED_PROXY", "").strip().lower()
+            not in {"1", "true", "yes"}
+        ):
             raise ScopeViolationError(
                 "HTTP proxy use is blocked because the proxy resolves the target "
                 "independently and bypasses TALISMAN destination pinning. Set "
@@ -450,7 +453,12 @@ class TalismanHTTPClient:
                             )
                         self._request_count += 1
                         break
-                    except (httpx.ConnectError, httpx.TimeoutException, httpx.ReadError, TimeoutError) as exc:
+                    except (
+                        httpx.ConnectError,
+                        httpx.TimeoutException,
+                        httpx.ReadError,
+                        TimeoutError,
+                    ) as exc:
                         self._error_count += 1
                         last_exc = exc
                         if attempt + 1 < attempts:
@@ -500,7 +508,12 @@ class TalismanHTTPClient:
                     # future credential header must never leak to the new origin.
                     request_headers = {
                         key: value for key, value in request_headers.items()
-                        if key.lower() in {"accept", "accept-encoding", "accept-language", "user-agent"}
+                        if key.lower() in {
+                            "accept",
+                            "accept-encoding",
+                            "accept-language",
+                            "user-agent",
+                        }
                     }
                     # A request body is caller-supplied data, not a generic
                     # negotiation header. Never forward it to another origin.
