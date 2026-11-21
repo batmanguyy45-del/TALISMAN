@@ -256,16 +256,25 @@ class ScopeEnforcer:
         return True
 
     def _matches_entry(self, target: str, entry: str, networks: list) -> bool:
-        if "://" in entry or "/" in entry or "?" in entry:
-            candidate = _parse_url(target)
-            if candidate is None:
-                return False
-            return self._url_pattern_matches(candidate, entry)
+        try:
+            network = ipaddress.ip_network(entry, strict=False)
+        except ValueError:
+            network = None
 
         parsed = _parse_url(target)
         if parsed is None:
             return False
         host = _normalize_host(parsed.hostname or "")
+        if network is not None:
+            try:
+                address = ipaddress.ip_address(host)
+                return address.version == network.version and address in network
+            except ValueError:
+                return False
+
+        if "://" in entry or "/" in entry or "?" in entry:
+            return self._url_pattern_matches(parsed, entry)
+
         return self._host_matches(host, entry) or self._matches_network(host, networks)
 
     def is_in_scope(self, target: str) -> bool:
