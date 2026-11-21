@@ -132,3 +132,40 @@ async def test_installed_plugins_are_not_loaded_without_explicit_opt_in(monkeypa
     registry = register_plugins_to_registry({})
     assert "scanner.example" not in registry
     assert _plugin_registry == {}
+
+
+
+def test_plugin_manifest_rejects_path_traversal_entrypoint():
+    from talisman.engine.plugin_manager import _validated_manifest
+
+    manifest = {
+        "name": "safe-plugin",
+        "type": "scanner",
+        "entrypoint": "../../outside.payload",
+        "module_alias": "plugin.safe-plugin",
+    }
+    assert _validated_manifest(manifest, "safe-plugin") is None
+
+
+def test_plugin_install_rejects_path_traversal_name_without_cloning():
+    from talisman.engine.plugin_manager import install_plugin
+
+    result = install_plugin("../outside")
+    assert result["success"] is False
+    assert "Invalid plugin name" in result["error"]
+
+
+def test_plugin_uninstall_rejects_path_traversal_name():
+    from talisman.engine.plugin_manager import uninstall_plugin
+
+    result = uninstall_plugin("../outside")
+    assert result["success"] is False
+    assert "Invalid plugin name" in result["error"]
+
+
+def test_plugin_load_requires_explicit_opt_in(monkeypatch):
+    from talisman.engine.plugin_manager import discover_plugins, load_plugin
+
+    monkeypatch.delenv("TALISMAN_ENABLE_UNTRUSTED_PLUGINS", raising=False)
+    plugin = discover_plugins()["example-scanner"]
+    assert load_plugin(plugin) is None
