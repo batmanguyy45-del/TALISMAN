@@ -221,3 +221,57 @@ def test_destructive_operations_need_separate_opt_in():
         avoid_destructive=False,
     ))
     allowed.assert_destructive_allowed("https://example.com/api", "POST")
+
+
+
+@pytest.mark.asyncio
+async def test_dns_resolving_to_private_address_is_blocked(monkeypatch):
+    scope = _make_scope(["example.com"])
+
+    async def fake_resolve(host, port):
+        return {ipaddress.ip_address("127.0.0.1")}
+
+    import ipaddress
+
+    monkeypatch.setattr(scope, "_resolve_host_addresses", fake_resolve)
+    with pytest.raises(ScopeViolationError, match="non-public address"):
+        await scope.assert_network_destination_allowed("https://example.com/")
+
+
+@pytest.mark.asyncio
+async def test_private_dns_address_is_allowed_only_when_ip_is_explicitly_scoped(monkeypatch):
+    import ipaddress
+
+    scope = _make_scope(["example.com", "10.20.0.0/16"])
+
+    async def fake_resolve(host, port):
+        return {ipaddress.ip_address("10.20.4.12")}
+
+    monkeypatch.setattr(scope, "_resolve_host_addresses", fake_resolve)
+    await scope.assert_network_destination_allowed("https://example.com/")
+
+
+@pytest.mark.asyncio
+async def test_public_dns_addresses_are_allowed(monkeypatch):
+    import ipaddress
+
+    scope = _make_scope(["example.com"])
+
+    async def fake_resolve(host, port):
+        return {ipaddress.ip_address("93.184.216.34")}
+
+    monkeypatch.setattr(scope, "_resolve_host_addresses", fake_resolve)
+    await scope.assert_network_destination_allowed("https://example.com/")
+
+
+@pytest.mark.asyncio
+async def test_private_literal_requires_explicit_ip_scope():
+    scope = _make_scope(["example.com"])
+    with pytest.raises(ScopeViolationError, match="non-public address"):
+        await scope.assert_network_destination_allowed("http://127.0.0.1/")
+
+
+@pytest.mark.asyncio
+async def test_private_literal_is_allowed_when_explicitly_scoped():
+    scope = _make_scope(["10.0.0.1"])
+    await scope.assert_network_destination_allowed("http://10.0.0.1/")
