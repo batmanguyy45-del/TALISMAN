@@ -122,7 +122,10 @@ def test_ssrf_internal_and_non_http_targets_are_classified_as_internal():
 async def test_ssrf_internal_probes_are_disabled_by_default(monkeypatch):
     seen = []
 
-    async def record_probe(url, param, client, oast_domain, allow_internal_probes=False):
+    async def record_probe(
+        url, param, client, oast_domain,
+        allow_internal_probes=False, allow_post_probes=False,
+    ):
         seen.append(allow_internal_probes)
         return None
 
@@ -144,7 +147,10 @@ async def test_ssrf_internal_probes_are_disabled_by_default(monkeypatch):
 async def test_ssrf_internal_probes_require_explicit_scope_opt_in(monkeypatch):
     seen = []
 
-    async def record_probe(url, param, client, oast_domain, allow_internal_probes=False):
+    async def record_probe(
+        url, param, client, oast_domain,
+        allow_internal_probes=False, allow_post_probes=False,
+    ):
         seen.append(allow_internal_probes)
         return None
 
@@ -179,6 +185,7 @@ async def test_upload_acceptance_is_candidate_until_persistence_and_execution_ve
     monkeypatch.setattr(file_upload_scanner, "_test_content_type_bypass", content_type)
     monkeypatch.setattr(file_upload_scanner, "_test_double_extension", extension)
     monkeypatch.setattr(file_upload_scanner, "_test_content_validation", magic)
+    monkeypatch.setattr(file_upload_scanner, "UPLOAD_ENDPOINTS", ["/upload"])
     monkeypatch.setattr(file_upload_scanner, "TalismanHTTPClient", _FakeClient)
     session = _NoFindingSession()
 
@@ -205,6 +212,7 @@ async def test_mass_assignment_is_candidate_until_security_impact_verified(monke
         }]
 
     monkeypatch.setattr(mass_assignment, "_test_mass_assignment", persisted_field)
+    monkeypatch.setattr(mass_assignment, "API_UPDATE_ENDPOINTS", ["/api/profile"])
     monkeypatch.setattr(mass_assignment, "TalismanHTTPClient", _FakeClient)
     session = _NoFindingSession()
 

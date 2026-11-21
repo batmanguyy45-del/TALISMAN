@@ -10,12 +10,12 @@ from talisman.engine.scope import ScopeConfig, ScopeEnforcer, ScopeViolationErro
 from talisman.utils.http_client import TalismanHTTPClient
 
 
-def _mock_client(scope, handler, **kwargs):
+def _mock_client(scope, handler, *, resolver=None, **kwargs):
     async def allow_test_destination(url, method="GET"):
         scope.assert_request_allowed(url, method)
         return (ip_address("93.184.216.34"),)
 
-    scope.resolve_network_destination = allow_test_destination
+    scope.resolve_network_destination = resolver or allow_test_destination
     client = TalismanHTTPClient(scope=scope, **kwargs)
     client._build_client = lambda: httpx.AsyncClient(
         transport=httpx.MockTransport(handler)
@@ -469,8 +469,9 @@ async def test_http_client_bounds_scope_dns_resolution_time():
         await asyncio.sleep(0.05)
         return (ip_address("93.184.216.34"),)
 
-    scope.resolve_network_destination = slow_resolution
-    async with _mock_client(scope, handler, max_retries=1) as client:
+    async with _mock_client(
+        scope, handler, max_retries=1, resolver=slow_resolution
+    ) as client:
         with pytest.raises(TimeoutError):
             await client.get("https://example.com/", timeout=0.005)
 

@@ -19,7 +19,8 @@ def _scope(*, allow_writes=False, avoid_writes=True, avoid_destructive=True):
 
 
 class _Response:
-    def __init__(self, headers=None, text=""):
+    def __init__(self, headers=None, text="", status_code=200):
+        self.status_code = status_code
         self.headers = headers or {}
         self.text = text
         self.content = text.encode()

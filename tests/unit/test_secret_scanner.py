@@ -102,4 +102,6 @@ async def test_sensitive_path_http_200_without_secret_is_observation(monkeypatch
 async def test_secret_scanner_requires_explicit_scope():
     result = await secrets.run(target="https://example.com")
     assert result["error"] == "scope_enforcer_required"
-    assert result["findings"] == []
+    assert result["secrets"] == []
+    assert result["candidates"] == []
+    assert result["count"] == 0
