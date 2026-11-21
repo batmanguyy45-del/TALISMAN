@@ -94,7 +94,11 @@ async def test_redirect_to_out_of_scope_host_is_blocked_before_second_request():
 
     async def handler(request):
         calls.append(request)
-        return httpx.Response(302, headers={"Location": "https://attacker.test/collect"}, request=request)
+        return httpx.Response(
+            302,
+            headers={"Location": "https://attacker.test/collect"},
+            request=request,
+        )
 
     scope = ScopeEnforcer(ScopeConfig(include=["example.com"], service_allowlist=[]))
     async with _mock_client(scope, handler, follow_redirects=True) as client:
@@ -111,7 +115,11 @@ async def test_credentials_are_not_forwarded_across_allowed_origin_redirect():
     async def handler(request):
         seen_headers.append(dict(request.headers))
         if request.url.host == "example.com":
-            return httpx.Response(302, headers={"Location": "https://docs.example.net/next"}, request=request)
+            return httpx.Response(
+                302,
+                headers={"Location": "https://docs.example.net/next"},
+                request=request,
+            )
         return httpx.Response(200, request=request)
 
     scope = ScopeEnforcer(ScopeConfig(
