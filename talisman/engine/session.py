@@ -176,7 +176,7 @@ class Session:
     kwargs.get("notes"),
     now, now)
   )
-  await self._db.commit()
+  await self.db.commit()
   return tid
 
  async def get_targets(self) -> list[dict[str, Any]]:
@@ -189,7 +189,7 @@ class Session:
   self, target: str, module: str, vuln_type: str, severity: str,
   confidence: str, title: str, **kwargs: Any
  ) -> str | None:
-  async with self._db.execute(
+  async with self.db.execute(
    "SELECT id FROM findings WHERE session_id=? AND target=? AND module=? "
    "AND vuln_type=? AND ((? <> '' AND COALESCE(evidence, '') = ?) "
    "OR (? = '' AND title = ?))",
@@ -207,7 +207,7 @@ class Session:
    return None
   fid = _uid()
   now = _now()
-  await self._db.execute(
+  await self.db.execute(
    """INSERT INTO findings
     (id,session_id,target,module,vuln_type,severity,confidence,title,
     description,request,response,evidence,reproduction,remediation,
@@ -223,7 +223,7 @@ class Session:
     kwargs.get("status", "open"),
     now, now)
   )
-  await self._db.commit()
+  await self.db.commit()
   log.info("finding_saved", id=fid, title=title, severity=severity, target=target)
   return fid
 
@@ -240,19 +240,19 @@ class Session:
    query += " AND status=?"
    params.append(status)
   query += " ORDER BY CASE severity WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 ELSE 4 END"
-  async with self._db.execute(query, params) as cur:
+  async with self.db.execute(query, params) as cur:
    rows = await cur.fetchall()
   return [dict(r) for r in rows]
 
  async def update_finding_status(self, finding_id: str, status: str) -> None:
-  await self._db.execute(
+  await self.db.execute(
    "UPDATE findings SET status=?, updated_at=? WHERE id=?",
    (status, _now(), finding_id)
   )
-  await self._db.commit()
+  await self.db.commit()
 
  async def finding_count_by_severity(self) -> dict[str, int]:
-  async with self._db.execute(
+  async with self.db.execute(
    "SELECT severity, COUNT(*) as cnt FROM findings WHERE session_id=? GROUP BY severity",
    (self.id,)
   ) as cur:
@@ -262,35 +262,35 @@ class Session:
  # ── Module runs ───────────────────────────────────────────────────────────
  async def start_module_run(self, module: str, target: str | None = None) -> str:
   rid = _uid()
-  await self._db.execute(
+  await self.db.execute(
    "INSERT INTO module_runs VALUES (?,?,?,?,?,?,?,?,?)",
    (rid, self.id, module, target, _now(), None, "running", None, None)
   )
-  await self._db.commit()
+  await self.db.commit()
   return rid
 
  async def complete_module_run(
   self, run_id: str, status: str = "success",
   error: str | None = None, summary: str | None = None
  ) -> None:
-  await self._db.execute(
+  await self.db.execute(
    "UPDATE module_runs SET completed_at=?,status=?,error=?,output_summary=? WHERE id=?",
    (_now(), status, error, summary, run_id)
   )
-  await self._db.commit()
+  await self.db.commit()
 
  # ── Notes ─────────────────────────────────────────────────────────────────
  async def add_note(self, note: str) -> str:
   nid = _uid()
-  await self._db.execute(
+  await self.db.execute(
    "INSERT INTO session_notes VALUES (?,?,?,?)",
    (nid, self.id, note, _now())
   )
-  await self._db.commit()
+  await self.db.commit()
   return nid
 
  async def get_notes(self) -> list[dict]:
-  async with self._db.execute(
+  async with self.db.execute(
    "SELECT * FROM session_notes WHERE session_id=? ORDER BY created_at",
    (self.id,)
   ) as cur:
