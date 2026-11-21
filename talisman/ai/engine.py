@@ -41,7 +41,12 @@ class AIEngine:
   anonymize: bool = True,
  ):
   self.provider = provider
-  self.model = model
+  if provider == "openai" and model.startswith("claude-"):
+   self.model = os.getenv("OPENAI_MODEL", "gpt-4")
+  elif provider == "ollama" and model.startswith("claude-"):
+   self.model = os.getenv("OLLAMA_MODEL", "llama3.1")
+  else:
+   self.model = model
   if api_key:
    self.api_key = api_key
   elif provider == "openai":
@@ -160,7 +165,7 @@ class AIEngine:
      "http://localhost:11434/api/generate",
      json={
       "model": self.model,
-      "prompt": f"{system}\\n\\n{prompt}",
+      "prompt": f"{system}\n\n{prompt}",
       "stream": False,
      },
     )
