@@ -392,3 +392,35 @@ def test_http_client_rejects_unbounded_response_configuration():
     for invalid in (0, -1, True, 1.5, MAX_ALLOWED_RESPONSE_BYTES + 1):
         with pytest.raises(ValueError, match="max_response_bytes"):
             TalismanHTTPClient(max_response_bytes=invalid)
+
+
+@pytest.mark.asyncio
+async def test_http_client_uses_assessment_wide_concurrency_limit():
+    import asyncio
+
+    active = 0
+    peak_active = 0
+
+    async def handler(request):
+        nonlocal active, peak_active
+        active += 1
+        peak_active = max(peak_active, active)
+        await asyncio.sleep(0.03)
+        active -= 1
+        return httpx.Response(200, request=request)
+
+    scope = ScopeEnforcer(
+        ScopeConfig(
+            include=["example.com"],
+            service_allowlist=[],
+            max_requests_per_second=20,
+            max_concurrent_requests=1,
+        )
+    )
+    async with _mock_client(scope, handler, max_retries=1) as client:
+        await asyncio.gather(
+            client.get("https://example.com/one"),
+            client.get("https://example.com/two"),
+        )
+
+    assert peak_active == 1
