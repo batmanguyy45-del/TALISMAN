@@ -384,18 +384,23 @@ class ScopeEnforcer:
 
         return self._host_matches(host, entry) or self._matches_network(host, networks)
 
+    def is_excluded(self, target: str) -> bool:
+        """Return whether an explicit exclusion matches, independent of inclusion."""
+        for entry in self.config.exclude:
+            if self._matches_entry(target, entry, self._exclude_nets):
+                log.debug("excluded_scope", target=target, pattern=entry)
+                return True
+        return False
+
     def is_in_scope(self, target: str) -> bool:
+        if self.is_excluded(target):
+            return False
         if not any(
             self._matches_entry(target, entry, self._include_nets)
             for entry in self.config.include
         ):
             log.debug("out_of_scope", target=target)
             return False
-
-        for entry in self.config.exclude:
-            if self._matches_entry(target, entry, self._exclude_nets):
-                log.debug("excluded_scope", target=target, pattern=entry)
-                return False
         return True
 
     def is_service_allowed(self, target: str) -> bool:
@@ -425,6 +430,10 @@ class ScopeEnforcer:
 
     def assert_request_allowed(self, target: str, method: str = "GET") -> None:
         method = method.upper()
+        if self.is_excluded(target):
+            raise ScopeViolationError(
+                f"Request blocked: '{target}' matches an explicit scope exclusion"
+            )
         target_is_in_scope = self.is_in_scope(target)
         service_is_allowed = self.is_service_allowed(target)
         if not target_is_in_scope and not service_is_allowed:
