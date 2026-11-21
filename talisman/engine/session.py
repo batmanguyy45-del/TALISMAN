@@ -191,8 +191,15 @@ class Session:
  ) -> str | None:
   async with self._db.execute(
    "SELECT id FROM findings WHERE session_id=? AND target=? AND module=? "
-   "AND vuln_type=? AND COALESCE(evidence, '') = ?",
-   (self.id, target, module, vuln_type, kwargs.get("evidence", "") or "")
+   "AND vuln_type=? AND ((? <> '' AND COALESCE(evidence, '') = ?) "
+   "OR (? = '' AND title = ?))",
+   (
+    self.id, target, module, vuln_type,
+    kwargs.get("evidence", "") or "",
+    kwargs.get("evidence", "") or "",
+    kwargs.get("evidence", "") or "",
+    title,
+   )
   ) as cur:
    existing = await cur.fetchone()
   if existing:
