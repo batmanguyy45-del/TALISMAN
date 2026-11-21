@@ -14,9 +14,8 @@ import re
 from typing import Any
 
 from talisman.engine.scope import ScopeViolationError
-from talisman.utils.oast import validate_public_oast_domain
+from talisman.utils.oast import OASTClient, validate_public_oast_domain
 from talisman.utils.http_client import TalismanHTTPClient
-from talisman.utils.payload_engine import XXE_PAYLOADS
 from talisman.utils.logger import get_logger, console, print_finding
 
 log = get_logger(__name__)
@@ -112,13 +111,16 @@ async def run(
  console.print(f"\n[module][+] XXE Scanner[/module] -> [target]{url}[/target]")
  findings: list[dict[str, Any]] = []
 
+ oast_client: OASTClient | None = None
+ oast_token: str | None = None
  oob_payloads: list[tuple[str, str]] = []
  if oast_domain:
+  # Give this scan a unique callback label; never reuse a shared OAST token.
+  oast_client = OASTClient(server=oast_domain)
+  oast_token = oast_client.get_payload_url(prefix="xxe").split("/", 3)[2]
   oob_payloads = [
-   (
-    f'<?xml version="1.0"?><!DOCTYPE root [<!ENTITY % xxe SYSTEM "http://{oast_domain}/xxe"> %xxe;]><root/>',
-    "application/xml"
-   ),
+   (payload, "application/xml")
+   for payload in oast_client.get_xxe_payloads(oast_token)
   ]
 
  test_cases: list[tuple[str, str]] = []
@@ -164,5 +166,75 @@ async def run(
      )
     break
 
- console.print(f" Found {len(findings)} XXE vulnerabilities")
- return {"target": url, "findings": findings, "count": len(findings)}
+ oast_hits: list[dict[str, Any]] = []
+ if oast_client is not None and oast_token is not None:
+  try:
+   oast_hits = await oast_client.poll(oast_token, timeout=10)
+  except Exception as exc:
+   log.warning("xxe_oast_poll_failed", error=type(exc).__name__)
+
+  if oast_hits:
+   # A matching callback proves the XML parser initiated an outbound entity
+   # lookup. It does not, on its own, prove local file disclosure or data
+   # exfiltration, so record this as a distinct confirmed-interaction candidate
+   # that needs application-specific impact assessment.
+   callback = {
+    "indicator": "oast_callback",
+    "callback_count": len(oast_hits),
+    "callbacks": [
+     {
+      "type": str(hit.get("type", "unknown"))[:40],
+      "source_ip": str(hit.get("source_ip", ""))[:64],
+      "timestamp": str(hit.get("timestamp", ""))[:64],
+      "raw_preview": str(hit.get("raw", ""))[:300],
+     }
+     for hit in oast_hits[:5]
+    ],
+    "confidence": "confirmed_interaction",
+    "requires_impact_validation": True,
+    "verification_required": (
+     "Confirm the callback corresponds to this unique per-scan token and "
+     "determine whether the parser can disclose local files or reach other "
+     "internal resources. A callback alone is not proof of data exfiltration."
+    ),
+   }
+   findings.append(callback)
+   print_finding("Blind XXE interaction confirmed by unique OAST callback", "high", url)
+   if session:
+    await session.add_finding(
+     target=url,
+     module="xxe",
+     vuln_type="blind_xxe_oast_interaction",
+     severity="high",
+     confidence="confirmed",
+     title="Blind XXE — unique OAST callback received",
+     description=(
+      "The XML endpoint triggered an outbound interaction to a unique, "
+      "per-assessment OAST token. This confirms external entity processing, "
+      "but does not alone establish file disclosure or internal network access."
+     ),
+     evidence=str(callback)[:2000],
+     reproduction=(
+      f"Submit the recorded XML entity payload to {url} using the same "
+      "content type and verify the unique OAST interaction."
+     ),
+     remediation=(
+      "Disable DTD and external entity processing in the XML parser; "
+      "use a parser configuration that rejects external general and "
+      "parameter entities and restricts external resource resolution."
+     ),
+     cwe="CWE-611",
+     extra={"requires_impact_validation": True},
+    )
+
+ console.print(
+  f" Found {len(findings)} XXE indicators "
+  f"({sum(1 for item in findings if item.get('indicator') == 'oast_callback')} OAST callbacks)"
+ )
+ return {
+  "target": url,
+  "findings": findings,
+  "count": len(findings),
+  "oast_callbacks": len(oast_hits),
+  "oast_verification_performed": oast_client is not None,
+ }
