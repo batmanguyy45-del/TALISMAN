@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import asyncio
-import fnmatch
 import ipaddress
 import socket
 import ssl
@@ -33,11 +32,16 @@ def _certificate_matches_host(cert: x509.Certificate, host: str) -> bool:
     except ValueError:
         names = san.get_values_for_type(x509.DNSName)
         candidate = host.rstrip(".").lower()
-        return any(
-            candidate == name.lower()
-            or ("*" in name and fnmatch.fnmatchcase(candidate, name.lower()))
-            for name in names
-        )
+        for name in names:
+            pattern = name.lower().rstrip(".")
+            if pattern.startswith("*."):
+                # TLS wildcards cover exactly one left-most label.
+                suffix = pattern[2:]
+                if candidate.endswith("." + suffix) and candidate.count(".") == suffix.count(".") + 1:
+                    return True
+            elif candidate == pattern:
+                return True
+        return False
 
 
 def _get_cert_info(host: str, port: int) -> dict[str, Any]:
@@ -104,6 +108,7 @@ async def run(
     cipher = info.get("cipher") or ()
     raw_cert = info.get("certificate_der")
     findings: list[dict[str, Any]] = []
+    observations: list[dict[str, Any]] = []
     certificate: x509.Certificate | None = None
 
     if raw_cert:
@@ -137,43 +142,26 @@ async def run(
         days_left = (not_after - datetime.now(timezone.utc)).days
 
         if days_left < 0:
-            finding = {"issue": "certificate_expired", "days_left": days_left, "severity": "high"}
-            findings.append(finding)
-            print_finding(f"TLS certificate expired {-days_left} days ago", "high", host)
-            if session:
-                await session.add_finding(
-                    target=f"https://{host}:{port}", module="ssl_tls",
-                    vuln_type="certificate_expired", severity="high", confidence="confirmed",
-                    title="TLS certificate is expired",
-                    description=f"The presented leaf certificate expired {-days_left} days ago.",
-                    evidence=f"notAfter={not_after.isoformat()}",
-                    remediation="Renew and deploy a valid TLS certificate.",
-                    cwe="CWE-295",
-                )
+            observations.append({
+                "issue": "certificate_expired",
+                "days_since_expiry": -days_left,
+                "not_after": not_after.isoformat(),
+            })
         elif days_left < 30:
-            severity = "medium" if days_left >= 7 else "high"
-            finding = {"issue": "certificate_expiring", "days_left": days_left, "severity": severity}
-            findings.append(finding)
-            print_finding(f"TLS certificate expires in {days_left} days", severity, host)
-            if session:
-                await session.add_finding(
-                    target=f"https://{host}:{port}", module="ssl_tls",
-                    vuln_type="certificate_expiring", severity=severity, confidence="confirmed",
-                    title=f"TLS certificate expires in {days_left} days",
-                    description="The presented leaf certificate is approaching expiration.",
-                    evidence=f"notAfter={not_after.isoformat()}",
-                    remediation="Renew the certificate before its expiration date.",
-                    cwe="CWE-295",
-                )
+            observations.append({
+                "issue": "certificate_expiring",
+                "days_left": days_left,
+                "not_after": not_after.isoformat(),
+            })
 
         if not _certificate_matches_host(certificate, host):
-            finding = {"issue": "certificate_hostname_mismatch", "severity": "high"}
+            finding = {"issue": "certificate_hostname_mismatch", "severity": "medium"}
             findings.append(finding)
-            print_finding("TLS certificate does not match target hostname", "high", host)
+            print_finding("TLS certificate does not match target hostname", "medium", host)
             if session:
                 await session.add_finding(
                     target=f"https://{host}:{port}", module="ssl_tls",
-                    vuln_type="certificate_hostname_mismatch", severity="high",
+                    vuln_type="certificate_hostname_mismatch", severity="medium",
                     confidence="confirmed",
                     title="TLS certificate hostname does not match target",
                     description="The certificate's Subject Alternative Name extension does not cover the requested host.",
@@ -189,5 +177,6 @@ async def run(
         "protocol": protocol,
         "cipher": cipher[0] if cipher else None,
         "findings": findings,
+        "observations": observations,
         "count": len(findings),
     }
