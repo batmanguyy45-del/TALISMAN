@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import socket
 from typing import Any
 from urllib.parse import urlsplit
@@ -37,7 +36,7 @@ async def _tcp_connect(host: str, port: int, scope: Any, timeout: float = 3.0) -
     try:
         _, writer = await asyncio.wait_for(asyncio.open_connection(host, port), timeout=timeout)
         return True
-    except (OSError, asyncio.TimeoutError):
+    except (OSError, TimeoutError):
         return False
     finally:
         if writer is not None:
