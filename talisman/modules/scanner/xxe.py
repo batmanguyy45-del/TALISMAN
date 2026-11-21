@@ -14,7 +14,7 @@ import re
 from typing import Any
 
 from talisman.engine.scope import ScopeViolationError
-from talisman.utils.oast import normalize_oast_domain
+from talisman.utils.oast import validate_public_oast_domain
 from talisman.utils.http_client import TalismanHTTPClient
 from talisman.utils.payload_engine import XXE_PAYLOADS
 from talisman.utils.logger import get_logger, console, print_finding
@@ -106,7 +106,7 @@ async def run(
   return {"target": url, "findings": [], "count": 0, "skipped": True, "reason": str(exc)}
  if oast_domain:
   try:
-   oast_domain = normalize_oast_domain(oast_domain)
+   oast_domain = await validate_public_oast_domain(oast_domain)
   except ValueError as exc:
    return {"target": url, "findings": [], "count": 0, "error": str(exc)}
  console.print(f"\n[module][+] XXE Scanner[/module] -> [target]{url}[/target]")
