@@ -83,8 +83,9 @@ async def _dnsx_resolve(
  try:
   if not scope.is_in_scope(subdomain):
    return None
-  await scope.acquire_request_slot()
-  result = await resolver.query(subdomain, "A")
+  async with scope.request_concurrency_slot():
+   await scope.acquire_request_slot()
+   result = await resolver.query(subdomain, "A")
   ips = [r.host for r in result]
   return {"host": subdomain, "ips": ips, "resolved": True}
  except Exception:
@@ -99,8 +100,9 @@ async def _wildcard_detect(
  try:
   if not scope.is_in_scope(random_sub):
    return False
-  await scope.acquire_request_slot()
-  await resolver.query(random_sub, "A")
+  async with scope.request_concurrency_slot():
+   await scope.acquire_request_slot()
+   await resolver.query(random_sub, "A")
   log.warning("wildcard_detected", domain=domain)
   return True
  except Exception:
