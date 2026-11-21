@@ -150,7 +150,7 @@ async def _test_dom_clobbering_sinks(
     ]
 
     for sink in common_sinks[:6]:
-        canary_url = f"https://evil-{''.join(random.choices(string.ascii_lowercase, k=6))}.com/malicious.js"
+        canary_url = f"https://talisman-canary-{''.join(random.choices(string.ascii_lowercase, k=6))}.invalid/malicious.js"
         payload = f'<a id="{sink}" href="{canary_url}">clobber</a>'
 
         test_variants = [
