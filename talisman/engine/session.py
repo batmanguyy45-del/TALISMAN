@@ -138,6 +138,13 @@ class Session:
   self._db: aiosqlite.Connection | None = None
   self._scope_token: Any = None
 
+ @property
+ def db(self) -> aiosqlite.Connection:
+  """Return the open SQLite connection or fail clearly when the session is closed."""
+  if self._db is None:
+   raise RuntimeError("Session is not open")
+  return self._db
+
  async def open(self) -> Session:
   if self._db is not None:
    return self
