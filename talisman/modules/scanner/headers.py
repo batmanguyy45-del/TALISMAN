@@ -215,159 +215,133 @@ async def run(
  **kwargs: Any,
 ) -> dict[str, Any]:
  url = target if "://" in target else f"https://{target}"
+ if scope is None:
+  return {
+   "target": url,
+   "findings": [],
+   "observations": [],
+   "count": 0,
+   "error": "scope_enforcer_required",
+  }
+ try:
+  scope.assert_in_scope(url)
+ except Exception as exc:
+  return {
+   "target": url,
+   "findings": [],
+   "observations": [],
+   "count": 0,
+   "error": str(exc),
+  }
+
  console.print(
-  f"\n[module][+] Security Headers Audit[/module] -> [target]{url}[/target]"
+  f"\\n[module][+] Security Header Posture Audit[/module] -> [target]{url}[/target]"
  )
- findings: list[dict[str, Any]] = []
+ observations: list[dict[str, Any]] = []
+ try:
+  async with TalismanHTTPClient(
+   proxy=proxy,
+   timeout=15,
+   verify_ssl=True,
+   follow_redirects=False,
+   scope=scope,
+  ) as client:
+   response = await client.get(url)
+   headers = {key.lower(): value for key, value in response.headers.items()}
+ except Exception as exc:
+  log.error("headers_audit_error", url=url, error=type(exc).__name__)
+  return {
+   "target": url,
+   "findings": [],
+   "observations": [],
+   "count": 0,
+   "error": "request_failed",
+  }
 
- async with TalismanHTTPClient(proxy=proxy, timeout=15) as client:
-  try:
-   r = await client.get(url)
-   headers = {k.lower(): v for k, v in r.headers.items()}
-  except Exception as e:
-   log.error("headers_audit_error", url=url, error=str(e))
-   return {"target": url, "findings": [], "count": 0}
-
-  # --- Security header checks ---
-  for hdr in SECURITY_HEADERS:
-   h_lower = hdr["name"].lower()
-
-   if h_lower not in headers:
-    if not hdr["required"]:
-     continue
-    severity = hdr["severity_missing"]
-    if severity == "info":
-     continue # Don't spam info-level missing headers
-    title = f"Missing {hdr['name']} header"
-    finding = {
+ for header in SECURITY_HEADERS:
+  name = header["name"]
+  key = name.lower()
+  value = headers.get(key)
+  if value is None:
+   if header["required"] and header["severity_missing"] != "info":
+    observations.append({
      "type": "missing_security_header",
-     "header": hdr["name"],
-     "severity": severity,
-     "title": title,
-     "description": hdr["description"],
-     "recommendation": hdr["recommendation"],
-     "cwe": hdr["cwe"],
-    }
-    findings.append(finding)
-    print_finding(title, severity, url)
-    if session:
-     await session.add_finding(
-      target=url,
-      module="headers",
-      vuln_type="missing_security_header",
-      severity=severity,
-      confidence="confirmed",
-      title=title,
-      description=hdr["description"],
-      remediation=hdr["recommendation"],
-      cwe=hdr["cwe"],
-      request=f"GET {url} HTTP/1.1",
-     )
-   else:
-    val = headers[h_lower]
+     "header": name,
+     "severity_hint": header["severity_missing"],
+     "description": header["description"],
+     "recommendation": header["recommendation"],
+     "cwe": header["cwe"],
+     "classification": "security_posture_observation",
+     "requires_application_impact_validation": True,
+    })
+   continue
 
-    # Weak value check
-    try:
-     is_valid = hdr["validate"](val)
-    except Exception:
-     is_valid = True
+  try:
+   is_valid = bool(header["validate"](value))
+  except Exception:
+   is_valid = True
 
-    if not is_valid:
-     severity = hdr["severity_weak"]
-     title = f"Weak {hdr['name']} configuration"
-     finding = {
-      "type": "weak_security_header",
-      "header": hdr["name"],
-      "value": val,
-      "severity": severity,
-      "title": title,
-     }
-     findings.append(finding)
-     if severity not in ("info",):
-      print_finding(title, severity, url)
-
-    # CSP-specific deep analysis
-    if hdr["name"] == "Content-Security-Policy":
-     for pattern, issue_desc, issue_sev in CSP_ISSUES:
-      if pattern.search(val):
-       csp_title = f"CSP Issue: {issue_desc}"
-       findings.append({
-        "type": "csp_weakness",
-        "header": "Content-Security-Policy",
-        "value": val,
-        "severity": issue_sev,
-        "title": csp_title,
-        "issue": issue_desc,
-       })
-       print_finding(csp_title, issue_sev, url)
-       if session:
-        await session.add_finding(
-         target=url,
-         module="headers",
-         vuln_type="csp_misconfiguration",
-         severity=issue_sev,
-         confidence="confirmed",
-         title=csp_title,
-         description=issue_desc,
-         request=f"GET {url} HTTP/1.1",
-         evidence=(
-          f"Content-Security-Policy: {val[:200]}"
-         ),
-        )
-
-  # --- Dangerous header disclosure ---
-  for header_name, config in DANGEROUS_HEADERS.items():
-   h_lower = header_name.lower()
-   if h_lower in headers:
-    val = headers[h_lower]
-    # Apply per-header check function
-    if config["check"](val):
-     severity = config["severity"]
-     title = f"Information disclosure via {header_name}: {val[:80]}"
-     finding = {
-      "type": "information_disclosure_header",
-      "header": header_name,
-      "value": val,
-      "severity": severity,
-      "title": title,
-      "description": config["description"],
-     }
-     findings.append(finding)
-     # Only print non-info findings to reduce noise
-     if severity not in ("info",):
-      print_finding(title, severity, url)
-     if session:
-      await session.add_finding(
-       target=url,
-       module="headers",
-       vuln_type="information_disclosure",
-       severity=severity,
-       confidence="confirmed",
-       title=title,
-       description=f"{config['description']}: {val}",
-       evidence=f"{header_name}: {val}",
-      )
-
-  # --- CORS wildcard check ---
-  cors_origin = headers.get("access-control-allow-origin", "").strip()
-  cors_creds = headers.get("access-control-allow-credentials", "").strip()
-  if cors_origin == "*" and cors_creds.lower() != "true":
-   # Wildcard without credentials = low severity
-   title = "CORS: Wildcard origin (Access-Control-Allow-Origin: *)"
-   print_finding(title, "low", url)
-   findings.append({
-    "type": "cors_wildcard",
-    "severity": "low",
-    "title": title,
-    "evidence": "Access-Control-Allow-Origin: *",
+  if not is_valid and header["severity_weak"] != "info":
+   observations.append({
+    "type": "weak_security_header",
+    "header": name,
+    "value": value[:500],
+    "severity_hint": header["severity_weak"],
+    "description": header["description"],
+    "recommendation": header["recommendation"],
+    "cwe": header["cwe"],
+    "classification": "security_posture_observation",
+    "requires_application_impact_validation": True,
    })
 
- # Summary — only print if findings above info level
- real_findings = [
-  f for f in findings if f.get("severity", "info") not in ("info",)
- ]
+  if name == "Content-Security-Policy":
+   for pattern, issue_description, severity_hint in CSP_ISSUES:
+    if pattern.search(value):
+     observations.append({
+      "type": "csp_weakness",
+      "header": name,
+      "issue": issue_description,
+      "severity_hint": severity_hint,
+      "value": value[:500],
+      "classification": "security_posture_observation",
+      "requires_reachable_sink_and_browser_validation": True,
+     })
+
+ report_only = headers.get("content-security-policy-report-only")
+ if report_only:
+  observations.append({
+   "type": "csp_report_only_policy",
+   "value": report_only[:500],
+   "classification": "security_posture_observation",
+   "note": (
+    "Report-Only policies do not enforce browser restrictions; evaluate any "
+    "enforced Content-Security-Policy separately."
+   ),
+   "severity_hint": "info",
+  })
+
+ if full_audit:
+  for header_name, metadata in DANGEROUS_HEADERS.items():
+   value = headers.get(header_name.lower())
+   if value and metadata["check"](value):
+    observations.append({
+     "type": "information_disclosure_header",
+     "header": header_name,
+     "value": value[:200],
+     "description": metadata["description"],
+     "severity_hint": metadata["severity"],
+     "classification": "information_disclosure_posture",
+     "requires_sensitive_impact_validation": True,
+    })
+
  console.print(
-  f" Found {len(real_findings)} header issues "
-  f"({len(findings)} total including info)"
+  f" Header audit complete — {len(observations)} posture observations; "
+  "no vulnerability asserted"
  )
- return {"target": url, "findings": findings, "count": len(findings)}
+ return {
+  "target": url,
+  "findings": [],
+  "observations": observations,
+  "count": 0,
+  "observation_count": len(observations),
+ }
