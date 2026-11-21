@@ -18,7 +18,7 @@ steps:
     module: recon.dns
     depends_on: [subdomain_enum]
     args:
-      zone_transfer: true
+      zone_transfer: false
       takeover_check: true
 
   - id: tech_detect
@@ -44,7 +44,7 @@ steps:
     module: recon.osint
     parallel: true
     args:
-      checks: [emails, s3_buckets, github_dorks]
+      checks: [emails, pastebin]
 
   - id: takeover_check
     module: network.takeover
