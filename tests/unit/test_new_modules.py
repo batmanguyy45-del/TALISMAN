@@ -48,36 +48,21 @@ def _is_coroutine(mod):
 # ── nosqli ────────────────────────────────────────────────────────────────────
 
 class TestNosqli:
-    def test_import(self):
+    def test_import_and_async_entry_point(self):
         import talisman.modules.scanner.nosqli as m
-        assert hasattr(m, "NOSQLI_JSON_PAYLOADS") and hasattr(m, "ENDPOINTS")
-
-    def test_run_is_coroutine(self):
-        import talisman.modules.scanner.nosqli as m
-        assert _is_coroutine(m)
+        assert inspect.iscoroutinefunction(m.run)
 
     @pytest.mark.asyncio
-    async def test_detects_json_nosqli(self):
+    async def test_generic_nosqli_scanner_is_disabled(self):
         import talisman.modules.scanner.nosqli as m
-        from talisman.utils.http_client import TalismanHTTPClient
-        async with respx.mock:
-            respx.post("http://test.com/").respond(200, text='{"login":"success","token":"abc"}')
-            async with TalismanHTTPClient(scope=_test_scope()) as c:
-                r = await m._test_json_nosqli("http://test.com/", m.NOSQLI_JSON_PAYLOADS[0], c)
-            assert r is not None, "should detect NoSQLi when login succeeds"
-            assert r["issue"] == "nosql_injection_json"
-
-    @pytest.mark.asyncio
-    async def test_no_false_positive_on_403(self):
-        import talisman.modules.scanner.nosqli as m
-        async with respx.mock:
-            respx.post("/").respond(403)
-            from talisman.utils.http_client import TalismanHTTPClient
-            with pytest.MonkeyPatch.context() as mp:
-                mp.setattr("talisman.modules.scanner.nosqli.ENDPOINTS", [""])
-                async with TalismanHTTPClient(scope=_test_scope()) as c:
-                    r = await m._test_json_nosqli("http://test.com/", m.NOSQLI_JSON_PAYLOADS[0], c)
-                assert r is None, "should not report on 403"
+        result = await m.run(
+            target="http://test.com/",
+            scope=_test_scope(),
+        )
+        assert result["skipped"] is True
+        assert result["findings"] == []
+        assert result["count"] == 0
+        assert "disposable endpoint" in result["reason"]
 
 
 # ── git_exposure ──────────────────────────────────────────────────────────────
