@@ -19,8 +19,16 @@ _SENSITIVE_KEYS = frozenset(
     }
 )
 
+_SENSITIVE_KEY_SUFFIXES = (
+    "authorization", "cookie", "password", "passwd", "pwd", "secret",
+    "secretkey", "secretaccesskey", "clientsecret", "accesstoken",
+    "refreshtoken", "idtoken", "authtoken", "token", "jwt", "apikey",
+    "privatekey", "credential", "signature", "sessiontoken", "sessionid",
+    "csrftoken", "xsrftoken", "clientassertion",
+)
+
 _QUOTED_SECRET_PATTERN = re.compile(
-    r"""(?i)(["'](?:authorization|proxy[_-]?authorization|cookie|set[_-]?cookie|api[_-]?key|access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?secret|secret[_-]?key|secret|password|passwd|pwd|token|jwt|private[_-]?key|ssh[_-]?private[_-]?key|credential|credentials|signature|sig|x-amz-(?:signature|credential|security-token))["']\s*:\s*["'])[^"']*(["'])"""
+    r"""(?i)(["'][a-z0-9_.-]*(?:authorization|proxy[_-]?authorization|cookie|set[_-]?cookie|api[_-]?key|access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?secret|secret[_-]?(?:access[_-]?key|key)?|password|passwd|pwd|token|jwt|private[_-]?key|ssh[_-]?private[_-]?key|credential|credentials|signature|sig|x-amz-(?:signature|credential|security-token))["']\s*:\s*["'])[^"']*(["'])"""
 )
 _URL_SECRET_PATTERN = re.compile(
     r"(?i)([?&](?:access_token|refresh_token|id_token|client_secret|api[_-]?key|apikey|secret|password|passwd|token|jwt|session|signature|sig|credential|x-amz-(?:signature|credential|security-token))=)[^&#\s]+"
@@ -125,7 +133,10 @@ def redact_sensitive_value(value: Any, *, depth: int = 0) -> Any:
             normalized_key = re.sub(r"[^a-z0-9]", "", safe_key.lower())
             redacted[safe_key] = (
                 "[REDACTED]"
-                if normalized_key in _SENSITIVE_KEYS
+                if (
+                    normalized_key in _SENSITIVE_KEYS
+                    or any(normalized_key.endswith(suffix) for suffix in _SENSITIVE_KEY_SUFFIXES)
+                )
                 else redact_sensitive_value(item, depth=depth + 1)
             )
         return redacted
