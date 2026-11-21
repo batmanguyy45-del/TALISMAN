@@ -75,16 +75,27 @@ async def run(
     if scope is None:
         return {"target": target, "open_ports": [], "count": 0, "error": "scope_enforcer_required"}
 
-    try:
-        scope.assert_in_scope(target)
-    except ScopeViolationError as exc:
-        return {"target": target, "open_ports": [], "count": 0, "error": str(exc)}
-
     raw_target = target if "://" in target else f"https://{target}"
+    try:
+        resolved_addresses = await scope.resolve_network_destination(raw_target)
+    except ScopeViolationError as exc:
+        return {
+            "target": target,
+            "open_ports": [],
+            "count": 0,
+            "error": str(exc),
+        }
+
     parsed = urlsplit(raw_target)
     host = parsed.hostname
     if not host:
-        return {"target": target, "open_ports": [], "count": 0, "error": "invalid_target"}
+        return {
+            "target": target,
+            "open_ports": [],
+            "count": 0,
+            "error": "invalid_target",
+        }
+    connect_ip = str(resolved_addresses[0])
 
     try:
         port_list = _parse_ports(ports)
@@ -105,11 +116,14 @@ async def run(
     async def scan_one(port: int) -> None:
         async with sem:
             try:
-                scope.assert_request_allowed(f"http://{host}:{port}/", "GET")
+                scope.assert_request_allowed(
+                    f"{parsed.scheme}://{host}:{port}/",
+                    "GET",
+                )
                 await scope.acquire_request_slot()
             except ScopeViolationError:
                 return
-            _, status = await _tcp_connect(host, port)
+            _, status = await _tcp_connect(connect_ip, port)
             if status == "open":
                 open_ports.append(port)
 
