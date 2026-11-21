@@ -93,14 +93,15 @@ async def run(
 
     port = parsed.port or 443
     try:
-        addresses = await scope.resolve_network_destination(url, "GET")
-        await scope.acquire_request_slot()
+        async with scope.request_concurrency_slot():
+            addresses = await scope.resolve_network_destination(url, "GET")
+            await scope.acquire_request_slot()
+            connect_ip = str(addresses[0])
+            info = await asyncio.to_thread(_get_cert_info, host, connect_ip, port)
     except (ScopeViolationError, ValueError) as exc:
         return {"target": target, "findings": [], "count": 0, "error": str(exc)}
 
     console.print(f"\n[module][+] SSL/TLS Audit[/module] -> [target]{host}:{port}[/target]")
-    connect_ip = str(addresses[0])
-    info = await asyncio.to_thread(_get_cert_info, host, connect_ip, port)
     if "error" in info:
         console.print(f" [dim]TLS error: {info['error']}[/dim]")
         return {"target": host, "findings": [], "count": 0, "error": info["error"]}
