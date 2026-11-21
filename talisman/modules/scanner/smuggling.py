@@ -171,6 +171,93 @@ async def _detect_timing_differential(
     return elapsed > 5.0, elapsed, response
 
 
+
+def _http_response_bodies(raw: bytes, max_responses: int = 4) -> list[bytes]:
+    """Extract bodies only when HTTP/1 framing makes response boundaries unambiguous."""
+    bodies: list[bytes] = []
+    offset = 0
+
+    while offset < len(raw) and len(bodies) < max_responses:
+        header_end = raw.find(b"\r\n\r\n", offset)
+        if header_end < 0:
+            break
+
+        header_block = raw[offset:header_end]
+        lines = header_block.split(b"\r\n")
+        if not lines or not lines[0].startswith(b"HTTP/"):
+            break
+
+        headers: dict[bytes, bytes] = {}
+        for line in lines[1:]:
+            name, separator, value = line.partition(b":")
+            if separator:
+                headers[name.strip().lower()] = value.strip().lower()
+
+        body_start = header_end + 4
+        status_parts = lines[0].split()
+        try:
+            status_code = int(status_parts[1])
+        except (IndexError, ValueError):
+            break
+
+        if 100 <= status_code < 200 or status_code in {204, 304}:
+            bodies.append(b"")
+            offset = body_start
+            continue
+
+        transfer_encoding = headers.get(b"transfer-encoding", b"")
+        if b"chunked" in transfer_encoding:
+            cursor = body_start
+            decoded = bytearray()
+            complete = False
+            while cursor < len(raw):
+                line_end = raw.find(b"\r\n", cursor)
+                if line_end < 0:
+                    break
+                size_text = raw[cursor:line_end].split(b";", 1)[0].strip()
+                try:
+                    chunk_size = int(size_text, 16)
+                except ValueError:
+                    break
+                cursor = line_end + 2
+                if chunk_size == 0:
+                    trailer_end = raw.find(b"\r\n\r\n", cursor)
+                    if raw[cursor:cursor + 2] == b"\r\n":
+                        cursor += 2
+                    elif trailer_end >= 0:
+                        cursor = trailer_end + 4
+                    else:
+                        break
+                    complete = True
+                    break
+                chunk_end = cursor + chunk_size
+                if chunk_end + 2 > len(raw) or raw[chunk_end:chunk_end + 2] != b"\r\n":
+                    break
+                decoded.extend(raw[cursor:chunk_end])
+                cursor = chunk_end + 2
+            if not complete:
+                break
+            bodies.append(bytes(decoded))
+            offset = cursor
+            continue
+
+        content_length = headers.get(b"content-length")
+        if content_length is None:
+            # Close-delimited responses cannot safely be split from a possible
+            # second response on the same connection.
+            break
+        try:
+            length = int(content_length)
+        except ValueError:
+            break
+        if length < 0 or body_start + length > len(raw):
+            break
+        bodies.append(raw[body_start:body_start + length])
+        offset = body_start + length
+
+    return bodies
+
+
 async def _confirm_smuggling(
     host: str, port: int, use_tls: bool, technique: str, probe: bytes,
     scope: Any, request_url: str, host_header: str
@@ -193,11 +280,19 @@ async def _confirm_smuggling(
         resp_text = combined_resp.decode("utf-8", errors="replace")
         result["combined_response"] = resp_text[:500]
 
-        if SMUGGLING_PREFIX in resp_text or SMUGGLING_PREFIX.lower() in resp_text.lower():
+        response_bodies = _http_response_bodies(combined_resp)
+        result["response_count"] = len(response_bodies)
+        if len(response_bodies) >= 2 and SMUGGLING_PREFIX.encode().lower() in response_bodies[1].lower():
             result["confirmed"] = True
-            result["evidence"] = f"Smuggled prefix '{SMUGGLING_PREFIX}' found in second response"
+            result["evidence"] = (
+                f"Smuggled prefix '{SMUGGLING_PREFIX}' found in the second "
+                "framed HTTP response body"
+            )
         elif timing_hit:
-            result["evidence"] = f"Timing differential ({elapsed:.1f}s) suggests {technique} desync"
+            result["evidence"] = (
+                f"Timing differential ({elapsed:.1f}s) suggests {technique} desync; "
+                "the second response did not contain the marker"
+            )
 
     return result
 
@@ -245,7 +340,7 @@ async def run(
             await session.add_finding(
                 target=url, module="smuggling",
                 vuln_type="http_smuggling_cl_te",
-                severity=severity, confidence="likely",
+                severity=severity, confidence="confirmed" if cl_te_result["confirmed"] else "likely",
                 title=title,
                 description=f"CL.TE desync detected. Frontend uses Content-Length, backend parses Transfer-Encoding: chunked. {'Confirmed via prefix reflection.' if cl_te_result['confirmed'] else 'Timing oracle suggests backend is waiting for more data.'}",
                 evidence=cl_te_result.get("evidence", ""),
@@ -266,7 +361,7 @@ async def run(
             await session.add_finding(
                 target=url, module="smuggling",
                 vuln_type="http_smuggling_te_cl",
-                severity=severity, confidence="likely",
+                severity=severity, confidence="confirmed" if te_cl_result["confirmed"] else "likely",
                 title=title,
                 description=f"TE.CL desync detected. Frontend uses Transfer-Encoding, backend parses Content-Length. {'Confirmed via prefix reflection.' if te_cl_result['confirmed'] else 'Timing oracle suggests the backend is waiting for more data.'}",
                 evidence=te_cl_result.get("evidence", ""),
@@ -288,7 +383,7 @@ async def run(
                 await session.add_finding(
                     target=url, module="smuggling",
                     vuln_type=f"http_smuggling_te_te_{variant_name}",
-                    severity=severity, confidence="likely",
+                    severity=severity, confidence="confirmed" if v_result["confirmed"] else "likely",
                     title=title,
                     description=f"TE.TE obfuscation ({variant_name}) desync detected. One server processes the obfuscated TE header while the other ignores it.",
                     evidence=v_result.get("evidence", ""),
@@ -309,7 +404,7 @@ async def run(
             await session.add_finding(
                 target=url, module="smuggling",
                 vuln_type="http_smuggling_h2_downgrade",
-                severity=severity, confidence="likely",
+                severity=severity, confidence="confirmed" if h2_result["confirmed"] else "likely",
                 title=title,
                 description="HTTP/2 to HTTP/1.1 downgrade smuggling detected. Frontend downgrades H2 to H1.1 but fails to sanitize conflicting Content-Length headers.",
                 evidence=h2_result.get("evidence", ""),
