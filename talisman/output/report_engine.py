@@ -103,7 +103,7 @@ class ReportEngine:
   findings = _quality_gate(findings)
   findings = _deduplicate(findings)
   self.findings = sorted(findings, key=lambda f: SEVERITY_ORDER.get(f.get("severity", "info"), 99))
-  self.targets = targets
+  self.targets = redact_sensitive_value(targets)
   self.output_dir = output_dir.expanduser()
   if self.output_dir.is_symlink():
    raise ValueError("Report output directory must not be a symbolic link")
