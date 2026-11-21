@@ -7,8 +7,8 @@ from talisman.utils.redaction import (
 
 def test_redacts_auth_headers_cookies_and_query_parameters():
     raw = (
-        "Authorization: Bearer ghp_abcdefghijklmnopqrstuvwxyz1234567890\\n"
-        "Cookie: sessionid=secret-cookie; csrftoken=secret-csrf\\n"
+        "Authorization: Bearer ghp_abcdefghijklmnopqrstuvwxyz1234567890\n"
+        "Cookie: sessionid=secret-cookie; csrftoken=secret-csrf\n"
         "GET /reset?token=reset-secret&next=/home"
     )
     redacted = redact_sensitive_text(raw)
@@ -25,8 +25,8 @@ def test_redacts_known_tokens_and_private_key_material():
     raw = (
         "AWS=AKIA1234567890ABCDEF "
         f"Stripe={stripe_key} "
-        "-----BEGIN PRIVATE KEY-----\\n"
-        "MIIEvQIBADANBgkqhkiG9w0BAQEFAASC\\n"
+        "-----BEGIN PRIVATE KEY-----\n"
+        "MIIEvQIBADANBgkqhkiG9w0BAQEFAASC\n"
         "-----END PRIVATE KEY-----"
     )
     redacted = redact_sensitive_text(raw)
