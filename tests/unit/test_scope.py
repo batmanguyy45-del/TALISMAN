@@ -367,3 +367,38 @@ async def test_scope_concurrency_slot_bounds_in_flight_operations():
     release_first.set()
     await asyncio.gather(first_task, second_task)
     assert second_entered.is_set()
+
+
+@pytest.mark.asyncio
+async def test_exclusive_network_activity_blocks_http_request_slots():
+    import asyncio
+
+    scope = ScopeEnforcer(
+        ScopeConfig(
+            include=["example.com"],
+            service_allowlist=[],
+            max_concurrent_requests=2,
+        )
+    )
+    exclusive_entered = asyncio.Event()
+    release_exclusive = asyncio.Event()
+    request_entered = asyncio.Event()
+
+    async def external_scanner():
+        async with scope.exclusive_request_activity():
+            exclusive_entered.set()
+            await release_exclusive.wait()
+
+    async def ordinary_http_request():
+        async with scope.request_concurrency_slot():
+            request_entered.set()
+
+    scanner_task = asyncio.create_task(external_scanner())
+    await exclusive_entered.wait()
+    request_task = asyncio.create_task(ordinary_http_request())
+    await asyncio.sleep(0.01)
+    assert not request_entered.is_set()
+
+    release_exclusive.set()
+    await asyncio.gather(scanner_task, request_task)
+    assert request_entered.is_set()
