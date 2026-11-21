@@ -116,7 +116,11 @@ async def run(
    console.print(f" {rtype:8} -> {', '.join(vals[:3])}")
 
  # — Zone transfer attempt ——————————————————————————————————
- if zone_transfer and "NS" in results["records"]:
+ if zone_transfer and proxy:
+  results["zone_transfer_skipped"] = (
+   "AXFR uses raw DNS transport and cannot honor the configured HTTP proxy"
+  )
+ elif zone_transfer and "NS" in results["records"]:
   for ns in results["records"]["NS"][:3]:
    ns_host = ns.rstrip(".")
    # AXFR is an active request to a nameserver. Only query nameservers
