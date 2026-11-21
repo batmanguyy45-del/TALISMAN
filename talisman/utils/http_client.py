@@ -163,11 +163,18 @@ class TalismanHTTPClient:
         return headers
 
     def _build_client(self) -> httpx.AsyncClient:
+        # Keep credentials out of httpx's client-wide defaults. Per-request
+        # headers are rebuilt in request() so cross-origin redirects can strip
+        # every caller-supplied header before the next connection.
+        base_headers = {
+            "Accept": "*/*",
+            "User-Agent": os.environ.get("TALISMAN_USER_AGENT", DEFAULT_USER_AGENT),
+        }
         return _build_httpx_client(
             proxy=self.proxy,
             timeout=self.timeout,
             verify_ssl=self.verify_ssl,
-            headers=self._make_headers(),
+            headers=base_headers,
         )
 
     async def __aenter__(self) -> TalismanHTTPClient:
@@ -207,7 +214,8 @@ class TalismanHTTPClient:
         timeout: int | None = None,
     ) -> httpx.Response:
         method = method.upper()
-        request_headers = _validate_headers(headers or {})
+        request_headers = self._make_headers()
+        request_headers.update(_validate_headers(headers or {}))
         follow = self.follow_redirects if allow_redirects is None else allow_redirects
         # Automatic redirection of writes is deliberately prohibited.
         follow = bool(follow and method in SAFE_REDIRECT_METHODS)
@@ -285,9 +293,12 @@ class TalismanHTTPClient:
                 new_origin.scheme, new_origin.host, new_origin.port
             ):
                 # Credentials and cookies must not cross origin boundaries.
+                # On a cross-origin redirect, retain only generic negotiation
+                # headers. Custom API keys, cookies, Host overrides, and any
+                # future credential header must never leak to the new origin.
                 request_headers = {
                     key: value for key, value in request_headers.items()
-                    if key.lower() not in {"authorization", "cookie", "proxy-authorization"}
+                    if key.lower() in {"accept", "accept-encoding", "accept-language", "user-agent"}
                 }
             current_url = next_url
             current_params = None
