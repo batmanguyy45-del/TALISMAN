@@ -136,3 +136,56 @@ def test_secure_http_defaults():
     assert client.verify_ssl is True
     assert client.follow_redirects is False
     assert client.rotate_ua is False
+
+
+
+@pytest.mark.asyncio
+async def test_host_header_is_available_for_authorized_host_header_testing():
+    seen = []
+
+    async def handler(request):
+        seen.append(request.headers.get("host"))
+        return httpx.Response(200, request=request)
+
+    scope = ScopeEnforcer(ScopeConfig(include=["example.com"], service_allowlist=[]))
+    async with _mock_client(scope, handler) as client:
+        await client.get("https://example.com/", headers={"Host": "controlled.example"})
+
+    assert seen == ["controlled.example"]
+
+
+def test_header_injection_is_rejected():
+    with pytest.raises(ValueError):
+        TalismanHTTPClient(headers={"X-Test": "ok\\r\\nInjected: yes"})
+
+
+@pytest.mark.asyncio
+async def test_cross_origin_redirect_drops_all_custom_headers():
+    seen = []
+
+    async def handler(request):
+        seen.append(dict(request.headers))
+        if request.url.host == "example.com":
+            return httpx.Response(302, headers={"Location": "https://docs.example.net/next"}, request=request)
+        return httpx.Response(200, request=request)
+
+    scope = ScopeEnforcer(ScopeConfig(
+        include=["example.com"],
+        service_allowlist=["docs.example.net"],
+    ))
+    async with _mock_client(scope, handler, follow_redirects=True) as client:
+        response = await client.get(
+            "https://example.com/start",
+            headers={
+                "Authorization": "Bearer secret",
+                "Cookie": "sid=secret",
+                "X-API-Key": "secret",
+                "Host": "example.com",
+            },
+        )
+
+    assert response.status_code == 200
+    assert len(seen) == 2
+    for name in ("authorization", "cookie", "x-api-key"):
+        assert name not in seen[1]
+    assert seen[1].get("host") == "docs.example.net"
