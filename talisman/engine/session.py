@@ -181,14 +181,16 @@ class Session:
  async def add_target(self, host: str, **kwargs: Any) -> str:
   tid = _uid()
   now = _now()
+  safe_host = redact_sensitive_text(host)
+  safe_kwargs = redact_sensitive_value(kwargs)
   await self.db.execute(
    "INSERT OR IGNORE INTO targets VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-   (tid, self.id, host,
-    kwargs.get("ip"), kwargs.get("port"), kwargs.get("protocol"),
-    json.dumps(kwargs.get("tech_stack", [])),
-    kwargs.get("status", "active"),
-    kwargs.get("waf_detected"),
-    kwargs.get("notes"),
+   (tid, self.id, safe_host,
+    safe_kwargs.get("ip"), safe_kwargs.get("port"), safe_kwargs.get("protocol"),
+    json.dumps(safe_kwargs.get("tech_stack", [])),
+    safe_kwargs.get("status", "active"),
+    safe_kwargs.get("waf_detected"),
+    safe_kwargs.get("notes"),
     now, now)
   )
   await self.db.commit()
@@ -302,9 +304,11 @@ class Session:
  # ── Module runs ───────────────────────────────────────────────────────────
  async def start_module_run(self, module: str, target: str | None = None) -> str:
   rid = _uid()
+  safe_module = redact_sensitive_text(module)
+  safe_target = redact_sensitive_text(target) if target is not None else None
   await self.db.execute(
    "INSERT INTO module_runs VALUES (?,?,?,?,?,?,?,?,?)",
-   (rid, self.id, module, target, _now(), None, "running", None, None)
+   (rid, self.id, safe_module, safe_target, _now(), None, "running", None, None)
   )
   await self.db.commit()
   return rid
@@ -313,18 +317,21 @@ class Session:
   self, run_id: str, status: str = "success",
   error: str | None = None, summary: str | None = None
  ) -> None:
+  safe_error = redact_sensitive_text(error) if error is not None else None
+  safe_summary = redact_sensitive_text(summary) if summary is not None else None
   await self.db.execute(
    "UPDATE module_runs SET completed_at=?,status=?,error=?,output_summary=? WHERE id=?",
-   (_now(), status, error, summary, run_id)
+   (_now(), status, safe_error, safe_summary, run_id)
   )
   await self.db.commit()
 
  # ── Notes ─────────────────────────────────────────────────────────────────
  async def add_note(self, note: str) -> str:
   nid = _uid()
+  safe_note = redact_sensitive_text(note)
   await self.db.execute(
    "INSERT INTO session_notes VALUES (?,?,?,?)",
-   (nid, self.id, note, _now())
+   (nid, self.id, safe_note, _now())
   )
   await self.db.commit()
   return nid
