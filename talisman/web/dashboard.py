@@ -4,6 +4,7 @@ Run with:  python -m talisman.web.dashboard
 """
 from __future__ import annotations
 import webbrowser
+from html import escape
 from pathlib import Path
 from typing import Any
 
@@ -56,82 +57,158 @@ HTML_STYLES = """
 """
 
 
-def _render_sessions() -> str:
+async def _render_sessions() -> str:
     sm = SessionManager()
     sessions = sm.list_sessions()
     total_findings = 0
-    sev_counts = {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
-    session_rows = ""
-    for sname in sessions:
-        sess = sm.get(sname)
-        import asyncio
-        async def get_stats():
-            await sess.open()
-            s = await sess.summary()
-            findings = await sess.get_findings()
-            targets = await sess.get_targets()
-            await sess.close()
-            return s, findings, targets
-        s, f, t = asyncio.run(get_stats())
-        total_findings += s.get("total_findings", 0)
-        for sev, cnt in s.get("severity_breakdown", {}).items():
-            if sev in sev_counts:
-                sev_counts[sev] += cnt
-        sev_str = " ".join(
-            f'<span class="sev-{sev}">{sev.upper()}: {s.get("severity_breakdown", {}).get(sev, 0)}</span>'
-            for sev in ["critical", "high", "medium", "low"]
+    severity_counts = {
+        "critical": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 0,
+        "info": 0,
+    }
+    session_rows: list[str] = []
+    valid_session_count = 0
+
+    for session_name in sessions:
+        try:
+            session = sm.get(session_name)
+        except ValueError:
+            continue
+
+        try:
+            await session.open()
+            try:
+                summary = await session.summary()
+            finally:
+                await session.close()
+        except Exception:
+            continue
+
+        valid_session_count += 1
+        total_findings += int(summary.get("total_findings", 0) or 0)
+        breakdown = summary.get("severity_breakdown", {})
+        if not isinstance(breakdown, dict):
+            breakdown = {}
+        for severity in severity_counts:
+            try:
+                severity_counts[severity] += int(breakdown.get(severity, 0) or 0)
+            except (TypeError, ValueError):
+                pass
+
+        severity_html = " ".join(
+            (
+                f'<span class="sev-{severity}">'
+                f'{severity.upper()}: {severity_counts_value}</span>'
+            )
+            for severity, severity_counts_value in (
+                (name, int(breakdown.get(name, 0) or 0))
+                for name in ("critical", "high", "medium", "low")
+            )
         )
-        session_rows += f"""
+        safe_name = escape(session_name, quote=True)
+        targets_count = int(summary.get("targets_count", 0) or 0)
+        finding_count = int(summary.get("total_findings", 0) or 0)
+        modules_run = int(summary.get("modules_run", 0) or 0)
+        session_rows.append(
+            f"""
         <div class="card">
             <div style="display:flex;justify-content:space-between;align-items:center">
-                <div><strong><a href="#">{sname}</a></strong></div>
-                <div style="font-size:0.85rem;color:#8b949e">{s.get("targets_count",0)} targets | {s.get("total_findings",0)} findings</div>
+                <div><strong><a href="#">{safe_name}</a></strong></div>
+                <div style="font-size:0.85rem;color:#8b949e">
+                    {targets_count} targets | {finding_count} findings
+                </div>
             </div>
-            <div style="margin-top:0.5rem;font-size:0.85rem">{sev_str}</div>
-            <div style="margin-top:0.3rem;font-size:0.8rem;color:#8b949e">{s.get("modules_run",0)} modules run</div>
+            <div style="margin-top:0.5rem;font-size:0.85rem">{severity_html}</div>
+            <div style="margin-top:0.3rem;font-size:0.8rem;color:#8b949e">
+                {modules_run} modules run
+            </div>
         </div>
         """
+        )
+
     stats = "".join(
-        f'<div class="stat"><div class="stat-value">{v}</div><div class="stat-label">{k.upper()}</div></div>'
-        for k, v in [("sessions", len(sessions)), ("findings", total_findings)]
+        (
+            f'<div class="stat"><div class="stat-value">{value}</div>'
+            f'<div class="stat-label">{label.upper()}</div></div>'
+        )
+        for label, value in (
+            ("sessions", valid_session_count),
+            ("findings", total_findings),
+        )
     )
+    session_html = "".join(session_rows)
+    if not session_html:
+        session_html = (
+            '<div class="card">No sessions yet. Run: '
+            'talisman autopilot -t example.com -s my-session</div>'
+        )
+
     return f"""<!DOCTYPE html><html><head><title>TALISMAN Dashboard</title>{HTML_STYLES}</head><body>
 <h1>TALISMAN</h1>
 <div class="nav">
     <a href="#" class="active">Dashboard</a>
     <a href="#">Sessions</a>
-    <a href="#">Findings</a>
+    <a href="/findings">Findings</a>
     <a href="#">Reports</a>
 </div>
 <div class="stat-grid">{stats}</div>
 <h2>Sessions</h2>
-{session_rows if sessions else '<div class="card">No sessions yet. Run: talisman autopilot -t example.com -s my-session</div>'}
+{session_html}
 </body></html>"""
 
 
-def _render_findings(severity: str | None = None) -> str:
+async def _render_findings(severity: str | None = None) -> str:
     sm = SessionManager()
     sessions = sm.list_sessions()
-    rows = ""
-    for sname in sessions:
-        sess = sm.get(sname)
-        import asyncio
-        async def get_f():
-            await sess.open()
-            filt = [severity] if severity else None
-            findings = await sess.get_findings(severity=filt)
-            await sess.close()
-            return findings
-        findings = asyncio.run(get_f())
-        for f in findings:
-            sev = f.get("severity", "info").lower()
-            rows += f"""<tr>
-<td><span class="badge badge-{sev}">{sev.upper()}</span></td>
-<td>{f.get("module", "?")}</td>
-<td>{f.get("vuln_type", "?")}</td>
-<td>{f.get("target", "?")[:60]}</td>
-<td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{f.get("title", "")[:80]}</td>
+    rows: list[str] = []
+    allowed_severities = {"critical", "high", "medium", "low", "info"}
+    selected_severity = severity.lower() if severity and severity.lower() in allowed_severities else None
+
+    for session_name in sessions:
+        try:
+            session = sm.get(session_name)
+        except ValueError:
+            continue
+
+        try:
+            await session.open()
+            try:
+                findings = await session.get_findings(
+                    severity=[selected_severity] if selected_severity else None
+                )
+            finally:
+                await session.close()
+        except Exception:
+            continue
+
+        for finding in findings:
+            raw_severity = str(finding.get("severity", "info")).lower()
+            safe_severity = (
+                raw_severity if raw_severity in allowed_severities else "info"
+            )
+            module = escape(str(finding.get("module", "?")), quote=True)
+            vuln_type = escape(str(finding.get("vuln_type", "?")), quote=True)
+            target = escape(str(finding.get("target", "?"))[:60], quote=True)
+            title = escape(str(finding.get("title", ""))[:80], quote=True)
+            rows.append(
+                f"""<tr>
+<td><span class="badge badge-{safe_severity}">{safe_severity.upper()}</span></td>
+<td>{module}</td>
+<td>{vuln_type}</td>
+<td>{target}</td>
+<td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{title}</td>
 </tr>"""
+            )
+
+    rows_html = "".join(rows)
+    if not rows_html:
+        rows_html = (
+            '<tr><td colspan="5" style="text-align:center;color:#8b949e">'
+            "No findings</td></tr>"
+        )
+
     return f"""<!DOCTYPE html><html><head><title>TALISMAN — Findings</title>{HTML_STYLES}</head><body>
 <h1>Findings</h1>
 <div class="nav">
@@ -140,20 +217,20 @@ def _render_findings(severity: str | None = None) -> str:
 </div>
 <table>
 <thead><tr><th>Severity</th><th>Module</th><th>Type</th><th>Target</th><th>Title</th></tr></thead>
-<tbody>{rows if rows else '<tr><td colspan="5" style="text-align:center;color:#8b949e">No findings</td></tr>'}</tbody>
+<tbody>{rows_html}</tbody>
 </table>
 </body></html>"""
 
 
 @app.get("/", response_class=HTMLResponse)
 async def dashboard():
-    return _render_sessions()
+    return await _render_sessions()
 
 
 @app.get("/findings", response_class=HTMLResponse)
 @app.get("/findings/{severity}", response_class=HTMLResponse)
 async def findings(severity: str | None = None):
-    return _render_findings(severity)
+    return await _render_findings(severity)
 
 
 def main(port: int = 9191, open_browser: bool = True) -> None:
