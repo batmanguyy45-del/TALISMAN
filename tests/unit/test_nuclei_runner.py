@@ -26,10 +26,18 @@ async def test_nuclei_receives_safe_flags_and_discards_out_of_scope_results(monk
     )
     monkeypatch.setattr(nuclei_runner.shutil, "which", lambda _: "/usr/bin/nuclei")
 
-    class FakeProcess:
-        returncode = 0
+    class FakeStream:
+        def __init__(self, data):
+            self.data = data
 
-        async def communicate(self):
+        async def read(self, size):
+            chunk, self.data = self.data[:size], self.data[size:]
+            return chunk
+
+    class FakeProcess:
+        returncode = None
+
+        def __init__(self):
             output = [
                 {
                     "matched-at": "https://example.com/vulnerable",
@@ -42,7 +50,17 @@ async def test_nuclei_receives_safe_flags_and_discards_out_of_scope_results(monk
                     "template-id": "outside-template",
                 },
             ]
-            return ("\n".join(json.dumps(item) for item in output).encode(), b"")
+            self.stdout = FakeStream(
+                ("\\n".join(json.dumps(item) for item in output)).encode()
+            )
+            self.killed = False
+
+        async def wait(self):
+            self.returncode = 0
+            return 0
+
+        def kill(self):
+            self.killed = True
 
     captured = {}
 
@@ -93,3 +111,55 @@ async def test_nuclei_out_of_scope_target_is_blocked_before_process_launch(monke
         scope=scope,
     )
     assert result["error"]
+
+
+@pytest.mark.asyncio
+async def test_nuclei_output_is_bounded_and_process_is_killed_on_limit(monkeypatch):
+    scope = ScopeEnforcer(
+        ScopeConfig(include=["example.com"], service_allowlist=[])
+    )
+    monkeypatch.setattr(nuclei_runner.shutil, "which", lambda _: "/usr/bin/nuclei")
+    monkeypatch.setattr(nuclei_runner, "MAX_NUCLEI_OUTPUT_BYTES", 32)
+
+    class FakeStream:
+        def __init__(self, data):
+            self.data = data
+
+        async def read(self, size):
+            chunk, self.data = self.data[:size], self.data[size:]
+            return chunk
+
+    class FakeProcess:
+        def __init__(self):
+            self.returncode = None
+            self.stdout = FakeStream(b"x" * 128)
+            self.killed = False
+
+        def kill(self):
+            self.killed = True
+            self.returncode = -9
+
+        async def wait(self):
+            if self.returncode is None:
+                self.returncode = -9
+            return self.returncode
+
+    process = FakeProcess()
+
+    async def fake_create_subprocess_exec(*args, **kwargs):
+        return process
+
+    monkeypatch.setattr(
+        nuclei_runner.asyncio,
+        "create_subprocess_exec",
+        fake_create_subprocess_exec,
+    )
+
+    result = await nuclei_runner.run(
+        target="https://example.com",
+        scope=scope,
+    )
+
+    assert result["error"] == "output_limit"
+    assert result["findings"] == []
+    assert process.killed is True
