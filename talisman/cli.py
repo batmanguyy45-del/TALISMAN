@@ -71,10 +71,9 @@ def _run(coro):
 async def _session_scope(session_name, target, scope_file):
  sm = SessionManager()
  sess = sm.get(session_name)
- await sess.open()
  cfg = ScopeConfig.from_file(scope_file) if scope_file and scope_file.exists() else ScopeConfig.from_target(target)
  active_scope = ScopeEnforcer(cfg)
- set_active_scope(active_scope)
+ sess._scope_token = set_active_scope(active_scope)
  return sess, active_scope
 
 PROFILE_HELP = (
