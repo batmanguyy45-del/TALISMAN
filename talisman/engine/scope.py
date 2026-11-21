@@ -37,7 +37,6 @@ DEFAULT_SERVICE_HOSTS = (
     "oast.pro",
     "*.interactsh.com",
     "interactsh.com",
-    "*.s3.amazonaws.com",
     "registry.npmjs.org",
     "psbdmp.ws",
     "api.shodan.io",
