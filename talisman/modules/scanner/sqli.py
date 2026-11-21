@@ -450,6 +450,16 @@ async def run(
    "error": "techniques must be selected from error, boolean and time",
   }
 
+ methods = ["GET"]
+ skipped_methods: list[str] = []
+ try:
+  # POST injection payloads can mutate application state even when the
+  # selected technique is error- or boolean-based.
+  scope.assert_destructive_allowed(url, "POST")
+  methods.append("POST")
+ except ScopeViolationError:
+  skipped_methods.append("POST")
+
  skipped_techniques: list[str] = []
  if "time" in active_techniques:
   try:
@@ -493,7 +503,7 @@ async def run(
    if param in seen_params:
     continue
 
-   for method in ["GET", "POST"]:
+   for method in methods:
     result = None
     if "error" in active_techniques:
      result = await _test_error_based(url, param, method, client)
@@ -564,4 +574,5 @@ async def run(
   "count": 0,
   "candidate_count": len(candidates),
   "skipped_techniques": skipped_techniques,
+  "skipped_methods": skipped_methods,
  }
