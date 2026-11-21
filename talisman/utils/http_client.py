@@ -167,6 +167,13 @@ def _build_httpx_client(
         "trust_env": False,
     }
     if proxy:
+        if os.environ.get("TALISMAN_ALLOW_UNPINNED_PROXY", "").strip().lower() not in {"1", "true", "yes"}:
+            raise ScopeViolationError(
+                "HTTP proxy use is blocked because the proxy resolves the target "
+                "independently and bypasses TALISMAN destination pinning. Set "
+                "TALISMAN_ALLOW_UNPINNED_PROXY=1 only when the proxy is explicitly "
+                "trusted and authorized."
+            )
         return httpx.AsyncClient(proxy=proxy, **kwargs)
     if _has_h2():
         kwargs["http2"] = True
