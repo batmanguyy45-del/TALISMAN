@@ -299,3 +299,117 @@ async def test_crlf_requires_scope_and_returns_candidates_only(monkeypatch):
 
     assert result["findings"] == []
     assert result["count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_cache_deception_requires_destructive_probe_opt_in(monkeypatch):
+    from talisman.modules.scanner import cache_deception
+
+    class MustNotStartClient:
+        def __init__(self, *args, **kwargs):
+            raise AssertionError("cache path probes must be blocked by default")
+
+    monkeypatch.setattr(cache_deception, "TalismanHTTPClient", MustNotStartClient)
+    result = await cache_deception.run(
+        "https://example.com",
+        scope=_scope(),
+    )
+
+    assert result["skipped"] is True
+    assert result["findings"] == []
+    assert "Destructive probe blocked" in result["reason"]
+
+
+@pytest.mark.asyncio
+async def test_verb_tampering_tests_only_safe_methods_by_default(monkeypatch):
+    from talisman.modules.scanner import verb_tampering
+
+    seen_methods = []
+
+    class Response:
+        status_code = 404
+        headers = {"allow": "GET, HEAD, OPTIONS"}
+        text = ""
+
+    class Client:
+        def __init__(self, *args, **kwargs):
+            assert kwargs.get("scope") is not None
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def request(self, method, url, **kwargs):
+            seen_methods.append(method)
+            return Response()
+
+    monkeypatch.setattr(verb_tampering, "TalismanHTTPClient", Client)
+    result = await verb_tampering.run(
+        "https://example.com",
+        scope=_scope(),
+    )
+
+    assert result["findings"] == []
+    assert result["mutating_method_probes_enabled"] is False
+    assert set(seen_methods) <= {"GET", "HEAD", "OPTIONS", "TRACE"}
+    assert not ({"POST", "PUT", "PATCH", "DELETE", "CONNECT"} & set(seen_methods))
+
+
+@pytest.mark.asyncio
+async def test_rate_limit_scanner_requires_operator_supplied_fixture():
+    from talisman.modules.scanner import rate_limit
+
+    result = await rate_limit.run(
+        "https://example.com",
+        scope=_scope(),
+    )
+
+    assert result["skipped"] is True
+    assert result["findings"] == []
+    assert "test_fixture" in result["reason"]
+
+
+@pytest.mark.asyncio
+async def test_rate_limit_fixture_produces_candidate_not_confirmed_finding(monkeypatch):
+    from talisman.modules.scanner import rate_limit
+
+    class Response:
+        status_code = 200
+        headers = {}
+
+    class Client:
+        def __init__(self, *args, **kwargs):
+            assert kwargs.get("scope") is not None
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def post(self, *args, **kwargs):
+            return Response()
+
+    monkeypatch.setattr(rate_limit, "TalismanHTTPClient", Client)
+    writable_scope = _scope(
+        allow_writes=True,
+        avoid_writes=False,
+        avoid_destructive=False,
+    )
+    result = await rate_limit.run(
+        "https://example.com",
+        scope=writable_scope,
+        test_fixture={
+            "endpoint": "/login",
+            "method": "POST",
+            "payload": {"username": "disposable-account", "password": "invalid"},
+            "attempts": 3,
+        },
+    )
+
+    assert result["findings"] == []
+    assert result["candidate_count"] == 1
+    assert result["candidates"][0]["confidence"] == "candidate"
+    assert result["observations"][0]["attempts"] == 3
