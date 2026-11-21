@@ -70,7 +70,9 @@ def _load_extra_headers() -> dict[str, str]:
 
     researcher = os.environ.get("TALISMAN_H1_USERNAME", "").strip()
     if researcher:
-        headers["X-HackerOne-Research"] = researcher
+        headers.update(
+            _validate_headers({"X-HackerOne-Research": researcher})
+        )
     return headers
 
 
