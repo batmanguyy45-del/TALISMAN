@@ -1,14 +1,79 @@
 """OAST (Out-of-Band Application Security Testing) client — interactsh integration."""
 from __future__ import annotations
 import asyncio
+import ipaddress
 import random
+import re
 import string
 import time
 from typing import Any
+from urllib.parse import urlsplit
+from talisman.engine.scope import ScopeConfig, ScopeEnforcer
 from talisman.utils.http_client import TalismanHTTPClient
 from talisman.utils.logger import get_logger, console
 
 log = get_logger(__name__)
+
+_HOST_LABEL_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
+_RESERVED_CALLBACK_SUFFIXES = (
+    ".localhost",
+    ".local",
+    ".internal",
+    ".test",
+    ".invalid",
+    ".example",
+    ".home.arpa",
+)
+
+
+def normalize_oast_domain(value: str) -> str:
+    """Validate a public callback hostname; return its normalized ASCII name."""
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("OAST domain is required")
+    raw = value.strip()
+    candidate = raw if "://" in raw else f"https://{raw}"
+    try:
+        parsed = urlsplit(candidate)
+        host = (parsed.hostname or "").rstrip(".").lower()
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not host
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.port is not None
+            or parsed.path not in {"", "/"}
+            or parsed.query
+            or parsed.fragment
+            or any(character.isspace() for character in raw)
+        ):
+            raise ValueError
+
+        try:
+            address = ipaddress.ip_address(host)
+        except ValueError:
+            host = host.encode("idna").decode("ascii")
+            if len(host) > 253:
+                raise ValueError
+            labels = host.split(".")
+            if (
+                len(labels) < 2
+                or any(not _HOST_LABEL_RE.fullmatch(label) for label in labels)
+                or any(host == suffix.lstrip(".") or host.endswith(suffix) for suffix in _RESERVED_CALLBACK_SUFFIXES)
+            ):
+                raise ValueError
+        else:
+            if not address.is_global:
+                raise ValueError
+            raise ValueError("OAST callbacks must use a hostname, not an IP literal")
+
+        return host
+    except (UnicodeError, ValueError) as exc:
+        raise ValueError(
+            "OAST domain must be a public hostname only; local, private, "
+            "link-local, reserved and non-host URL values are not allowed"
+        ) from exc
+
+
 
 
 class OASTClient:
@@ -19,7 +84,7 @@ class OASTClient:
   server: str = "oast.pro",
   custom_url: str | None = None,
  ):
-  self.server = custom_url or server
+  self.server = normalize_oast_domain(custom_url or server)
   self._tokens: dict[str, dict[str, Any]] = {}
 
  def register(self) -> str:
@@ -45,7 +110,19 @@ class OASTClient:
   domain_part = token.split(".")[0] if "." in token else token
   hits: list[dict[str, Any]] = []
   deadline = time.monotonic() + timeout
-  async with TalismanHTTPClient(timeout=15) as client:
+  poll_scope = ScopeEnforcer(
+   ScopeConfig(
+    include=[self.server],
+    exclude=[],
+    service_allowlist=[],
+   )
+  )
+  async with TalismanHTTPClient(
+   scope=poll_scope,
+   timeout=15,
+   verify_ssl=True,
+   follow_redirects=False,
+  ) as client:
    while time.monotonic() < deadline:
     try:
      r = await client.get(
