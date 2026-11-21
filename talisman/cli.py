@@ -951,17 +951,22 @@ def fuzz_params(
  session_name: str = typer.Option("default", "-s", "--session"),
  proxy: Optional[str] = typer.Option(None, "--proxy"),
  wordlist: Optional[str] = typer.Option(None, "--wordlist"),
- methods: str = typer.Option("GET,POST", "--methods"),
+ methods: str = typer.Option(
+  "GET",
+  "--methods",
+  help="Methods to fuzz: GET,POST. POST requires explicit destructive-scope permission.",
+ ),
  threads: int = typer.Option(20, "--threads"),
  debug: bool = typer.Option(False, "--debug"),
 ):
  """
  Parameter discovery — find hidden params via response differential analysis.
+ POST probes are opt-in through the scope's destructive-testing policy.
 
  \b
  Examples:
   talisman fuzz params -t https://example.com/api/users -s bounty
-  talisman fuzz params -t https://example.com --methods GET,POST,PUT
+  talisman fuzz params -t https://example.com --methods GET,POST
  """
  setup_logging("DEBUG" if debug else "INFO"); print_banner()
  async def _r():
