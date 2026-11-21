@@ -214,3 +214,78 @@ async def test_mass_assignment_is_candidate_until_security_impact_verified(monke
     assert result["candidate_count"] == 1
     assert result["candidates"][0]["requires_impact_verification"] is True
     assert session.added == []
+
+
+
+@pytest.mark.asyncio
+async def test_sqli_time_based_probes_are_not_enabled_by_default(monkeypatch):
+    time_called = False
+
+    async def no_error(*args, **kwargs):
+        return None
+
+    async def baseline(*args, **kwargs):
+        return (0.1, 0.01, 200, 1000)
+
+    async def no_boolean(*args, **kwargs):
+        return None
+
+    async def time_probe(*args, **kwargs):
+        nonlocal time_called
+        time_called = True
+        return None
+
+    monkeypatch.setattr(sqli, "_test_error_based", no_error)
+    monkeypatch.setattr(sqli, "_get_baseline_stats", baseline)
+    monkeypatch.setattr(sqli, "_test_boolean_blind", no_boolean)
+    monkeypatch.setattr(sqli, "_test_time_based", time_probe)
+    monkeypatch.setattr(sqli, "TalismanHTTPClient", _FakeClient)
+
+    result = await sqli.run(
+        target="https://example.com/?id=1",
+        scope=_scope(),
+    )
+
+    assert result["skipped_techniques"] == []
+    assert time_called is False
+
+
+@pytest.mark.asyncio
+async def test_sqli_time_based_requires_destructive_opt_in():
+    result = await sqli.run(
+        target="https://example.com/?id=1",
+        scope=_scope(),
+        techniques=["time"],
+    )
+
+    assert result["skipped"] is True
+    assert result["skipped_techniques"] == ["time"]
+    assert result["findings"] == []
+
+
+@pytest.mark.asyncio
+async def test_sqli_time_based_runs_only_after_destructive_opt_in(monkeypatch):
+    async def baseline(*args, **kwargs):
+        return (0.1, 0.01, 200, 1000)
+
+    async def time_candidate(*args, **kwargs):
+        return {
+            "technique": "time_based",
+            "elapsed": 6.2,
+            "baseline": 0.1,
+            "evidence": "One delayed response",
+        }
+
+    monkeypatch.setattr(sqli, "_get_baseline_stats", baseline)
+    monkeypatch.setattr(sqli, "_test_time_based", time_candidate)
+    monkeypatch.setattr(sqli, "TalismanHTTPClient", _FakeClient)
+
+    result = await sqli.run(
+        target="https://example.com/?id=1",
+        scope=_scope(writes=True, destructive=True),
+        techniques=["time"],
+    )
+
+    assert result["candidate_count"] == 1
+    assert result["findings"] == []
+    assert result["candidates"][0]["requires_manual_verification"] is True
