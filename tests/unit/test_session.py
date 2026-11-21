@@ -118,3 +118,26 @@ def test_session_manager_rejects_traversal_for_delete_and_exists(tmp_path):
         sm.exists("../outside")
     with pytest.raises(ValueError):
         sm.delete("../outside")
+
+
+
+@pytest.mark.asyncio
+async def test_open_is_idempotent_and_scope_is_reset_on_close(tmp_path):
+    from talisman.engine.scope import (
+        ScopeConfig,
+        ScopeEnforcer,
+        get_active_scope,
+        set_active_scope,
+    )
+
+    sess = Session("scope-lifetime", tmp_path)
+    scope = ScopeEnforcer(ScopeConfig(include=["example.com"], service_allowlist=[]))
+    sess._scope_token = set_active_scope(scope)
+
+    await sess.open()
+    first_connection = sess._db
+    await sess.open()
+    assert sess._db is first_connection
+
+    await sess.close()
+    assert get_active_scope() is None
