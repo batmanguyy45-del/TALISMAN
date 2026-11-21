@@ -232,11 +232,11 @@ def _identify_confusion_candidates(deps: list[dict[str, Any]]) -> list[dict[str,
     return candidates
 
 
-async def _check_npm_registry(package_name: str) -> bool:
+async def _check_npm_registry(package_name: str, scope: Any) -> bool:
     """Check if a package exists on the public npm registry."""
     try:
         url = f"https://registry.npmjs.org/{package_name}"
-        async with TalismanHTTPClient(timeout=8) as client:
+        async with TalismanHTTPClient(timeout=8, scope=scope) as client:
             response = await client.get(url)
             return response.status_code == 200
     except Exception:
@@ -300,7 +300,7 @@ async def run(
                 reasons = candidate.get("reasons", [])
 
                 if pm_type == "npm":
-                    exists_public = await _check_npm_registry(name)
+                    exists_public = await _check_npm_registry(name, scope)
                     if exists_public:
                         severity = "critical" if score >= 4 else "high"
                         title = f"Dependency confusion risk: '{name}' (v{ candidate.get('version', '?') }) exists on public npm"
