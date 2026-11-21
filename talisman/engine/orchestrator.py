@@ -18,7 +18,7 @@ CHAINS_DIR = Path(__file__).parent.parent.parent / "chains"
 
 _CHAIN_ID_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,63}$")
 _MODULE_NAME_RE = re.compile(
-    r"^[A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*$"
+    r"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$"
 )
 _MAX_CHAIN_STEPS = 100
 _MAX_CHAIN_FILE_BYTES = 1_000_000
