@@ -5,6 +5,8 @@ import json
 import socket
 import ssl
 from typing import Any
+from urllib.parse import urlsplit
+from talisman.engine.scope import ScopeViolationError
 from talisman.utils.http_client import TalismanHTTPClient
 from talisman.utils.logger import get_logger, console, print_finding
 
@@ -24,18 +26,20 @@ HEALTH_CHECK_REQUEST = (
 )
 
 
-async def _check_grpc_port(host: str, port: int, use_tls: bool = True) -> dict[str, Any]:
-    """Check if a port responds to gRPC requests."""
+async def _check_grpc_port(
+    host: str, port: int, use_tls: bool, scope: Any, request_url: str
+) -> dict[str, Any]:
+    """Check if a scoped port speaks the HTTP/2 preface used by gRPC."""
+    scope.assert_request_allowed(request_url, "GET")
+    await scope.acquire_request_slot()
     result: dict[str, Any] = {"port": port, "tls": use_tls, "reachable": False}
     try:
         reader: asyncio.StreamReader
         writer: asyncio.StreamWriter
         if use_tls:
             ctx = ssl.create_default_context()
-            ctx.check_hostname = False
-            ctx.verify_mode = ssl.CERT_NONE
             reader, writer = await asyncio.wait_for(
-                asyncio.open_connection(host, port, ssl=ctx), timeout=5
+                asyncio.open_connection(host, port, ssl=ctx, server_hostname=host), timeout=5
             )
         else:
             reader, writer = await asyncio.wait_for(
@@ -68,18 +72,20 @@ async def _check_grpc_port(host: str, port: int, use_tls: bool = True) -> dict[s
     return result
 
 
-async def _check_grpc_reflection(host: str, port: int, use_tls: bool = True) -> dict[str, Any]:
-    """Try gRPC reflection to enumerate services."""
+async def _check_grpc_reflection(
+    host: str, port: int, use_tls: bool, scope: Any, request_url: str
+) -> dict[str, Any]:
+    """Placeholder for reflection testing; no service is claimed without a valid response."""
+    scope.assert_request_allowed(request_url, "GET")
+    await scope.acquire_request_slot()
     result: dict[str, Any] = {"reflection_available": False, "services": []}
     try:
         reader: asyncio.StreamReader
         writer: asyncio.StreamWriter
         if use_tls:
             ctx = ssl.create_default_context()
-            ctx.check_hostname = False
-            ctx.verify_mode = ssl.CERT_NONE
             reader, writer = await asyncio.wait_for(
-                asyncio.open_connection(host, port, ssl=ctx), timeout=5
+                asyncio.open_connection(host, port, ssl=ctx, server_hostname=host), timeout=5
             )
         else:
             reader, writer = await asyncio.wait_for(
@@ -131,7 +137,16 @@ async def run(
     **kwargs: Any,
 ) -> dict[str, Any]:
     url = target if "://" in target else f"https://{target}"
-    host = url.split("://")[-1].split("/")[0].split(":")[0]
+    parsed = urlsplit(url)
+    host = parsed.hostname
+    if parsed.scheme not in {"http", "https"} or not host:
+        return {"target": target, "discovered_ports": [], "findings": [], "count": 0, "error": "invalid_target"}
+    if scope is None:
+        return {"target": host, "discovered_ports": [], "findings": [], "count": 0, "error": "scope_enforcer_required"}
+    try:
+        scope.assert_in_scope(url)
+    except ScopeViolationError as exc:
+        return {"target": host, "discovered_ports": [], "findings": [], "count": 0, "error": str(exc)}
     console.print(f"\n[module][+] gRPC Security Scanner[/module] -> [target]{host}[/target]")
     findings: list[dict[str, Any]] = []
     discovered_ports: list[int] = []
@@ -142,8 +157,12 @@ async def run(
 
     for check_port in ports_to_check:
         for use_tls in [True, False]:
-            probe = await _check_grpc_port(host, check_port, use_tls=use_tls)
-            if probe["reachable"]:
+            probe_url = f"{'https' if use_tls else 'http'}://{host}:{check_port}/"
+            try:
+                probe = await _check_grpc_port(host, check_port, use_tls, scope, probe_url)
+            except ScopeViolationError:
+                continue
+            if probe["reachable"] and probe.get("likely_grpc"):
                 discovered_ports.append(check_port)
                 tls_label = "TLS" if use_tls else "plaintext"
                 console.print(f"  [success][+] Port {check_port} ({tls_label}) reachable[/success]")
@@ -160,7 +179,7 @@ async def run(
                             remediation="Ensure gRPC services are properly authenticated and authorized. Disable reflection in production.",
                             cwe="CWE-200",
                         )
-                if not use_tls:
+                if not use_tls and probe.get("likely_grpc"):
                     print_finding(f"gRPC plaintext (no TLS) on {host}:{check_port}", "high", f"{host}:{check_port}")
                     findings.append({"issue": "grpc_no_tls", "port": check_port})
                     if session:
@@ -175,8 +194,14 @@ async def run(
                         )
 
     # -- 2. Reflection check ---------------------------------------------------------
-    for check_port in discovered_ports or GRPC_PORTS[:2]:
-        refl_result = await _check_grpc_reflection(host, check_port)
+    for check_port in discovered_ports:
+        try:
+            refl_result = await _check_grpc_reflection(
+                host, check_port, check_port == 443 or parsed.scheme == "https",
+                scope, f"https://{host}:{check_port}/"
+            )
+        except ScopeViolationError:
+            continue
         if refl_result["reflection_available"]:
             print_finding(f"gRPC reflection enabled on port {check_port}", "critical", f"{host}:{check_port}")
             findings.append({"issue": "grpc_reflection", "port": check_port, "services": refl_result["services"]})
@@ -194,7 +219,7 @@ async def run(
             break
 
     # -- 3. Health check via HTTP transcoding ----------------------------------------
-    async with TalismanHTTPClient(proxy=proxy, timeout=10) as client:
+    async with TalismanHTTPClient(proxy=proxy, timeout=10, scope=scope) as client:
         health_exposed = await _check_health_endpoint(url, client)
         if health_exposed:
             print_finding("gRPC health check endpoint exposed (unauthenticated)", "medium", url)
@@ -211,7 +236,7 @@ async def run(
                 )
 
     # -- 4. gRPC-web detection ------------------------------------------------------
-    async with TalismanHTTPClient(proxy=proxy, timeout=10) as client:
+    async with TalismanHTTPClient(proxy=proxy, timeout=10, scope=scope) as client:
         grpc_web_paths = ["/grpc", "/api/grpc", "/grpc-web"]
         for grpc_path in grpc_web_paths:
             test_url = url.rstrip("/") + grpc_path
