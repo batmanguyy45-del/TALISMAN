@@ -289,18 +289,27 @@ async def find_origin(
    f"{len(authorized_candidates)} explicitly authorized for verification"
   )
 
-  verify_tasks = [
-   _verify_origin(domain, ip, scope)
-   for ip in authorized_candidates[:20]
-  ]
-  verify_results = await asyncio.gather(*verify_tasks, return_exceptions=True)
+  verification_skipped_reason = None
+  if proxy:
+   # Raw TCP/TLS cannot use the configured HTTP proxy. Do not silently connect
+   # directly just because an IP was discovered and listed in scope.
+   verification_skipped_reason = (
+    "Origin IP verification uses raw TCP/TLS and cannot honor the configured "
+    "HTTP proxy; no direct connection was attempted."
+   )
+  else:
+   verify_tasks = [
+    _verify_origin(domain, ip, scope)
+    for ip in authorized_candidates[:20]
+   ]
+   verify_results = await asyncio.gather(*verify_tasks, return_exceptions=True)
 
-  for ip, response_matches in zip(authorized_candidates[:20], verify_results):
-   if response_matches is True:
-    responding_candidates.append(ip)
-    console.print(
-     f" [success][+] In-scope IP returned a non-CDN response for {domain}: {ip}[/success]"
-    )
+   for ip, response_matches in zip(authorized_candidates[:20], verify_results):
+    if response_matches is True:
+     responding_candidates.append(ip)
+     console.print(
+      f" [success][+] In-scope IP returned a non-CDN response for {domain}: {ip}[/success]"
+     )
 
  if not responding_candidates:
   console.print(" [dim]No in-scope IP returned a matching non-CDN response[/dim]")
@@ -308,9 +317,10 @@ async def find_origin(
  return {
   "domain": domain,
   "candidates": non_cf_candidates,
-  "verified_candidates": authorized_candidates,
+  "authorized_candidates": authorized_candidates,
   "out_of_scope_candidates": out_of_scope_candidates,
   "responding_candidates": responding_candidates,
+  "verification_skipped_reason": verification_skipped_reason,
   "confirmed_origins": [],
   "origin_found": False,
   "requires_manual_origin_confirmation": True,
