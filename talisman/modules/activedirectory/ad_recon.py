@@ -85,6 +85,10 @@ async def run(
  collect: list[str] | None = None,
  **kwargs: Any,
 ) -> dict[str, Any]:
+ if scope is not None:
+  scope.assert_in_scope(target)
+  if dc_ip:
+   scope.assert_in_scope(dc_ip)
  host = dc_ip or target.replace("https://", "").replace("http://", "").split("/")[0]
  dom = domain or host
  console.print(f"\n[module][+] Active Directory Recon[/module] -> [target]{host}[/target]")
