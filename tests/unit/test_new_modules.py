@@ -411,15 +411,14 @@ class TestUnicodeAttacks:
 # ── websocket ─────────────────────────────────────────────────────────────────
 
 class TestWebsocket:
-    def test_constants(self):
-        import talisman.modules.scanner.websocket as m
-        assert len(m.WS_PATHS) >= 3
-
     @pytest.mark.asyncio
-    async def test_run_returns_dict(self):
+    async def test_websocket_probes_are_disabled_without_scoped_transport(self):
         import talisman.modules.scanner.websocket as m
-        r = await m.run(target="http://test.com/")
-        assert isinstance(r, dict)
+        r = await m.run(target="http://test.com/", scope=_test_scope())
+        assert r["skipped"] is True
+        assert r["findings"] == []
+        assert r["count"] == 0
+        assert "pinned HTTP transport" in r["reason"]
 
 
 # ── deserialization ───────────────────────────────────────────────────────────
