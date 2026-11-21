@@ -114,4 +114,5 @@ async def test_dns_axfr_is_skipped_when_http_proxy_is_configured(monkeypatch):
     )
 
     assert "zone_transfer_skipped" in result
-    assert result["zone_transfer"] if "zone_transfer" in result else True
+    assert "cannot honor the configured HTTP proxy" in result["zone_transfer_skipped"]
+    assert "zone_transfer" not in result
