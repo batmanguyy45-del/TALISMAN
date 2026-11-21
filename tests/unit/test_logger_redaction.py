@@ -111,3 +111,23 @@ def test_redaction_filter_sanitizes_exception_details():
     assert "opaque-exception-token" not in rendered
     assert "RuntimeError" in rendered
     assert "access_token=[REDACTED]" in rendered
+
+def test_redacting_console_sanitizes_direct_print_calls():
+    output = StringIO()
+    safe_console = logger_module.RedactingConsole(
+        file=output,
+        force_terminal=False,
+        no_color=True,
+        highlight=False,
+    )
+    safe_console.print(
+        "callback URL https://example.com/?x-api-key=opaque-console-key"
+    )
+    safe_console.print(
+        "header https://example.com/?x-auth-token=opaque-auth-token"
+    )
+
+    rendered = output.getvalue()
+    assert "opaque-console-key" not in rendered
+    assert "opaque-auth-token" not in rendered
+    assert "[REDACTED]" in rendered

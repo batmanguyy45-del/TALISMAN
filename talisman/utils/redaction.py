@@ -31,7 +31,11 @@ _QUOTED_SECRET_PATTERN = re.compile(
     r"""(?i)(["'][a-z0-9_.-]*(?:authorization|proxy[_-]?authorization|cookie|set[_-]?cookie|api[_-]?key|access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?secret|secret[_-]?(?:access[_-]?key|key)?|password|passwd|pwd|token|jwt|private[_-]?key|ssh[_-]?private[_-]?key|credential|credentials|signature|sig|x-amz-(?:signature|credential|security-token))["']\s*:\s*["'])[^"']*(["'])"""
 )
 _URL_SECRET_PATTERN = re.compile(
-    r"(?i)([?&](?:access_token|refresh_token|id_token|client_secret|api[_-]?key|apikey|secret|password|passwd|token|jwt|session|signature|sig|credential|x-amz-(?:signature|credential|security-token))=)[^&#\s]+"
+    r"(?i)([?&](?:access_token|refresh_token|id_token|oauth[_-]?token|"
+    r"client_secret|client_assertion|api[_-]?key|x[-_]?api[-_]?key|"
+    r"x[-_]?auth[-_]?token|apikey|secret|password|passwd|token|jwt|"
+    r"session|signature|sig|credential|aws[_-]?access[_-]?key[_-]?id|"
+    r"x-amz-(?:signature|credential|security-token))=)[^&#\s]+"
 )
 
 _PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (

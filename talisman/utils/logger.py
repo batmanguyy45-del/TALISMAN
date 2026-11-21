@@ -28,8 +28,19 @@ TALISMAN_THEME = Theme({
  "chain":   "bold blue",
 })
 
-console = Console(theme=TALISMAN_THEME, stderr=False, highlight=False)
-err_console = Console(theme=TALISMAN_THEME, stderr=True)
+class RedactingConsole(Console):
+    """Console that redacts credential-bearing strings before rendering them."""
+
+    def print(self, *objects: Any, **kwargs: Any) -> None:
+        safe_objects = tuple(
+            redact_sensitive_text(item) if isinstance(item, str) else item
+            for item in objects
+        )
+        super().print(*safe_objects, **kwargs)
+
+
+console = RedactingConsole(theme=TALISMAN_THEME, stderr=False, highlight=False)
+err_console = RedactingConsole(theme=TALISMAN_THEME, stderr=True)
 
 SEVERITY_COLORS = {
  "critical": "[bold red]",
