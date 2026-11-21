@@ -127,12 +127,14 @@ async def _raw_send(
 ) -> bytes:
     """Send one raw probe only after scope, write-policy and rate checks."""
     scope.assert_destructive_allowed(request_url, "POST")
+    addresses = await scope.resolve_network_destination(request_url, "POST")
+    connect_ip = str(addresses[0])
     await scope.acquire_request_slot()
 
     def _sync_send() -> bytes:
         sock: socket.socket | None = None
         try:
-            sock = socket.create_connection((host, port), timeout=timeout)
+            sock = socket.create_connection((connect_ip, port), timeout=timeout)
             if use_tls:
                 # Keep normal CA and hostname verification enabled.
                 ctx = ssl.create_default_context()
