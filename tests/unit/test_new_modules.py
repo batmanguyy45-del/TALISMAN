@@ -71,7 +71,7 @@ class TestGitExposure:
         async with respx.mock:
             respx.get("http://test.com/.git/config").respond(200, text="[core]\n\tbare = false")
             from talisman.utils.http_client import TalismanHTTPClient
-            async with TalismanHTTPClient() as c:
+            async with TalismanHTTPClient(scope=_test_scope()) as c:
                 r = await m._test_path("http://test.com", "/.git/config", c)
             assert r is not None
             assert r["type"] == "git_exposure"
@@ -82,7 +82,7 @@ class TestGitExposure:
         async with respx.mock:
             respx.get("http://test.com/.git/config").respond(404)
             from talisman.utils.http_client import TalismanHTTPClient
-            async with TalismanHTTPClient() as c:
+            async with TalismanHTTPClient(scope=_test_scope()) as c:
                 r = await m._test_path("http://test.com", "/.git/config", c)
             assert r is None
 
@@ -96,20 +96,17 @@ class TestSspp:
         assert len(m.JSON_ENDPOINTS) >= 3
 
     @pytest.mark.asyncio
-    async def test_detects_json_spaces_gadget(self):
+    async def test_generic_sspp_scanner_is_disabled(self):
         import talisman.modules.scanner.sspp as m
-        async with respx.mock:
-            get_route = respx.get("http://test.com/api/user")
-            # Side effect returns compact JSON first, then indented JSON (simulating SSPP)
-            get_route.side_effect = [
-                httpx.Response(200, text='{"key":"value"}', headers={"Content-Type": "application/json"}),
-                httpx.Response(200, text='{\n        "key": "value"\n}', headers={"Content-Type": "application/json"}),
-            ]
-            respx.post("http://test.com/api/user").respond(200)
-            from talisman.utils.http_client import TalismanHTTPClient
-            async with TalismanHTTPClient() as c:
-                r = await m._detect_via_json_spaces("http://test.com/api/user", c)
-            assert r is not None
+
+        result = await m.run(
+            target="http://test.com/",
+            scope=_test_scope(),
+        )
+
+        assert result["skipped"] is True
+        assert result["findings"] == []
+        assert result["count"] == 0
 
 
 # ── crlf ──────────────────────────────────────────────────────────────────────
@@ -129,7 +126,7 @@ class TestCrlf:
                 200, text="ok",
                 headers={"X-TALISMAN-CRLF": "injected"},
             )
-            async with TalismanHTTPClient() as c:
+            async with TalismanHTTPClient(scope=_test_scope()) as c:
                 r = await m._test_param_crlf("http://test.com/", c)
             assert len(r) >= 0
 
