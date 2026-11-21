@@ -146,7 +146,7 @@ async def run(
   }
  effective_threads = min(threads, int(scope.config.max_concurrent_requests))
 
- console.print(f"\\n[module][+] Parameter Fuzzer[/module] -> [target]{url}[/target]")
+ console.print(f"\n[module][+] Parameter Fuzzer[/module] -> [target]{url}[/target]")
  params_to_test = list(COMMON_PARAMS)
  if wordlist:
   wl_path = Path(wordlist)
