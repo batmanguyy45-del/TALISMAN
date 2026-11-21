@@ -291,7 +291,10 @@ class ScopeEnforcer:
         return bool(normalized and fnmatchcase(host, normalized))
 
     @staticmethod
-    def _matches_network(host: str, networks: list) -> bool:
+    def _matches_network(
+        host: str,
+        networks: list[ipaddress.IPv4Network | ipaddress.IPv6Network],
+    ) -> bool:
         try:
             address = ipaddress.ip_address(host)
         except ValueError:
@@ -354,7 +357,12 @@ class ScopeEnforcer:
             return False
         return True
 
-    def _matches_entry(self, target: str, entry: str, networks: list) -> bool:
+    def _matches_entry(
+        self,
+        target: str,
+        entry: str,
+        networks: list[ipaddress.IPv4Network | ipaddress.IPv6Network],
+    ) -> bool:
         try:
             network = ipaddress.ip_network(entry, strict=False)
         except ValueError:
