@@ -314,3 +314,81 @@ async def test_explicit_proxy_requires_unpinned_proxy_opt_in(monkeypatch):
     async with client:
         with pytest.raises(ScopeViolationError, match="proxy resolves the target"):
             await client.get("https://example.com/")
+
+
+@pytest.mark.asyncio
+async def test_http_client_rejects_declared_oversized_response():
+    from talisman.utils.http_client import ResponseTooLargeError
+
+    async def handler(request):
+        return httpx.Response(
+            200,
+            headers={"Content-Length": "6"},
+            content=b"123456",
+            request=request,
+        )
+
+    scope = ScopeEnforcer(ScopeConfig(include=["example.com"], service_allowlist=[]))
+    async with _mock_client(scope, handler, max_response_bytes=5) as client:
+        with pytest.raises(ResponseTooLargeError, match="declared 6 bytes"):
+            await client.get("https://example.com/large")
+
+
+@pytest.mark.asyncio
+async def test_http_client_caps_decompressed_response_size():
+    import gzip
+
+    from talisman.utils.http_client import ResponseTooLargeError
+
+    compressed = gzip.compress(b"A" * 4096)
+
+    async def handler(request):
+        return httpx.Response(
+            200,
+            headers={
+                "Content-Encoding": "gzip",
+                "Content-Length": str(len(compressed)),
+            },
+            content=compressed,
+            request=request,
+        )
+
+    scope = ScopeEnforcer(ScopeConfig(include=["example.com"], service_allowlist=[]))
+    async with _mock_client(scope, handler, max_response_bytes=512) as client:
+        with pytest.raises(ResponseTooLargeError, match="decoded body limit"):
+            await client.get("https://example.com/compressed")
+
+
+@pytest.mark.asyncio
+async def test_http_client_allows_response_at_configured_limit():
+    async def handler(request):
+        return httpx.Response(200, content=b"12345", request=request)
+
+    scope = ScopeEnforcer(ScopeConfig(include=["example.com"], service_allowlist=[]))
+    async with _mock_client(scope, handler, max_response_bytes=5) as client:
+        response = await client.get("https://example.com/small")
+
+    assert response.status_code == 200
+    assert response.content == b"12345"
+
+
+@pytest.mark.asyncio
+async def test_http_client_enforces_total_response_deadline():
+    import asyncio
+
+    async def handler(request):
+        await asyncio.sleep(0.05)
+        return httpx.Response(200, content=b"late", request=request)
+
+    scope = ScopeEnforcer(ScopeConfig(include=["example.com"], service_allowlist=[]))
+    async with _mock_client(scope, handler, max_retries=1) as client:
+        with pytest.raises(TimeoutError):
+            await client.get("https://example.com/slow", timeout=0.005)
+
+
+def test_http_client_rejects_unbounded_response_configuration():
+    from talisman.utils.http_client import MAX_ALLOWED_RESPONSE_BYTES
+
+    for invalid in (0, -1, True, 1.5, MAX_ALLOWED_RESPONSE_BYTES + 1):
+        with pytest.raises(ValueError, match="max_response_bytes"):
+            TalismanHTTPClient(max_response_bytes=invalid)
