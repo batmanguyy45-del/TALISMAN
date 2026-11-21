@@ -150,7 +150,6 @@ def _extract_dependencies(content: str, pm_type: str) -> list[dict[str, Any]]:
             pass
 
     elif pm_type == "cargo":
-        import re
         for section_match in re.finditer(r'\[([^\]]+)\]', content):
             section = section_match.group(1)
             if section.startswith("dependencies"):
