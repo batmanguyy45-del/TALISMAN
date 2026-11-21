@@ -189,3 +189,21 @@ async def test_cross_origin_redirect_drops_all_custom_headers():
     for name in ("authorization", "cookie", "x-api-key"):
         assert name not in seen[1]
     assert seen[1].get("host") == "docs.example.net"
+
+
+
+@pytest.mark.asyncio
+async def test_http_client_fails_closed_without_active_or_explicit_scope():
+    calls = []
+
+    async def handler(request):
+        calls.append(request)
+        return httpx.Response(200, request=request)
+
+    client = TalismanHTTPClient()
+    client._build_client = lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    async with client:
+        with pytest.raises(ScopeViolationError, match="no active target scope"):
+            await client.get("https://example.com/")
+
+    assert calls == []
