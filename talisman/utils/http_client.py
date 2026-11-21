@@ -226,6 +226,9 @@ class TalismanHTTPClient:
             response: httpx.Response | None = None
 
             for attempt in range(attempts):
+                active_scope = self.scope or get_active_scope()
+                if active_scope is not None:
+                    await active_scope.acquire_request_slot()
                 await self._enforce_rate_limit()
                 try:
                     response = await self._client.request(
@@ -277,6 +280,16 @@ class TalismanHTTPClient:
             next_url = urljoin(str(response.url), location)
             # Check scope before the next connection; never delegate this to httpx.
             self._assert_allowed(next_url)
+            old_origin = httpx.URL(str(response.url))
+            new_origin = httpx.URL(next_url)
+            if (old_origin.scheme, old_origin.host, old_origin.port) != (
+                new_origin.scheme, new_origin.host, new_origin.port
+            ):
+                # Credentials and cookies must not cross origin boundaries.
+                request_headers = {
+                    key: value for key, value in request_headers.items()
+                    if key.lower() not in {"authorization", "cookie", "proxy-authorization"}
+                }
             current_url = next_url
             current_params = None
 
