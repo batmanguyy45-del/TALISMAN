@@ -4,6 +4,8 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import re
+import socket
+import ssl
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -126,22 +128,80 @@ async def _mx_ips(domain: str, scope: Any) -> list[str]:
  return ips
 
 
-async def _verify_origin(domain: str, ip: str, client: TalismanHTTPClient) -> bool:
- """Send request to IP with Host header — check if it responds like the target."""
- for scheme in ("https", "http"):
+async def _verify_origin(domain: str, ip: str, scope: Any) -> bool:
+ """Probe an explicitly scoped IP while preserving the domain's TLS SNI and Host.
+
+ A response is only a candidate signal; it is not proof of authoritative origin
+ status or provider-resource claimability.
+ """
+ for scheme, port in (("https", 443), ("http", 80)):
+  destination = f"{scheme}://{ip}:{port}/"
   try:
-   r = await client.get(
-    f"{scheme}://{ip}/",
-    headers={"Host": domain},
-    timeout=8,
-   )
-   # If we get a response with typical site content, likely origin
-   if r.status_code < 500 and len(r.text) > 100:
-    # Check it's not a Cloudflare error page
-    if "cloudflare" not in r.text.lower() and "cf-ray" not in str(r.headers).lower():
+   async with scope.request_concurrency_slot():
+    addresses = await scope.resolve_network_destination(destination, "GET")
+    await scope.acquire_request_slot()
+    connect_ip = str(addresses[0])
+
+    def _probe() -> bool:
+     raw_socket: socket.socket | None = None
+     active_socket: socket.socket | None = None
+     try:
+      raw_socket = socket.create_connection((connect_ip, port), timeout=8)
+      raw_socket.settimeout(5)
+      if scheme == "https":
+       context = ssl.create_default_context()
+       active_socket = context.wrap_socket(
+        raw_socket,
+        server_hostname=domain,
+       )
+       raw_socket = None
+      else:
+       active_socket = raw_socket
+       raw_socket = None
+
+      request = (
+       f"GET / HTTP/1.1\r\n"
+       f"Host: {domain}\r\n"
+       "User-Agent: TALISMAN/1.1 (+authorized security testing)\r\n"
+       "Accept: */*\r\n"
+       "Connection: close\r\n\r\n"
+      ).encode("ascii")
+      active_socket.sendall(request)
+      response = active_socket.recv(8192)
+      header_block, separator, body = response.partition(b"\r\n\r\n")
+      if not separator or not header_block.startswith(b"HTTP/"):
+       return False
+      status_line = header_block.split(b"\r\n", 1)[0].decode("ascii", errors="replace")
+      try:
+       status_code = int(status_line.split()[1])
+      except (IndexError, ValueError):
+       return False
+      content = (header_block + body).lower()
+      if status_code >= 500 or len(body) < 100:
+       return False
+      if b"cloudflare" in content or b"cf-ray" in content:
+       return False
+      return True
+     except (OSError, ssl.SSLError, TimeoutError, ValueError):
+      return False
+     finally:
+      if active_socket is not None:
+       try:
+        active_socket.close()
+       except OSError:
+        pass
+      if raw_socket is not None:
+       try:
+        raw_socket.close()
+       except OSError:
+        pass
+
+    if await asyncio.to_thread(_probe):
      return True
   except Exception:
-   pass
+   # A failed TLS check is not bypassed by disabling certificate validation.
+   # The HTTP fallback is a separate, explicitly scoped request.
+   continue
  return False
 
 
@@ -230,7 +290,7 @@ async def find_origin(
   )
 
   verify_tasks = [
-   _verify_origin(domain, ip, client)
+   _verify_origin(domain, ip, scope)
    for ip in authorized_candidates[:20]
   ]
   verify_results = await asyncio.gather(*verify_tasks, return_exceptions=True)
