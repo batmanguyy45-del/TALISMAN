@@ -193,3 +193,32 @@ def test_session_manager_ignores_symlinked_session_directories(tmp_path):
         pytest.skip("symlinks are not available on this platform")
 
     assert "linked-session" not in sm.list_sessions()
+
+
+@pytest.mark.asyncio
+async def test_add_finding_redacts_credentials_before_persistence(tmp_path):
+    sess = Session("redaction-test", tmp_path)
+    raw_token = "ghp_abcdefghijklmnopqrstuvwxyz1234567890"
+    raw_cookie = "sessionid=super-secret-session"
+    async with sess:
+        finding_id = await sess.add_finding(
+            "https://example.com/reset?token=raw-reset-token",
+            "scanner",
+            "credential_leak",
+            "high",
+            "confirmed",
+            "Credential-bearing response",
+            request=f"GET /api\\nAuthorization: Bearer {raw_token}",
+            response=f"Set-Cookie: {raw_cookie}",
+            evidence=f"Found access token {raw_token}",
+            extra={"raw": raw_token},
+        )
+        assert finding_id is not None
+        findings = await sess.get_findings()
+
+    assert len(findings) == 1
+    serialized = str(findings[0])
+    assert raw_token not in serialized
+    assert raw_cookie not in serialized
+    assert "raw-reset-token" not in serialized
+    assert "[GITHUB_TOKEN_REDACTED]" in serialized or "[REDACTED]" in serialized
