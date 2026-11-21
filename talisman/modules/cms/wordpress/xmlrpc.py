@@ -2,6 +2,9 @@
 from __future__ import annotations
 import asyncio
 from typing import Any
+
+from talisman.engine.scope import ScopeViolationError
+from talisman.utils.oast import normalize_oast_domain
 from talisman.utils.http_client import TalismanHTTPClient
 from talisman.utils.logger import get_logger, console, print_finding
 
@@ -50,123 +53,179 @@ async def run(
  scope: Any = None,
  rate_limiter: Any = None,
  proxy: str | None = None,
- pingback_ssrf: bool = True,
- multicall_check: bool = True,
+ pingback_ssrf: bool = False,
+ multicall_check: bool = False,
  oast_domain: str | None = None,
  **kwargs: Any,
 ) -> dict[str, Any]:
  url = target if "://" in target else f"https://{target}"
  endpoint = url.rstrip("/") + XMLRPC_PATH
- console.print(f"\n[module][+] WordPress XML-RPC Audit[/module] -> [target]{endpoint}[/target]")
- findings: list[dict[str, Any]] = []
+ if scope is None:
+  return {
+   "target": url,
+   "xmlrpc_accessible": False,
+   "observations": [],
+   "candidates": [],
+   "error": "scope_enforcer_required",
+  }
 
- async with TalismanHTTPClient(proxy=proxy, timeout=15) as client:
-  # — Existence check ——————————————————————————————————————
+ try:
+  scope.assert_request_allowed(endpoint, "POST")
+  if multicall_check or pingback_ssrf:
+   scope.assert_destructive_allowed(endpoint, "POST")
+ except ScopeViolationError as exc:
+  return {
+   "target": url,
+   "xmlrpc_accessible": False,
+   "observations": [],
+   "candidates": [],
+   "skipped": True,
+   "reason": str(exc),
+  }
+
+ if pingback_ssrf and oast_domain:
   try:
-   r = await client.post(
+   oast_domain = normalize_oast_domain(oast_domain)
+  except ValueError as exc:
+   return {
+    "target": url,
+    "xmlrpc_accessible": False,
+    "observations": [],
+    "candidates": [],
+    "error": str(exc),
+   }
+
+ console.print(
+  f"\n[module][+] WordPress XML-RPC Audit[/module] -> [target]{endpoint}[/target]"
+ )
+ observations: list[dict[str, Any]] = []
+ candidates: list[dict[str, Any]] = []
+ methods: list[str] = []
+
+ async with TalismanHTTPClient(
+  proxy=proxy,
+  timeout=15,
+  scope=scope,
+  verify_ssl=True,
+  follow_redirects=False,
+ ) as client:
+  try:
+   response = await client.post(
     endpoint,
     content=LIST_METHODS_BODY,
     headers={"Content-Type": "text/xml"},
    )
-   if r.status_code != 200 or "faultCode" in r.text and "system.listMethods" not in r.text:
-    console.print(" XML-RPC: not accessible")
-    return {"target": url, "xmlrpc_accessible": False, "findings": []}
+  except Exception as exc:
+   log.debug("xmlrpc_request_failed", error=type(exc).__name__)
+   return {
+    "target": url,
+    "xmlrpc_accessible": False,
+    "observations": [],
+    "candidates": [],
+   }
 
-   console.print(" [warning][!] XML-RPC endpoint accessible[/warning]")
+  if response.status_code != 200 or (
+   "faultCode" in response.text
+   and "system.listMethods" not in response.text
+  ):
+   return {
+    "target": url,
+    "xmlrpc_accessible": False,
+    "observations": [],
+    "candidates": [],
+   }
 
-   # Extract method list
-   import re
-   methods = re.findall(r"<string>([^<]+)</string>", r.text)
-   has_multicall = "system.multicall" in methods
-   has_pingback = "pingback.ping" in methods
-   has_wp_methods = any(m.startswith("wp.") for m in methods)
+  import re
 
-   finding = {
-    "type": "xmlrpc_exposed",
+  methods = re.findall(r"<string>([^<]+)</string>", response.text)
+  has_multicall = "system.multicall" in methods
+  has_pingback = "pingback.ping" in methods
+  observations.append(
+   {
+    "type": "xmlrpc_endpoint_accessible",
     "methods_count": len(methods),
     "has_multicall": has_multicall,
     "has_pingback": has_pingback,
    }
-   findings.append(finding)
-   if session:
-    await session.add_finding(
-     target=url, module="wordpress.xmlrpc",
-     vuln_type="xmlrpc_exposed",
-     severity="medium", confidence="confirmed",
-     title="WordPress XML-RPC endpoint accessible",
-     description=(
-      f"XML-RPC at {endpoint} is publicly accessible. "
-      f"Available methods: {len(methods)}. "
-      f"system.multicall: {has_multicall}, pingback.ping: {has_pingback}"
-     ),
-     request=f"POST {endpoint} HTTP/1.1",
-     remediation="Disable XML-RPC if not needed. Use plugin 'Disable XML-RPC' or add to .htaccess: <Files xmlrpc.php> deny from all </Files>",
-    )
+  )
 
-   # — Multicall amplification check ————————————————————
-   if multicall_check and has_multicall:
-    test_body = _multicall_body("admin", ["wrong_password_xyz123", "another_wrong_456"])
-    r2 = await client.post(
+  if multicall_check and has_multicall:
+   test_body = _multicall_body(
+    "talisman-audit-user",
+    ["invalid-password-audit-1", "invalid-password-audit-2"],
+   )
+   try:
+    multicall_response = await client.post(
      endpoint,
      content=test_body,
      headers={"Content-Type": "text/xml"},
      timeout=20,
     )
-    is_rate_limited = r2.status_code == 429 or "too many" in r2.text.lower()
-    print_finding(
-     "XML-RPC multicall brute-force amplification" + (" (rate limited)" if is_rate_limited else " (NOT rate limited)"),
-     "high" if not is_rate_limited else "medium",
-     endpoint,
+    is_rate_limited = (
+     multicall_response.status_code == 429
+     or "too many" in multicall_response.text.lower()
     )
-    if session and not is_rate_limited:
-     await session.add_finding(
-      target=url, module="wordpress.xmlrpc",
-      vuln_type="xmlrpc_bruteforce_amplification",
-      severity="high", confidence="confirmed",
-      title="XML-RPC allows brute-force amplification via system.multicall",
-      description=(
-       "system.multicall allows sending hundreds of login attempts in a single HTTP request, "
-       "completely bypassing per-request rate limiting."
+    observations.append(
+     {
+      "type": "xmlrpc_multicall_rate_limit_observation",
+      "status": multicall_response.status_code,
+      "rate_limited": is_rate_limited,
+      "attempts_sent": 2,
+      "note": (
+       "Two low-impact invalid attempts are not enough to establish "
+       "brute-force amplification or account compromise."
       ),
-      reproduction=(
-       f"POST {endpoint} with system.multicall body containing "
-       f"500 wp.getUsersBlogs calls with different passwords"
-      ),
-      remediation="Disable XML-RPC or use a plugin that blocks system.multicall.",
-      cvss_score=7.5, cwe="CWE-307",
-     )
+     }
+    )
+   except Exception as exc:
+    observations.append(
+     {
+      "type": "xmlrpc_multicall_probe_error",
+      "error": type(exc).__name__,
+     }
+    )
 
-   # — Pingback SSRF check ——————————————————————————————
-   if pingback_ssrf and has_pingback and oast_domain:
-    ssrf_body = _pingback_body(
-     f"http://{oast_domain}/xmlrpc-ssrf",
-     f"{url}/?p=1",
-    )
+  if pingback_ssrf and has_pingback and oast_domain:
+   pingback_body = _pingback_body(
+    f"http://{oast_domain}/xmlrpc-ssrf",
+    f"{url}/?p=1",
+   )
+   try:
     await client.post(
      endpoint,
-     content=ssrf_body,
+     content=pingback_body,
      headers={"Content-Type": "text/xml"},
      timeout=10,
     )
-    print_finding("XML-RPC pingback SSRF vector (OOB probe sent)", "high", endpoint)
-    if session:
-     await session.add_finding(
-      target=url, module="wordpress.xmlrpc",
-      vuln_type="ssrf",
-      severity="high", confidence="likely",
-      title="XML-RPC pingback.ping can be used for SSRF",
-      description=(
-       "The pingback.ping XML-RPC method allows making arbitrary HTTP requests "
-       "from the server to any URL, enabling SSRF attacks."
+    candidates.append(
+     {
+      "type": "xmlrpc_pingback_ssrf_candidate",
+      "oast_domain": oast_domain,
+      "requires_oast_callback": True,
+      "verification_required": (
+       "Do not report an SSRF issue until a matching callback is received "
+       "from this specific pingback test and attributable to the target."
       ),
-      reproduction=f"POST {endpoint} with pingback.ping pointing to {oast_domain}",
-      remediation="Disable pingbacks via Settings > Discussion, or disable XML-RPC entirely.",
-      cvss_score=6.5, cwe="CWE-918",
-     )
+     }
+    )
+   except Exception as exc:
+    observations.append(
+     {
+      "type": "xmlrpc_pingback_probe_error",
+      "error": type(exc).__name__,
+     }
+    )
 
-  except Exception as e:
-   log.debug("xmlrpc_error", error=str(e))
-   return {"target": url, "xmlrpc_accessible": False, "findings": []}
-
- console.print(f" Found {len(findings)} XML-RPC issues")
- return {"target": url, "xmlrpc_accessible": True, "findings": findings}
+ console.print(
+  f" XML-RPC audit complete — {len(observations)} observations, "
+  f"{len(candidates)} candidates"
+ )
+ return {
+  "target": url,
+  "xmlrpc_accessible": True,
+  "methods": methods,
+  "observations": observations,
+  "candidates": candidates,
+  "findings": [],
+  "count": 0,
+ }
