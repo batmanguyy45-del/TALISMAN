@@ -4,6 +4,7 @@ import asyncio
 import re
 import unicodedata
 from typing import Any
+from talisman.engine.scope import ScopeViolationError
 from talisman.utils.http_client import TalismanHTTPClient
 from talisman.utils.logger import get_logger, console, print_finding
 
@@ -269,78 +270,80 @@ async def run(
     proxy: str | None = None,
     **kwargs: Any,
 ) -> dict[str, Any]:
+    """Report Unicode observations and keep active filter tests as candidates."""
     url = target if "://" in target else f"https://{target}"
-    console.print(f"\n[module][+] Unicode/Bidi Attack Scanner[/module] -> [target]{url}[/target]")
-    findings: list[dict[str, Any]] = []
+    if scope is None:
+        return {
+            "target": url, "findings": [], "candidates": [], "observations": [],
+            "count": 0, "candidate_count": 0, "observation_count": 0,
+            "error": "scope_enforcer_required",
+        }
+    scope.assert_in_scope(url)
 
-    async with TalismanHTTPClient(proxy=proxy, timeout=12) as client:
-        console.print(f"  Testing {len(UNICODE_ENDPOINTS)} endpoints for Unicode attack vectors...")
+    allow_post_probes = False
+    try:
+        scope.assert_destructive_allowed(url, "POST")
+        allow_post_probes = True
+    except ScopeViolationError:
+        pass
 
+    console.print(
+        f"\n[module][+] Unicode Security Posture Scanner[/module] -> [target]{url}[/target]"
+    )
+    observations: list[dict[str, Any]] = []
+    candidates: list[dict[str, Any]] = []
+
+    async with TalismanHTTPClient(proxy=proxy, timeout=12, scope=scope) as client:
         for endpoint in UNICODE_ENDPOINTS:
-            # -- 1. Bidi character reflection -----------------------------------------
-            bidi_findings = await _test_bidi_reflection(url, endpoint, client)
-            for f in bidi_findings:
-                ftype = f.get("type", "")
-                char_name = f.get("char_name", "Unknown")
-                char_hex = f.get("char_hex", "U+????")
-                title = f"Unicode control character reflection at {endpoint}: {char_name} ({char_hex})"
-                print_finding(title, "medium", url)
-                findings.append(f)
-                if session:
-                    await session.add_finding(
-                        target=url, module="unicode_attacks",
-                        vuln_type=ftype,
-                        severity="medium", confidence="confirmed",
-                        title=title,
-                        description=f"Unicode {char_name} ({char_hex}) reflected at {endpoint} via parameter '{f.get('param', '')}'. Reflected Bidi characters enable Trojan Source-style attacks that can hide malicious code from both human review and automated analysis.",
-                        evidence=f.get("evidence", ""),
-                        remediation="1. Sanitize or strip Unicode control characters from user input. 2. Use Unicode-aware sanitization libraries. 3. Reject inputs containing Bidi control characters unless explicitly required. 4. Add warnings for Bidi characters in code review pipelines.",
-                        cvss_score=5.3, cwe="CWE-172",
-                    )
+            # Existing response content is passive posture data. Its presence
+            # does not, by itself, prove exploitability.
+            for observation in await _test_response_unicode(url, endpoint, client):
+                observations.append({
+                    **observation,
+                    "classification": "security_posture_observation",
+                    "impact": "Requires a consumer/context analysis before assigning severity.",
+                })
 
-            # -- 2. Normalization bypass ----------------------------------------------
-            norm_findings = await _test_normalization_bypass(url, endpoint, client)
-            for f in norm_findings:
-                title = f"Unicode normalization bypass at {endpoint}"
-                print_finding(title, "high", url)
-                findings.append(f)
-                if session:
-                    await session.add_finding(
-                        target=url, module="unicode_attacks",
-                        vuln_type="normalization_bypass",
-                        severity="high", confidence="confirmed",
-                        title=title,
-                        description=f"Unicode normalization bypass detected at {endpoint}. NFD-form payload was processed differently from NFC, creating a WAF/input filter bypass opportunity.",
-                        evidence=f.get("evidence", ""),
-                        remediation="1. Normalize user input to a consistent Unicode form (NFC recommended) before validation. 2. Apply security filters AFTER normalization, not before.",
-                        cvss_score=7.5, cwe="CWE-176",
-                    )
+            if not allow_post_probes:
+                continue
 
-            # -- 3. Homoglyph bypass --------------------------------------------------
-            homo_findings = await _test_homoglyph_bypass(url, endpoint, client)
-            for f in homo_findings:
-                title = f"Homoglyph bypass at {endpoint}: {f.get('description', '')}"
-                print_finding(title, "high", url)
-                findings.append(f)
-                if session:
-                    await session.add_finding(
-                        target=url, module="unicode_attacks",
-                        vuln_type="homoglyph_bypass",
-                        severity="high", confidence="confirmed",
-                        title=title,
-                        description=f"Homoglyph bypass confirmed at {endpoint}. Character '{f.get('cyrillic_char', '')}' (U+{f.get('cyrillic_hex', '')}) visually identical to Latin '{f.get('latin_char', '')}' was accepted and processed. This can bypass domain allowlists, input filters, and WAF rules.",
-                        evidence=f.get("evidence", ""),
-                        remediation="1. Use Unicode confusable detection libraries. 2. Restrict allowed character sets to ASCII for security-critical fields. 3. Normalize to NFC and validate against allowlist.",
-                        cvss_score=7.5, cwe="CWE-176",
-                    )
+            active_results = (
+                await _test_bidi_reflection(url, endpoint, client)
+                + await _test_normalization_bypass(url, endpoint, client)
+                + await _test_homoglyph_bypass(url, endpoint, client)
+            )
+            for item in active_results:
+                candidates.append({
+                    **item,
+                    "confidence": "candidate",
+                    "requires_security_decision_validation": True,
+                    "verification_required": (
+                        "Show that the application or a downstream security "
+                        "decision treats the Unicode form differently in a way "
+                        "that bypasses a concrete control. Reflection or acceptance "
+                        "of a Unicode character alone is not a bypass."
+                    ),
+                })
 
-            # -- 4. Existing Bidi characters in responses -----------------------------
-            resp_findings = await _test_response_unicode(url, endpoint, client)
-            for f in resp_findings:
-                chars = f.get("chars_found", [])
-                title = f"Unicode control characters in response at {endpoint}: {len(chars)} types found"
-                print_finding(title, "info", url)
-                findings.append(f)
+    skipped_vectors = []
+    if not allow_post_probes:
+        skipped_vectors.append(
+            "Active POST reflection, normalization, and homoglyph tests were "
+            "skipped because destructive-probe permission was not granted."
+        )
 
-    console.print(f"  Unicode attack scan complete -- {len(findings)} issues")
-    return {"target": url, "findings": findings, "count": len(findings)}
+    console.print(
+        f"  Unicode assessment complete -- {len(observations)} observations, "
+        f"{len(candidates)} candidates"
+    )
+    return {
+        "target": url,
+        "findings": [],
+        "candidates": candidates,
+        "observations": observations,
+        "count": 0,
+        "candidate_count": len(candidates),
+        "observation_count": len(observations),
+        "post_probes_enabled": allow_post_probes,
+        "skipped_vectors": skipped_vectors,
+    }
