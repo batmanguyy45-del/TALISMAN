@@ -306,8 +306,14 @@ class ReportEngine:
   return out
 
  @staticmethod
- def _esc(s: str) -> str:
-  return (s or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+ def _esc(s: Any) -> str:
+  text = str(s or "")
+  return (
+   text.replace("&", "&amp;")
+   .replace("<", "&lt;")
+   .replace(">", "&gt;")
+   .replace('"', "&quot;")
+  )
 
  def generate_all(self, formats: list[str] | None = None) -> list[Path]:
   fmts = formats or ["json", "markdown", "html"]
