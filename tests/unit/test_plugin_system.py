@@ -101,13 +101,14 @@ async def test_discover_discovers_example_plugin():
 
 
 @pytest.mark.asyncio
-async def test_resolve_and_run_plugin():
+async def test_resolve_and_run_plugin(monkeypatch):
     from talisman.engine.plugin_manager import (
         resolve_plugin,
         _plugin_registry,
         register_plugins_to_registry,
     )
 
+    monkeypatch.setenv("TALISMAN_ENABLE_UNTRUSTED_PLUGINS", "1")
     _plugin_registry.clear()
     registry = register_plugins_to_registry({})
     assert "scanner.example" in registry or "plugin.example-scanner" in registry
@@ -116,3 +117,18 @@ async def test_resolve_and_run_plugin():
     fn = resolve_plugin(alias)
     assert fn is not None, f"Could not resolve plugin with alias {alias}"
     assert callable(fn)
+
+
+
+@pytest.mark.asyncio
+async def test_installed_plugins_are_not_loaded_without_explicit_opt_in(monkeypatch):
+    from talisman.engine.plugin_manager import (
+        _plugin_registry,
+        register_plugins_to_registry,
+    )
+
+    monkeypatch.delenv("TALISMAN_ENABLE_UNTRUSTED_PLUGINS", raising=False)
+    _plugin_registry.clear()
+    registry = register_plugins_to_registry({})
+    assert "scanner.example" not in registry
+    assert _plugin_registry == {}
