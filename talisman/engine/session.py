@@ -138,10 +138,10 @@ class Session:
   # Execute each statement separately to avoid reserved-word issues with executescript
   for stmt in [s.strip() for s in SCHEMA.split(";") if s.strip()]:
    try:
-    await self._db.execute(stmt)
+    await self.db.execute(stmt)
    except Exception as e:
     log.debug("schema_stmt_skip", error=str(e), stmt=stmt[:60])
-  await self._db.commit()
+  await self.db.commit()
   log.info("session_opened", name=self.name, db=str(self.db_path))
   return self
 
@@ -156,7 +156,7 @@ class Session:
     reset_active_scope(self._scope_token)
     self._scope_token = None
 
- async def __aenter__(self) -> "Session":
+ async def __aenter__(self) -> Session:
   return await self.open()
 
  async def __aexit__(self, *args: Any) -> None:
@@ -166,7 +166,7 @@ class Session:
  async def add_target(self, host: str, **kwargs: Any) -> str:
   tid = _uid()
   now = _now()
-  await self._db.execute(
+  await self.db.execute(
    "INSERT OR IGNORE INTO targets VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
    (tid, self.id, host,
     kwargs.get("ip"), kwargs.get("port"), kwargs.get("protocol"),
@@ -179,8 +179,8 @@ class Session:
   await self._db.commit()
   return tid
 
- async def get_targets(self) -> list[dict]:
-  async with self._db.execute("SELECT * FROM targets WHERE session_id=?", (self.id,)) as cur:
+ async def get_targets(self) -> list[dict[str, Any]]:
+  async with self.db.execute("SELECT * FROM targets WHERE session_id=?", (self.id,)) as cur:
    rows = await cur.fetchall()
   return [dict(r) for r in rows]
 
