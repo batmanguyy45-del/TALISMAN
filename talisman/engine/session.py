@@ -129,6 +129,8 @@ class Session:
   self._scope_token: Any = None
 
  async def open(self) -> "Session":
+  if self._db is not None:
+   return self
   self._db = await aiosqlite.connect(str(self.db_path))
   os.chmod(self.db_path, 0o600)
   self._db.row_factory = aiosqlite.Row
@@ -143,13 +145,15 @@ class Session:
   return self
 
  async def close(self) -> None:
-  if self._db:
-   await self._db.close()
-   self._db = None
-  if self._scope_token is not None:
-   from talisman.engine.scope import reset_active_scope
-   reset_active_scope(self._scope_token)
-   self._scope_token = None
+  try:
+   if self._db:
+    await self._db.close()
+    self._db = None
+  finally:
+   if self._scope_token is not None:
+    from talisman.engine.scope import reset_active_scope
+    reset_active_scope(self._scope_token)
+    self._scope_token = None
 
  async def __aenter__(self) -> "Session":
   return await self.open()
