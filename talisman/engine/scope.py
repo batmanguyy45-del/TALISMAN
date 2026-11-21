@@ -5,11 +5,12 @@ import asyncio
 import ipaddress
 import time
 import math
+import posixpath
 from contextvars import ContextVar, Token
 from dataclasses import dataclass, field
 from fnmatch import fnmatchcase
 from pathlib import Path
-from urllib.parse import SplitResult, urlsplit
+from urllib.parse import SplitResult, unquote, urlsplit
 
 import yaml
 
@@ -87,7 +88,7 @@ def _normalize_host(host: str) -> str:
 
 def _parse_url(value: str) -> SplitResult | None:
     raw = value.strip()
-    if not raw:
+    if not raw or "\\" in raw or any(ord(char) < 0x21 or ord(char) == 0x7F for char in raw):
         return None
     if "://" not in raw:
         raw = f"https://{raw}"
@@ -95,7 +96,12 @@ def _parse_url(value: str) -> SplitResult | None:
         parsed = urlsplit(raw)
         if parsed.scheme.lower() not in {"http", "https"}:
             return None
-        if not parsed.hostname or parsed.username is not None or parsed.password is not None:
+        if (
+            not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+            or "%" in parsed.hostname
+        ):
             return None
         # Accessing .port validates malformed and out-of-range ports.
         _ = parsed.port
@@ -249,6 +255,26 @@ class ScopeEnforcer:
 
         expected_path = expected.path or "/"
         candidate_path = candidate.path or "/"
+
+        # Decode repeatedly before applying path rules. This prevents common
+        # encoded/double-encoded dot-segment and slash tricks from evading an
+        # exclusion. Reject backslashes because proxies and frameworks disagree
+        # on whether they are path separators.
+        for _ in range(3):
+            decoded = unquote(candidate_path)
+            if decoded == candidate_path:
+                break
+            candidate_path = decoded
+        if "\\" in candidate_path:
+            return False
+        candidate_path = posixpath.normpath(candidate_path)
+        if not candidate_path.startswith("/"):
+            candidate_path = "/" + candidate_path
+
+        expected_path = posixpath.normpath(expected_path)
+        if not expected_path.startswith("/"):
+            expected_path = "/" + expected_path
+
         if "*" in expected_path or "?" in expected_path:
             if not fnmatchcase(candidate_path, expected_path):
                 return False
