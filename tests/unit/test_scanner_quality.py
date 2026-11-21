@@ -422,3 +422,37 @@ async def test_dependency_confusion_heuristics_are_candidates_not_findings(monke
     assert candidate["confidence"] == "candidate"
     assert "Confirm the package name is reserved" in candidate["requires_verification"][0]
     assert session.added == []
+
+
+@pytest.mark.asyncio
+async def test_csp_report_only_policy_is_not_treated_as_enforced(monkeypatch):
+    class _CSPResponse:
+        headers = {
+            "Content-Security-Policy-Report-Only": "default-src 'self'",
+        }
+
+    class _CSPClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def get(self, *args, **kwargs):
+            return _CSPResponse()
+
+    monkeypatch.setattr(csp_evaluator, "TalismanHTTPClient", _CSPClient)
+    result = await csp_evaluator.run(
+        target="https://example.com",
+        scope=_scope(),
+    )
+
+    assert result["csp_found"] is False
+    assert result["csp"] == ""
+    assert result["csp_report_only"] == "default-src 'self'"
+    assert result["findings"] == []
+    assert result["observations"][0]["issue"] == "no_enforced_csp"
+    assert result["observations"][1]["issue"] == "report_only_policy_present"
