@@ -99,3 +99,13 @@ class TestPluginExecution:
         info = {"entrypoint": "nonexistent_module.ClassName", "directory": "/tmp"}
         result = load_plugin(info)
         assert result is None
+
+
+@pytest.mark.parametrize("bad_name", ["..", "../escape", "/tmp/escape", "nested/name", "nested\\\\name"])
+def test_plugin_names_cannot_escape_plugin_root(bad_name):
+    from talisman.engine.plugin_manager import _plugin_path, install_plugin, uninstall_plugin
+
+    with pytest.raises(ValueError):
+        _plugin_path(bad_name)
+    assert install_plugin(bad_name)["success"] is False
+    assert uninstall_plugin(bad_name)["success"] is False
