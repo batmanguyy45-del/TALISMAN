@@ -28,8 +28,9 @@ async def _query_record(
  if domain != base_domain and not domain.endswith("." + base_domain):
   return []
  try:
-  await scope.acquire_request_slot()
-  result = await resolver.query(domain, rtype)
+  async with scope.request_concurrency_slot():
+   await scope.acquire_request_slot()
+   result = await resolver.query(domain, rtype)
   if rtype == "MX":
    return [f"{r.priority} {r.host}" for r in result]
   if rtype == "SOA":
@@ -121,16 +122,17 @@ async def run(
    # AXFR is an active request to a nameserver. Only query nameservers
    # explicitly included in the authorized scope.
    try:
-    addresses = await scope.resolve_network_destination(
-     f"http://{ns_host}:53/",
-     "GET",
-    )
-    await scope.acquire_request_slot()
-    transferred = await asyncio.to_thread(
-     _zone_transfer_sync,
-     domain,
-     str(addresses[0]),
-    )
+    async with scope.request_concurrency_slot():
+     addresses = await scope.resolve_network_destination(
+      f"http://{ns_host}:53/",
+      "GET",
+     )
+     await scope.acquire_request_slot()
+     transferred = await asyncio.to_thread(
+      _zone_transfer_sync,
+      domain,
+      str(addresses[0]),
+     )
     if transferred:
      print_finding(f"DNS zone transfer allowed from {ns_host}", "medium", domain)
      results["zone_transfer"] = {"ns": ns_host, "records": transferred[:50]}
