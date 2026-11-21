@@ -454,12 +454,12 @@ class ScopeEnforcer:
                 return True
         return False
 
-    async def assert_network_destination_allowed(
+    async def resolve_network_destination(
         self,
         target: str,
         method: str = "GET",
-    ) -> None:
-        """Block DNS names resolving to local/private IPs unless those IPs are scoped."""
+    ) -> tuple[ipaddress.IPv4Address | ipaddress.IPv6Address, ...]:
+        """Resolve and validate every destination address before network access."""
         self.assert_request_allowed(target, method)
         parsed = _parse_url(target)
         if parsed is None or not parsed.hostname:
@@ -489,6 +489,15 @@ class ScopeEnforcer:
                 f"Request blocked: '{host}' resolves to non-public address(es) "
                 f"{rendered}; explicitly include the authorized IP/CIDR to permit it"
             )
+        return tuple(sorted(addresses, key=lambda address: (address.version, int(address))))
+
+    async def assert_network_destination_allowed(
+        self,
+        target: str,
+        method: str = "GET",
+    ) -> None:
+        """Check DNS destination policy before a shared HTTP request."""
+        await self.resolve_network_destination(target, method)
 
     async def acquire_request_slot(self) -> None:
         """Apply one shared per-assessment request rate across all HTTP clients."""
