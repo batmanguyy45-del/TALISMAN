@@ -9,8 +9,14 @@ from talisman.utils.http_client import TalismanHTTPClient
 
 
 def _mock_client(scope, handler, **kwargs):
+    async def allow_test_destination(url, method="GET"):
+        scope.assert_request_allowed(url, method)
+
+    scope.assert_network_destination_allowed = allow_test_destination
     client = TalismanHTTPClient(scope=scope, **kwargs)
-    client._build_client = lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    client._build_client = lambda: httpx.AsyncClient(
+        transport=httpx.MockTransport(handler)
+    )
     return client
 
 
