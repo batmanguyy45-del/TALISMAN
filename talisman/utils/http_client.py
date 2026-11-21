@@ -97,11 +97,7 @@ def _build_httpx_client(
         "headers": headers,
     }
     if proxy:
-        try:
-            return httpx.AsyncClient(proxy=proxy, **kwargs)
-        except TypeError:
-            # Compatibility for the older httpx proxies= API.
-            return httpx.AsyncClient(proxies={"all://": proxy}, **kwargs)
+        return httpx.AsyncClient(proxy=proxy, **kwargs)
     if _has_h2():
         kwargs["http2"] = True
     return httpx.AsyncClient(**kwargs)
