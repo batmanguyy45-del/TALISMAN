@@ -45,7 +45,7 @@ class OASTClient:
   domain_part = token.split(".")[0] if "." in token else token
   hits: list[dict[str, Any]] = []
   deadline = time.monotonic() + timeout
-  async with TalismanHTTPClient(timeout=15) as client:
+  async with TalismanHTTPClient(timeout=15, scope_exempt=True) as client:
    while time.monotonic() < deadline:
     try:
      r = await client.get(
