@@ -122,6 +122,18 @@ async def run(
 ) -> dict[str, Any]:
     if scope is None:
         return {"target": target, "services": [], "findings": [], "count": 0, "error": "scope_enforcer_required"}
+    if proxy:
+        return {
+            "target": target,
+            "services": [],
+            "findings": [],
+            "count": 0,
+            "skipped": True,
+            "reason": (
+                "Database protocol probes use raw TCP and cannot honor the "
+                "configured HTTP proxy; no direct connections were made."
+            ),
+        }
 
     parsed = urlsplit(target if "://" in target else f"https://{target}")
     host = parsed.hostname
