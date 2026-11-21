@@ -200,7 +200,8 @@ class TalismanHTTPClient:
         scope = self.scope or get_active_scope()
         if scope is None:
             raise ScopeViolationError(
-                "HTTP request blocked: no active target scope. Invoke the scanner through an authorized assessment or pass ScopeEnforcer explicitly."
+                "HTTP request blocked: no active target scope. Invoke the scanner "
+                "through an authorized assessment or pass ScopeEnforcer explicitly."
             )
         scope.assert_request_allowed(url, method)
         return scope
