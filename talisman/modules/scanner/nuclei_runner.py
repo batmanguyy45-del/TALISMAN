@@ -74,6 +74,27 @@ async def run(
     except ScopeViolationError as exc:
         return {"target": target, "findings": [], "count": 0, "error": str(exc)}
 
+    # Nuclei resolves target hostnames in its own process. The current
+    # integration cannot pin every connection to the IP validated by TALISMAN.
+    # Fail closed unless the operator explicitly accepts this remaining DNS
+    # boundary gap for this assessment.
+    allow_unpinned_nuclei = os.environ.get(
+        "TALISMAN_ALLOW_UNPINNED_NUCLEI", ""
+    ).strip().lower() in {"1", "true", "yes"}
+    if not allow_unpinned_nuclei:
+        return {
+            "target": target,
+            "findings": [],
+            "count": 0,
+            "skipped": True,
+            "reason": (
+                "Nuclei uses its own DNS/network stack and cannot yet pin every "
+                "connection to TALISMAN's scope-approved IP. Set "
+                "TALISMAN_ALLOW_UNPINNED_NUCLEI=1 only when you explicitly accept "
+                "that residual boundary risk for this authorized assessment."
+            ),
+        }
+
     # Nuclei owns its network stack and templates can issue POST/PUT/DELETE.
     # TALISMAN cannot apply its per-request method gate inside that subprocess,
     # so require explicit permission for destructive/state-changing probes
