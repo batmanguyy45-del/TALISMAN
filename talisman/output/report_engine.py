@@ -74,6 +74,16 @@ def _quality_gate(findings: list[dict]) -> list[dict]:
  return qualified
 
 
+def _markdown_text(value: Any) -> str:
+ text = str(value or "")
+ return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _markdown_code(value: Any, limit: int) -> str:
+ text = _markdown_text(value)
+ return text.replace("```", "``&#96;")[:limit]
+
+
 def _safe_cvss(value: Any) -> float | None:
  if isinstance(value, bool) or not isinstance(value, (int, float)):
   return None
@@ -156,36 +166,36 @@ class ReportEngine:
   for i, f in enumerate(self.findings, 1):
    sev = f.get("severity", "info")
    lines.extend([
-    f"### {i}. {f.get('title', 'Untitled')}",
+    f"### {i}. {_markdown_text(f.get('title', 'Untitled'))}",
     f"\n**Severity:** {SEVERITY_BADGES[sev]} {sev.upper()} ",
-    f"**Target:** `{f.get('target', 'N/A')}` ",
-    f"**Module:** {f.get('module', 'N/A')} ",
-    f"**Confidence:** {f.get('confidence', 'N/A')} ",
+    f"**Target:** `{_markdown_code(f.get('target', 'N/A'), 500)}` ",
+    f"**Module:** {_markdown_text(f.get('module', 'N/A'))} ",
+    f"**Confidence:** {_markdown_text(f.get('confidence', 'N/A'))} ",
    ])
    cvss = _safe_cvss(f.get("cvss_score"))
    if cvss is not None:
     lines.append(f"**CVSS Score:** {cvss:g} ")
    if f.get("cwe"):
-    lines.append(f"**CWE:** {f['cwe']} ")
-   lines.append(f"\n**Description:** \n{f.get('description', 'N/A')}\n")
+    lines.append(f"**CWE:** {_markdown_text(f['cwe'])} ")
+   lines.append(f"\n**Description:** \n{_markdown_text(f.get('description', 'N/A'))}\n")
    if f.get("request"):
     lines.extend([
      "**Request:**",
      "```http",
-     f.get("request", ""),
+     _markdown_code(f.get("request", ""), 4000),
      "```",
     ])
    if f.get("evidence"):
     lines.extend([
      "**Evidence:**",
      "```",
-     str(f.get("evidence", ""))[:500],
+     _markdown_code(f.get("evidence", ""), 500),
      "```",
     ])
    if f.get("reproduction"):
-    lines.append(f"\n**Steps to Reproduce:** \n{f.get('reproduction', '')}\n")
+    lines.append(f"\n**Steps to Reproduce:** \n{_markdown_text(f.get('reproduction', ''))}\n")
    if f.get("remediation"):
-    lines.append(f"\n**Remediation:** \n{f.get('remediation', '')}\n")
+    lines.append(f"\n**Remediation:** \n{_markdown_text(f.get('remediation', ''))}\n")
    lines.append("\n---\n")
 
   self._write_private(out, "\n".join(lines))
