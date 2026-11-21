@@ -18,7 +18,7 @@ from talisman.utils.logger import get_logger, console, print_finding
 log = get_logger(__name__)
 
 CANARY_HOST = "talisman.invalid"
-HOST_HEADER_VARIANTS = [CANARY_HOST, "redirect-check.invalid"]
+HOST_HEADER_VARIANTS = [CANARY_HOST, "redirect-check.invalid", "host-header.invalid"]
 FORWARDED_HOST_HEADERS = ["X-Forwarded-Host", "X-Original-Host"]
 
 
