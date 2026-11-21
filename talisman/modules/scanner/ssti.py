@@ -21,6 +21,7 @@ import re
 import urllib.parse
 from typing import Any
 
+from talisman.engine.scope import ScopeViolationError
 from talisman.utils.http_client import TalismanHTTPClient
 from talisman.utils.logger import get_logger, console, print_finding
 
@@ -205,6 +206,22 @@ async def run(
  **kwargs: Any,
 ) -> dict[str, Any]:
  url = target if "://" in target else f"https://{target}"
+ if scope is None:
+  return {
+   "target": url,
+   "findings": [],
+   "count": 0,
+   "error": "scope_enforcer_required",
+  }
+ try:
+  scope.assert_in_scope(url)
+ except ScopeViolationError as exc:
+  return {
+   "target": url,
+   "findings": [],
+   "count": 0,
+   "error": str(exc),
+  }
  console.print(
   f"\n[module][+] SSTI Scanner[/module] -> [target]{url}[/target]"
  )
@@ -219,11 +236,19 @@ async def run(
    "q", "search", "lang", "view", "render",
   ]
 
- async with TalismanHTTPClient(proxy=proxy, timeout=15) as client:
+ methods = ["GET"]
+ skipped_methods: list[str] = []
+ try:
+  scope.assert_destructive_allowed(url, "POST")
+  methods.append("POST")
+ except ScopeViolationError:
+  skipped_methods.append("POST")
+
+ async with TalismanHTTPClient(proxy=proxy, timeout=15, scope=scope) as client:
   tasks = [
    _test_param(url, p, m, client)
    for p in params
-   for m in ["GET", "POST"]
+   for m in methods
   ]
   results = await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -236,7 +261,7 @@ async def run(
     continue
    seen_params.add(key)
 
-   severity = "critical"
+   severity = "medium"
    title = (
     f"SSTI ({result['engine']}) — "
     f"param '{result['param']}' via {result['method']}"
@@ -253,10 +278,10 @@ async def run(
      confidence="confirmed",
      title=title,
      description=(
-      f"Server-Side Template Injection confirmed in parameter "
-      f"'{result['param']}' (engine: {result['engine']}). "
-      f"Two independent math canaries both evaluated correctly "
-      f"server-side, ruling out false positives."
+      f"Server-side template expression evaluation was confirmed in parameter "
+      f"'{result['param']}' (engine: {result['engine']}) using two independent "
+      f"math canaries. This proves expression injection; the reachable template "
+      f"capabilities and resulting impact still require assessment."
      ),
      request=result["request"],
      evidence=result["evidence"],
@@ -272,7 +297,6 @@ async def run(
       "4. Consider logic-less templates (Mustache/Handlebars) "
       "for user content."
      ),
-     cvss_score=10.0,
      cwe="CWE-94",
      references=[
       "https://portswigger.net/web-security/"
@@ -280,5 +304,10 @@ async def run(
      ],
     )
 
- console.print(f" Found {len(findings)} confirmed SSTI vulnerabilities")
- return {"target": url, "findings": findings, "count": len(findings)}
+ console.print(f" Found {len(findings)} server-side template injection results")
+ return {
+  "target": url,
+  "findings": findings,
+  "count": len(findings),
+  "skipped_methods": skipped_methods,
+ }
