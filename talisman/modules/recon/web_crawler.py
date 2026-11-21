@@ -5,6 +5,7 @@ import re
 from collections import deque
 from typing import Any
 from urllib.parse import urljoin, urlparse
+from talisman.engine.scope import ScopeViolationError
 from bs4 import BeautifulSoup
 from talisman.utils.http_client import TalismanHTTPClient
 from talisman.utils.logger import get_logger, console
@@ -52,13 +53,52 @@ async def run(
  rate_limiter: Any = None,
  proxy: str | None = None,
  depth: int = 3,
+ max_pages: int = 250,
  js_parse: bool = True,
  forms: bool = True,
  wayback: bool = False,
  **kwargs: Any,
 ) -> dict[str, Any]:
  base_url = target if "://" in target else f"https://{target}"
- console.print(f"\n[module][+] Web Crawler[/module] -> [target]{base_url}[/target] (depth={depth})")
+ if scope is None:
+  return {
+   "base_url": base_url,
+   "pages_crawled": 0,
+   "endpoints": [],
+   "forms": [],
+   "js_endpoints": [],
+   "parameters": [],
+   "comments": [],
+   "error": "scope_enforcer_required",
+  }
+ try:
+  scope.assert_in_scope(base_url)
+ except ScopeViolationError as exc:
+  return {
+   "base_url": base_url,
+   "pages_crawled": 0,
+   "endpoints": [],
+   "forms": [],
+   "js_endpoints": [],
+   "parameters": [],
+   "comments": [],
+   "error": str(exc),
+  }
+
+ try:
+  requested_depth = int(depth)
+ except (TypeError, ValueError):
+  requested_depth = 0
+ requested_depth = max(0, min(requested_depth, 5))
+ try:
+  requested_pages = int(max_pages)
+ except (TypeError, ValueError):
+  requested_pages = 1
+ requested_pages = max(1, min(requested_pages, 500))
+ console.print(
+  f"\n[module][+] Web Crawler[/module] -> [target]{base_url}[/target] "
+  f"(depth={requested_depth}, max_pages={requested_pages})"
+ )
 
  visited: set[str] = set()
  queue: deque[tuple[str, int]] = deque([(base_url, 0)])
@@ -68,12 +108,14 @@ async def run(
  interesting_comments: list[str] = []
  parameters: set[str] = set()
 
- async with TalismanHTTPClient(proxy=proxy, timeout=15) as client:
+ async with TalismanHTTPClient(proxy=proxy, timeout=15, scope=scope) as client:
   while queue:
    url, current_depth = queue.popleft()
-   if url in visited or current_depth > depth:
+   if len(visited) >= requested_pages:
+    break
+   if url in visited or current_depth > requested_depth:
     continue
-   if scope and not scope.is_in_scope(url):
+   if not scope.is_in_scope(url):
     continue
    visited.add(url)
 
@@ -100,7 +142,7 @@ async def run(
      href = tag.get("href", "")
      norm = _normalize(href, url)
      if norm and _same_domain(norm, base_url) and norm not in visited:
-      if current_depth + 1 <= depth:
+      if current_depth + 1 <= requested_depth:
        queue.append((norm, current_depth + 1))
 
     # — Script src ——————————————————————————————
@@ -156,7 +198,10 @@ async def run(
 
   # — Inline JS file scanning ———————————————————
   if js_parse:
-   js_files = [e for e in endpoints if ".js" in e][:20]
+   js_files = [
+    endpoint for endpoint in endpoints
+    if ".js" in endpoint.lower() and scope.is_in_scope(endpoint)
+   ][:20]
    for js_url in js_files:
     if js_url in visited:
      continue
