@@ -32,7 +32,7 @@ PERMUTATION_PREFIXES = [
 async def _crtsh(domain: str, client: TalismanHTTPClient) -> list[str]:
  found: list[str] = []
  try:
-  r = await client.get(f"https://crt.sh/?q=%.{domain}&output=json", timeout=20)
+  r = await client.get(f"https://crt.sh/?q=%.{domain}&output=json", timeout=20, scope_exempt=True)
   if r.status_code == 200:
    for entry in r.json():
     name = entry.get("name_value", "")
@@ -47,7 +47,7 @@ async def _crtsh(domain: str, client: TalismanHTTPClient) -> list[str]:
 async def _hackertarget(domain: str, client: TalismanHTTPClient) -> list[str]:
  found: list[str] = []
  try:
-  r = await client.get(f"https://api.hackertarget.com/hostsearch/?q={domain}", timeout=15)
+  r = await client.get(f"https://api.hackertarget.com/hostsearch/?q={domain}", timeout=15, scope_exempt=True)
   if r.status_code == 200 and "," in r.text:
    for line in r.text.splitlines():
     parts = line.split(",")
@@ -61,7 +61,7 @@ async def _wayback(domain: str, client: TalismanHTTPClient) -> list[str]:
  found: list[str] = []
  try:
   url = f"http://web.archive.org/cdx/search/cdx?url=*.{domain}&output=json&fl=original&collapse=urlkey&limit=5000"
-  r = await client.get(url, timeout=30)
+  r = await client.get(url, timeout=30, scope_exempt=True)
   if r.status_code == 200:
    data = r.json()
    sub_re = re.compile(rf"https?://([a-z0-9._-]+\.{re.escape(domain)})", re.IGNORECASE)
