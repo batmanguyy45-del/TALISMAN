@@ -97,6 +97,7 @@ def _build_httpx_client(
         "verify": verify_ssl,
         "follow_redirects": False,
         "headers": headers,
+        "trust_env": False,
     }
     if proxy:
         return httpx.AsyncClient(proxy=proxy, **kwargs)
@@ -194,14 +195,14 @@ class TalismanHTTPClient:
                 await asyncio.sleep(delay)
             self._last_request_time = time.monotonic()
 
-    def _assert_allowed(self, url: str, method: str) -> ScopeEnforcer:
+    async def _assert_allowed(self, url: str, method: str) -> ScopeEnforcer:
         scope = self.scope or get_active_scope()
         if scope is None:
             raise ScopeViolationError(
                 "HTTP request blocked: no active target scope. Invoke the scanner "
                 "through an authorized assessment or pass ScopeEnforcer explicitly."
             )
-        scope.assert_request_allowed(url, method)
+        await scope.assert_network_destination_allowed(url, method)
         return scope
 
     async def request(
@@ -230,7 +231,7 @@ class TalismanHTTPClient:
         current_url = url
         current_params = params
         for redirect_index in range(self.max_redirects + 1):
-            active_scope = self._assert_allowed(current_url, method)
+            active_scope = await self._assert_allowed(current_url, method)
             attempts = self.max_retries if method in SAFE_REDIRECT_METHODS else 1
             last_exc: Exception | None = None
             response: httpx.Response | None = None
@@ -287,7 +288,7 @@ class TalismanHTTPClient:
 
             next_url = urljoin(str(response.url), location)
             # Check scope before the next connection; never delegate this to httpx.
-            active_scope = self._assert_allowed(next_url, method)
+            active_scope = await self._assert_allowed(next_url, method)
             old_origin = httpx.URL(str(response.url))
             new_origin = httpx.URL(next_url)
             if (old_origin.scheme, old_origin.host, old_origin.port) != (
