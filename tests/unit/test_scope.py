@@ -180,3 +180,38 @@ def test_scope_rejects_excessive_request_rate(tmp_path):
     )
     with pytest.raises(ValueError, match="no greater than"):
         ScopeConfig.from_file(scope_file)
+
+
+
+def test_passive_service_hosts_remain_read_only_when_active_testing_enabled():
+    scope = ScopeEnforcer(ScopeConfig(
+        include=["example.com"],
+        service_allowlist=["registry.npmjs.org"],
+        allow_state_changing_requests=True,
+        avoid_writes=False,
+        avoid_destructive=False,
+    ))
+    scope.assert_request_allowed("https://registry.npmjs.org/package", "GET")
+    with pytest.raises(ScopeViolationError, match="read-only data sources"):
+        scope.assert_request_allowed("https://registry.npmjs.org/package", "POST")
+
+
+def test_destructive_operations_need_separate_opt_in():
+    scope = ScopeEnforcer(ScopeConfig(
+        include=["example.com"],
+        service_allowlist=[],
+        allow_state_changing_requests=True,
+        avoid_writes=False,
+        avoid_destructive=True,
+    ))
+    with pytest.raises(ScopeViolationError, match="Destructive probe blocked"):
+        scope.assert_destructive_allowed("https://example.com/api", "POST")
+
+    allowed = ScopeEnforcer(ScopeConfig(
+        include=["example.com"],
+        service_allowlist=[],
+        allow_state_changing_requests=True,
+        avoid_writes=False,
+        avoid_destructive=False,
+    ))
+    allowed.assert_destructive_allowed("https://example.com/api", "POST")
