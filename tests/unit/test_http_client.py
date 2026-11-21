@@ -174,7 +174,11 @@ async def test_cross_origin_redirect_drops_all_custom_headers():
     async def handler(request):
         seen.append(dict(request.headers))
         if request.url.host == "example.com":
-            return httpx.Response(302, headers={"Location": "https://docs.example.net/next"}, request=request)
+            return httpx.Response(
+                302,
+                headers={"Location": "https://docs.example.net/next"},
+                request=request,
+            )
         return httpx.Response(200, request=request)
 
     scope = ScopeEnforcer(ScopeConfig(
