@@ -57,7 +57,7 @@ async def test_out_of_scope_origin_ip_is_never_verified(monkeypatch):
     )
 
     assert result["candidates"] == ["203.0.113.45"]
-    assert result["verified_candidates"] == []
+    assert result["authorized_candidates"] == []
     assert result["out_of_scope_candidates"] == ["203.0.113.45"]
     assert result["confirmed_origins"] == []
 
@@ -93,9 +93,44 @@ async def test_explicitly_scoped_origin_ip_can_be_verified(monkeypatch):
         scope=scope,
     )
 
-    assert result["verified_candidates"] == ["203.0.113.45"]
+    assert result["authorized_candidates"] == ["203.0.113.45"]
     assert result["out_of_scope_candidates"] == []
     assert result["responding_candidates"] == ["203.0.113.45"]
     assert result["confirmed_origins"] == []
     assert result["origin_found"] is False
     assert result["requires_manual_origin_confirmation"] is True
+
+
+
+@pytest.mark.asyncio
+async def test_origin_verification_does_not_bypass_configured_proxy(monkeypatch):
+    scope = ScopeEnforcer(
+        ScopeConfig(
+            include=["example.com", "203.0.113.45/32"],
+            service_allowlist=[],
+        )
+    )
+    monkeypatch.setattr(cloudflare, "TalismanHTTPClient", _FakeClient)
+
+    async def fake_crtsh(domain, client):
+        return ["203.0.113.45"]
+
+    async def fake_mx(domain, scoped):
+        return []
+
+    async def verification_must_not_run(domain, ip, scoped):
+        raise AssertionError("Origin TCP/TLS checks must not bypass the configured proxy")
+
+    monkeypatch.setattr(cloudflare, "_crtsh_ips", fake_crtsh)
+    monkeypatch.setattr(cloudflare, "_mx_ips", fake_mx)
+    monkeypatch.setattr(cloudflare, "_verify_origin", verification_must_not_run)
+
+    result = await cloudflare.find_origin(
+        "https://example.com",
+        proxy="http://127.0.0.1:8080",
+        scope=scope,
+    )
+
+    assert result["authorized_candidates"] == ["203.0.113.45"]
+    assert result["responding_candidates"] == []
+    assert "cannot honor the configured HTTP proxy" in result["verification_skipped_reason"]
