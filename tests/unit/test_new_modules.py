@@ -10,7 +10,12 @@ from talisman.engine.scope import ScopeConfig, ScopeEnforcer
 
 def _test_scope():
     return ScopeEnforcer(
-        ScopeConfig(include=["test.com"], service_allowlist=[])
+        ScopeConfig(
+            include=["test.com"],
+            service_allowlist=[],
+            allow_state_changing_requests=True,
+            avoid_writes=False,
+        )
     )
 
 
@@ -48,7 +53,7 @@ class TestNosqli:
             from talisman.utils.http_client import TalismanHTTPClient
             with pytest.MonkeyPatch.context() as mp:
                 mp.setattr("talisman.modules.scanner.nosqli.ENDPOINTS", [""])
-                async with TalismanHTTPClient() as c:
+                async with TalismanHTTPClient(scope=_test_scope()) as c:
                     r = await m._test_json_nosqli("http://test.com/", m.NOSQLI_JSON_PAYLOADS[0], c)
                 assert r is None, "should not report on 403"
 
