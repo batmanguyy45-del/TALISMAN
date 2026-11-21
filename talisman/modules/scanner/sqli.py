@@ -24,6 +24,8 @@ import time
 import urllib.parse
 from typing import Any
 
+from talisman.engine.scope import ScopeViolationError
+
 from talisman.utils.http_client import TalismanHTTPClient
 from talisman.utils.logger import get_logger, console, print_finding
 
@@ -96,7 +98,6 @@ TIME_PAYLOADS: list[tuple[str, str]] = [
  ("1' AND (SELECT * FROM (SELECT(SLEEP(6)))a)--", "MySQL"),
  ("'; SELECT pg_sleep(6)--", "PostgreSQL"),
  ("1; SELECT pg_sleep(6)--", "PostgreSQL"),
- ("1' AND BENCHMARK(10000000,SHA1(1))--", "MySQL"),
 ]
 
 SLEEP_DURATION = 6
@@ -257,15 +258,19 @@ async def _test_boolean_blind(
    false_len = len(r_false.text)
    len_diff = abs(true_len - false_len)
    status_diff = r_true.status_code != r_false.status_code
+   true_status_matches_baseline = r_true.status_code == baseline_status
 
-   # The "true" response should be similar to baseline
+   # True controls must match both the baseline status and approximate body
+   # length; this filters login redirects, WAF pages and generic errors.
    baseline_match = (
-    baseline_length == 0
-    or abs(true_len - baseline_length) / max(baseline_length, 1) < 0.15
+    true_status_matches_baseline
+    and baseline_length > 0
+    and abs(true_len - baseline_length) / max(baseline_length, 1) < 0.10
    )
 
-   # Require meaningful difference
-   if (len_diff > 150 or status_diff) and baseline_match:
+   # A false control must differ materially after the true control matches
+   # baseline. Status-only differences are not sufficient evidence.
+   if len_diff > 150 and baseline_match:
     confirmed_pairs.append({
      "true_payload": true_p,
      "false_payload": false_p,
@@ -275,8 +280,8 @@ async def _test_boolean_blind(
      "hint": hint,
     })
 
-   # Need at least 2 confirmed pairs for confidence
-   if len(confirmed_pairs) >= 2:
+   # Require three independent true/false pairs before raising a candidate.
+   if len(confirmed_pairs) >= 3:
     best = max(confirmed_pairs, key=lambda x: x["diff"])
     return {
      "technique": "boolean_blind",
@@ -290,7 +295,8 @@ async def _test_boolean_blind(
       f"{best['true_len']} bytes; "
       f"False payload ({best['false_payload']}) returned "
       f"{best['false_len']} bytes. "
-      f"Differential confirmed across {len(confirmed_pairs)} pairs."
+      f"Response differential observed across {len(confirmed_pairs)} pairs; "
+      "manual query-execution verification is still required."
      ),
      "request": (
       f"{method} {url}?"
@@ -411,12 +417,74 @@ async def run(
  **kwargs: Any,
 ) -> dict[str, Any]:
  url = target if "://" in target else f"https://{target}"
- console.print(
-  f"\n[module][+] SQL Injection Scanner[/module] -> [target]{url}[/target]"
- )
- techniques = techniques or ["error", "boolean", "time"]
- findings: list[dict[str, Any]] = []
+ if scope is None:
+  return {
+   "target": url,
+   "findings": [],
+   "candidates": [],
+   "count": 0,
+   "error": "scope_enforcer_required",
+  }
+ try:
+  scope.assert_in_scope(url)
+ except ScopeViolationError as exc:
+  return {
+   "target": url,
+   "findings": [],
+   "candidates": [],
+   "count": 0,
+   "error": str(exc),
+  }
 
+ console.print(
+  f"\n[module][+] SQL Injection Candidate Scanner[/module] -> [target]{url}[/target]"
+ )
+ active_techniques = set(techniques or ["error", "boolean"])
+ supported_techniques = {"error", "boolean", "time"}
+ if not active_techniques or active_techniques - supported_techniques:
+  return {
+   "target": url,
+   "findings": [],
+   "candidates": [],
+   "count": 0,
+   "error": "techniques must be selected from error, boolean and time",
+  }
+
+ methods = ["GET"]
+ skipped_methods: list[str] = []
+ try:
+  # POST injection payloads can mutate application state even when the
+  # selected technique is error- or boolean-based.
+  scope.assert_destructive_allowed(url, "POST")
+  methods.append("POST")
+ except ScopeViolationError:
+  skipped_methods.append("POST")
+
+ skipped_techniques: list[str] = []
+ if "time" in active_techniques:
+  try:
+   # Time-delay payloads deliberately add server-side latency and must be
+   # explicitly authorized as destructive testing.
+   scope.assert_destructive_allowed(url, "POST")
+  except ScopeViolationError:
+   active_techniques.remove("time")
+   skipped_techniques.append("time")
+
+ if not active_techniques:
+  return {
+   "target": url,
+   "findings": [],
+   "candidates": [],
+   "count": 0,
+   "skipped": True,
+   "skipped_techniques": skipped_techniques,
+   "reason": (
+    "Time-based SQLi probes require allow_state_changing_requests=true, "
+    "avoid_writes=false and avoid_destructive=false in the scope policy."
+   ),
+  }
+
+ candidates: list[dict[str, Any]] = []
  parsed = urllib.parse.urlparse(url)
  params = list(dict(urllib.parse.parse_qsl(parsed.query)).keys())
  if not params:
@@ -425,87 +493,86 @@ async def run(
    "page", "cat", "category", "search", "q", "item",
   ]
 
- async with TalismanHTTPClient(proxy=proxy, timeout=18) as client:
+ async with TalismanHTTPClient(
+  proxy=proxy,
+  timeout=18,
+  scope=scope,
+ ) as client:
   seen_params: set[str] = set()
-
   for param in params:
    if param in seen_params:
     continue
 
-   for method in ["GET", "POST"]:
+   for method in methods:
     result = None
-
-    # --- Error-based ---
-    if "error" in techniques:
+    if "error" in active_techniques:
      result = await _test_error_based(url, param, method, client)
 
-    # --- Boolean blind ---
-    if not result and "boolean" in techniques:
+    if not result and "boolean" in active_techniques:
      try:
-      _, _, bl_status, bl_length = await _get_baseline_stats(
-       url, param, method, client, samples=3
+      _, _, baseline_status, baseline_length = await _get_baseline_stats(
+       url,
+       param,
+       method,
+       client,
+       samples=5,
       )
       result = await _test_boolean_blind(
-       url, param, method, client, bl_length, bl_status
+       url,
+       param,
+       method,
+       client,
+       baseline_length,
+       baseline_status,
       )
-     except Exception as e:
-      log.debug("sqli_boolean_setup", error=str(e)[:60])
+     except Exception as exc:
+      log.debug("sqli_boolean_setup", error=type(exc).__name__)
 
-    # --- Time-based ---
-    if not result and "time" in techniques:
+    if not result and "time" in active_techniques:
      try:
-      bl_time, bl_std, _, _ = await _get_baseline_stats(
-       url, param, method, client, samples=5
+      baseline_time, baseline_stddev, _, _ = await _get_baseline_stats(
+       url,
+       param,
+       method,
+       client,
+       samples=7,
       )
       result = await _test_time_based(
-       url, param, method, bl_time, bl_std, client
+       url,
+       param,
+       method,
+       baseline_time,
+       baseline_stddev,
+       client,
       )
-     except Exception as e:
-      log.debug("sqli_time_setup", error=str(e)[:60])
+     except Exception as exc:
+      log.debug("sqli_time_setup", error=type(exc).__name__)
 
     if result:
      seen_params.add(param)
-     severity = "critical"
-     title = (
-      f"SQL Injection ({result['technique']}) — "
-      f"parameter '{param}'"
+     result["param"] = param
+     result["url"] = url
+     result["method"] = method
+     result["confidence"] = "candidate"
+     result["requires_manual_verification"] = True
+     result["verification_required"] = (
+      "Reproduce with a controlled true/false pair or a DBMS-specific "
+      "error/query oracle, repeat against a stable baseline, and show that "
+      "the result is caused by SQL evaluation rather than application errors, "
+      "WAF behavior, caching or response-size noise."
      )
-     print_finding(title, severity, url)
-     findings.append({**result, "param": param, "url": url})
-
-     if session:
-      dbms = result.get("dbms", "unknown")
-      await session.add_finding(
-       target=url,
-       module="sqli",
-       vuln_type="sql_injection",
-       severity=severity,
-       confidence="confirmed",
-       title=title,
-       description=(
-        f"SQL injection via {result['technique']} "
-        f"technique in parameter '{param}'. "
-        f"DBMS: {dbms}."
-       ),
-       request=result.get("request", ""),
-       evidence=result.get("evidence", ""),
-       reproduction=(
-        f"Test: {url}?{param}="
-        f"{urllib.parse.quote(result.get('payload', result.get('true_payload', '')))}"
-       ),
-       remediation=(
-        "Use parameterized queries / prepared statements. "
-        "Never concatenate user input into SQL strings."
-       ),
-       cvss_score=9.8,
-       cwe="CWE-89",
-       references=[
-        "https://owasp.org/www-community/attacks/SQL_Injection"
-       ],
-      )
-     break # Found for this param, move to next
+     candidates.append(result)
+     break
 
  console.print(
-  f" Found {len(findings)} confirmed SQL injection vulnerabilities"
+  f" Found {len(candidates)} SQLi candidates requiring query-execution verification"
  )
- return {"target": url, "findings": findings, "count": len(findings)}
+ return {
+  "target": url,
+  "findings": [],
+  "candidates": candidates,
+  "count": 0,
+  "candidate_count": len(candidates),
+  "skipped_techniques": skipped_techniques,
+  "skipped_methods": skipped_methods,
+ }

@@ -23,7 +23,9 @@ CORRECT APPROACH:
 from __future__ import annotations
 import asyncio
 from typing import Any
+from urllib.parse import urlsplit
 
+from talisman.engine.scope import ScopeViolationError
 from talisman.utils.http_client import TalismanHTTPClient
 from talisman.utils.logger import get_logger, console, print_finding
 
@@ -60,9 +62,7 @@ def _assess_severity(
  """
  credentials_allowed = acac.strip().lower() == "true"
  is_wildcard = acao.strip() == "*"
- origin_reflected = (acao.strip() == origin_sent) or (
-  origin_sent != "*" and origin_sent in acao
- )
+ origin_reflected = acao.strip() == origin_sent
 
  if is_wildcard:
   if credentials_allowed:
@@ -125,7 +125,7 @@ async def _test_origin(
    }
 
   # Check if our injected origin is actually reflected (not just any value)
-  if acao == origin or (origin != "*" and origin in acao):
+  if acao == origin:
    severity, rationale = _assess_severity(acao, acac, origin, label)
    if severity == "info":
     return None
@@ -187,80 +187,101 @@ async def run(
  **kwargs: Any,
 ) -> dict[str, Any]:
  url = target if "://" in target else f"https://{target}"
- domain = url.split("://")[-1].split("/")[0].split(":")[0]
- console.print(
-  f"\n[module][+] CORS Misconfiguration Scan[/module] -> [target]{url}[/target]"
- )
- vulnerabilities: list[dict[str, Any]] = []
+ if scope is None:
+  return {
+   "target": url,
+   "findings": [],
+   "candidates": [],
+   "observations": [],
+   "count": 0,
+   "error": "scope_enforcer_required",
+  }
+ try:
+  scope.assert_in_scope(url)
+ except ScopeViolationError as exc:
+  return {
+   "target": url,
+   "findings": [],
+   "candidates": [],
+   "observations": [],
+   "count": 0,
+   "error": str(exc),
+  }
 
+ parsed = urlsplit(url)
+ domain = parsed.hostname or ""
+ if not domain:
+  return {
+   "target": url,
+   "findings": [],
+   "candidates": [],
+   "observations": [],
+   "count": 0,
+   "error": "invalid_target",
+  }
+
+ console.print(
+  f"\\n[module][+] CORS Configuration Assessment[/module] -> [target]{url}[/target]"
+ )
+ candidates: list[dict[str, Any]] = []
+ observations: list[dict[str, Any]] = []
  test_origins = _build_test_origins(domain)
 
- async with TalismanHTTPClient(proxy=proxy, timeout=15) as client:
-  tasks = [
-   _test_origin(url, label, origin, client)
-   for label, origin in test_origins
-  ]
-  results = await asyncio.gather(*tasks, return_exceptions=True)
+ async with TalismanHTTPClient(
+  proxy=proxy,
+  timeout=15,
+  verify_ssl=True,
+  follow_redirects=False,
+  scope=scope,
+ ) as client:
+  results = await asyncio.gather(
+   *(
+    _test_origin(url, label, origin, client)
+    for label, origin in test_origins
+   ),
+   return_exceptions=True,
+  )
 
-  seen_labels: set[str] = set()
-  for result in results:
-   if not isinstance(result, dict):
-    continue
-   if result["label"] in seen_labels:
-    continue
-   seen_labels.add(result["label"])
+ for result in results:
+  if not isinstance(result, dict):
+   continue
+  reflected = result.get("acao") == result.get("origin_sent")
+  credentials = result.get("acac", "").strip().lower() == "true"
+  if reflected and credentials:
+   candidate = {
+    **result,
+    "confidence": "candidate",
+    "requires_authenticated_resource_validation": True,
+    "verification_required": (
+     "Repeat the request with an authenticated, dedicated test account and "
+     "verify that a cross-origin browser context can read a sensitive response. "
+     "Header reflection and Access-Control-Allow-Credentials alone do not prove "
+     "that protected user data is exposed."
+    ),
+   }
+   candidates.append(candidate)
+  else:
+   observations.append({
+    **result,
+    "classification": "cors_posture_observation",
+    "note": (
+     "This CORS response did not establish credentialed access to a protected "
+     "resource. Wildcard or non-credentialed cross-origin access may be intentional "
+     "for public resources."
+    ),
+   })
 
-   severity = result["severity"]
-   title = (
-    f"CORS misconfiguration — {result['label']} "
-    f"({'with credentials' if result['credentials'] else 'no credentials'})"
-   )
-   print_finding(title, severity, url)
-   vulnerabilities.append(result)
-
-   if session:
-    cvss = {
-     "critical": 8.1,
-     "high": 7.4,
-     "medium": 5.4,
-     "low": 3.1,
-    }.get(severity, 3.1)
-
-    await session.add_finding(
-     target=url,
-     module="cors",
-     vuln_type="cors_misconfiguration",
-     severity=severity,
-     confidence="confirmed",
-     title=title,
-     description=(
-      f"{result['rationale']}\n"
-      f"Origin sent: {result['origin_sent']}\n"
-      f"ACAO received: {result['acao']}\n"
-      f"ACAC: {result['acac'] or 'not set'}"
-     ),
-     evidence=(
-      f"Access-Control-Allow-Origin: {result['acao']}\n"
-      f"Access-Control-Allow-Credentials: "
-      f"{result['acac'] or 'not set'}"
-     ),
-     request=(
-      f"GET {url} HTTP/1.1\n"
-      f"Origin: {result['origin_sent']}"
-     ),
-     remediation=(
-      "1. Implement an explicit allowlist of trusted origins.\n"
-      "2. Never reflect the Origin header directly.\n"
-      "3. Do not use wildcards with Allow-Credentials.\n"
-      "4. Validate Origin server-side before setting ACAO."
-     ),
-     cvss_score=cvss,
-     cwe="CWE-942",
-    )
-
- console.print(f" Found {len(vulnerabilities)} CORS issues")
+ console.print(
+  f" CORS assessment complete — {len(candidates)} credentialed-origin candidates, "
+  f"{len(observations)} posture observations"
+ )
  return {
   "target": url,
-  "vulnerabilities": vulnerabilities,
-  "count": len(vulnerabilities),
+  "findings": [],
+  "candidates": candidates,
+  "observations": observations,
+  "vulnerabilities": candidates,
+  "count": 0,
+  "candidate_count": len(candidates),
+  "observation_count": len(observations),
  }

@@ -1,9 +1,15 @@
 """Cloudflare-specific bypass techniques and origin IP discovery."""
 from __future__ import annotations
+
 import asyncio
+import ipaddress
 import re
+import socket
+import ssl
 from typing import Any
-import httpx
+from urllib.parse import urlsplit
+
+from talisman.engine.scope import ScopeViolationError
 from talisman.utils.http_client import TalismanHTTPClient
 from talisman.utils.logger import get_logger, console
 
@@ -100,16 +106,20 @@ async def _shodan_ips(domain: str, api_key: str, client: TalismanHTTPClient) -> 
  return list(set(ips))
 
 
-async def _mx_ips(domain: str) -> list[str]:
+async def _mx_ips(domain: str, scope: Any) -> list[str]:
  """MX records often not behind Cloudflare."""
  import aiodns
  resolver = aiodns.DNSResolver()
  ips: list[str] = []
  try:
-  mx_records = await resolver.query(domain, "MX")
+  async with scope.request_concurrency_slot():
+   await scope.acquire_request_slot()
+   mx_records = await resolver.query(domain, "MX")
   for mx in mx_records:
    try:
-    a_records = await resolver.query(str(mx.host), "A")
+    async with scope.request_concurrency_slot():
+     await scope.acquire_request_slot()
+     a_records = await resolver.query(str(mx.host), "A")
     ips.extend(r.host for r in a_records)
    except Exception:
     pass
@@ -118,22 +128,80 @@ async def _mx_ips(domain: str) -> list[str]:
  return ips
 
 
-async def _verify_origin(domain: str, ip: str, client: TalismanHTTPClient) -> bool:
- """Send request to IP with Host header — check if it responds like the target."""
- for scheme in ("https", "http"):
+async def _verify_origin(domain: str, ip: str, scope: Any) -> bool:
+ """Probe an explicitly scoped IP while preserving the domain's TLS SNI and Host.
+
+ A response is only a candidate signal; it is not proof of authoritative origin
+ status or provider-resource claimability.
+ """
+ for scheme, port in (("https", 443), ("http", 80)):
+  destination = f"{scheme}://{ip}:{port}/"
   try:
-   r = await client.get(
-    f"{scheme}://{ip}/",
-    headers={"Host": domain},
-    timeout=8,
-   )
-   # If we get a response with typical site content, likely origin
-   if r.status_code < 500 and len(r.text) > 100:
-    # Check it's not a Cloudflare error page
-    if "cloudflare" not in r.text.lower() and "cf-ray" not in str(r.headers).lower():
+   async with scope.request_concurrency_slot():
+    addresses = await scope.resolve_network_destination(destination, "GET")
+    await scope.acquire_request_slot()
+    connect_ip = str(addresses[0])
+
+    def _probe() -> bool:
+     raw_socket: socket.socket | None = None
+     active_socket: socket.socket | None = None
+     try:
+      raw_socket = socket.create_connection((connect_ip, port), timeout=8)
+      raw_socket.settimeout(5)
+      if scheme == "https":
+       context = ssl.create_default_context()
+       active_socket = context.wrap_socket(
+        raw_socket,
+        server_hostname=domain,
+       )
+       raw_socket = None
+      else:
+       active_socket = raw_socket
+       raw_socket = None
+
+      request = (
+       f"GET / HTTP/1.1\r\n"
+       f"Host: {domain}\r\n"
+       "User-Agent: TALISMAN/1.1 (+authorized security testing)\r\n"
+       "Accept: */*\r\n"
+       "Connection: close\r\n\r\n"
+      ).encode("ascii")
+      active_socket.sendall(request)
+      response = active_socket.recv(8192)
+      header_block, separator, body = response.partition(b"\r\n\r\n")
+      if not separator or not header_block.startswith(b"HTTP/"):
+       return False
+      status_line = header_block.split(b"\r\n", 1)[0].decode("ascii", errors="replace")
+      try:
+       status_code = int(status_line.split()[1])
+      except (IndexError, ValueError):
+       return False
+      content = (header_block + body).lower()
+      if status_code >= 500 or len(body) < 100:
+       return False
+      if b"cloudflare" in content or b"cf-ray" in content:
+       return False
+      return True
+     except (OSError, ssl.SSLError, TimeoutError, ValueError):
+      return False
+     finally:
+      if active_socket is not None:
+       try:
+        active_socket.close()
+       except OSError:
+        pass
+      if raw_socket is not None:
+       try:
+        raw_socket.close()
+       except OSError:
+        pass
+
+    if await asyncio.to_thread(_probe):
      return True
   except Exception:
-   pass
+   # A failed TLS check is not bypassed by disabling certificate validation.
+   # The HTTP fallback is a separate, explicitly scoped request.
+   continue
  return False
 
 
@@ -141,18 +209,46 @@ async def find_origin(
  target: str,
  proxy: str | None = None,
  shodan_key: str | None = None,
+ scope: Any = None,
  **kwargs: Any,
 ) -> dict[str, Any]:
- domain = target.replace("https://", "").replace("http://", "").split("/")[0]
- console.print(f"\n[module][+] Cloudflare Origin Finder[/module] -> [target]{domain}[/target]")
+ parsed_target = urlsplit(target if "://" in target else f"https://{target}")
+ domain = (parsed_target.hostname or "").rstrip(".").lower()
+ if not domain:
+  return {"domain": target, "candidates": [], "confirmed_origins": [], "origin_found": False, "error": "invalid_target"}
+ if scope is None:
+  return {
+   "domain": domain,
+   "candidates": [],
+   "confirmed_origins": [],
+   "origin_found": False,
+   "error": "scope_enforcer_required",
+  }
+ try:
+  scope.assert_in_scope(target)
+ except ScopeViolationError as exc:
+  return {
+   "domain": domain,
+   "candidates": [],
+   "confirmed_origins": [],
+   "origin_found": False,
+   "error": str(exc),
+  }
+
+ console.print(
+  f"\n[module][+] Scoped Cloudflare Origin Candidate Discovery[/module] -> [target]{domain}[/target]"
+ )
 
  candidates: list[str] = []
- confirmed: list[str] = []
+ responding_candidates: list[str] = []
+ out_of_scope_candidates: list[str] = []
 
- async with TalismanHTTPClient(proxy=proxy, timeout=20) as client:
+ async with TalismanHTTPClient(
+  proxy=proxy, timeout=20, scope=scope, follow_redirects=False
+ ) as client:
   tasks = [
    _crtsh_ips(domain, client),
-   _mx_ips(domain),
+   _mx_ips(domain, scope),
   ]
   if shodan_key:
    tasks.append(_shodan_ips(domain, shodan_key, client))
@@ -162,42 +258,77 @@ async def find_origin(
    if isinstance(result, list):
     candidates.extend(result)
 
-  # Filter out Cloudflare IPs
-  import ipaddress
+  # Filter out Cloudflare addresses and malformed records.
   cf_nets = []
   for cidr in CLOUDFLARE_IP_RANGES:
    try:
     cf_nets.append(ipaddress.ip_network(cidr))
-   except Exception:
+   except ValueError:
     pass
 
   non_cf_candidates: list[str] = []
-  for ip in set(candidates):
+  for value in set(candidates):
    try:
-    addr = ipaddress.ip_address(ip)
-    if not any(addr in net for net in cf_nets):
-     non_cf_candidates.append(ip)
-   except Exception:
+    address = ipaddress.ip_address(value)
+    if not any(address in network for network in cf_nets):
+     non_cf_candidates.append(str(address))
+   except ValueError:
     pass
 
-  console.print(f" {len(non_cf_candidates)} non-Cloudflare candidate IPs — verifying...")
+  # Discovery does not authorize a new destination. Only actively verify an
+  # origin address if the operator explicitly listed that IP/CIDR in scope.
+  authorized_candidates = [
+   ip for ip in non_cf_candidates if scope.is_in_scope(ip)
+  ]
+  out_of_scope_candidates = [
+   ip for ip in non_cf_candidates if not scope.is_in_scope(ip)
+  ]
 
-  verify_tasks = [_verify_origin(domain, ip, client) for ip in non_cf_candidates[:20]]
-  verify_results = await asyncio.gather(*verify_tasks, return_exceptions=True)
+  console.print(
+   f" {len(non_cf_candidates)} non-Cloudflare candidates; "
+   f"{len(authorized_candidates)} explicitly authorized for verification"
+  )
 
-  for ip, is_origin in zip(non_cf_candidates[:20], verify_results):
-   if is_origin is True:
-    confirmed.append(ip)
-    console.print(f" [success][+] Origin IP found: {ip}[/success]")
+  verification_skipped_reason = None
+  if proxy:
+   # Raw TCP/TLS cannot use the configured HTTP proxy. Do not silently connect
+   # directly just because an IP was discovered and listed in scope.
+   verification_skipped_reason = (
+    "Origin IP verification uses raw TCP/TLS and cannot honor the configured "
+    "HTTP proxy; no direct connection was attempted."
+   )
+  else:
+   verify_tasks = [
+    _verify_origin(domain, ip, scope)
+    for ip in authorized_candidates[:20]
+   ]
+   verify_results = await asyncio.gather(*verify_tasks, return_exceptions=True)
 
- if not confirmed:
-  console.print(" [dim]No confirmed origin IPs found via automated methods[/dim]")
+   for ip, response_matches in zip(authorized_candidates[:20], verify_results):
+    if response_matches is True:
+     responding_candidates.append(ip)
+     console.print(
+      f" [success][+] In-scope IP returned a non-CDN response for {domain}: {ip}[/success]"
+     )
+
+ if not responding_candidates:
+  console.print(" [dim]No in-scope IP returned a matching non-CDN response[/dim]")
 
  return {
   "domain": domain,
   "candidates": non_cf_candidates,
-  "confirmed_origins": confirmed,
-  "origin_found": len(confirmed) > 0,
+  "authorized_candidates": authorized_candidates,
+  "out_of_scope_candidates": out_of_scope_candidates,
+  "responding_candidates": responding_candidates,
+  "verification_skipped_reason": verification_skipped_reason,
+  "confirmed_origins": [],
+  "origin_found": False,
+  "requires_manual_origin_confirmation": True,
+  "verification_required": (
+   "A non-CDN HTTP response is not proof that an IP is the authoritative origin "
+   "or that the provider resource is unclaimed. Confirm the current DNS CNAME "
+   "chain and provider-side resource state independently before reporting takeover."
+  ),
  }
 
 

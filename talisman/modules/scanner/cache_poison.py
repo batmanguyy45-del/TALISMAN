@@ -4,6 +4,7 @@ import asyncio
 import random
 import string
 from typing import Any
+from talisman.engine.scope import ScopeViolationError
 from talisman.utils.http_client import TalismanHTTPClient
 from talisman.utils.logger import get_logger, console, print_finding
 
@@ -87,51 +88,79 @@ async def run(
  **kwargs: Any,
 ) -> dict[str, Any]:
  url = target if "://" in target else f"https://{target}"
- console.print(f"\n[module][+] Cache Poisoning Scanner[/module] -> [target]{url}[/target]")
- findings: list[dict[str, Any]] = []
+ if scope is None:
+  return {
+   "target": url,
+   "findings": [],
+   "candidates": [],
+   "count": 0,
+   "error": "scope_enforcer_required",
+  }
+ try:
+  scope.assert_in_scope(url)
+  # A cache-poisoning request can affect responses served to other visitors,
+  # even though it uses GET. Require the separate destructive-probe opt-in.
+  scope.assert_destructive_allowed(url, "GET")
+ except ScopeViolationError as exc:
+  return {
+   "target": url,
+   "findings": [],
+   "candidates": [],
+   "count": 0,
+   "skipped": True,
+   "reason": str(exc),
+  }
 
- async with TalismanHTTPClient(proxy=proxy, timeout=12) as client:
+ console.print(
+  f"\\n[module][+] Web Cache Poisoning Assessment[/module] -> [target]{url}[/target]"
+ )
+ candidates: list[dict[str, Any]] = []
+ async with TalismanHTTPClient(
+  proxy=proxy,
+  timeout=12,
+  verify_ssl=True,
+  follow_redirects=False,
+  scope=scope,
+ ) as client:
   is_cached = await _detect_caching(url, client)
   if not is_cached:
-   console.print(" [dim]No caching layer detected — skipping[/dim]")
-   return {"target": url, "cached": False, "findings": []}
+   return {
+    "target": url,
+    "cached": False,
+    "findings": [],
+    "candidates": [],
+    "count": 0,
+    "reason": "No cache indicators observed in baseline requests.",
+   }
 
-  console.print(" Caching detected — testing unkeyed header injection...")
-  tasks = [_test_header_poison(url, header, client) for header in UNKEYED_HEADERS]
-  results = await asyncio.gather(*tasks, return_exceptions=True)
+  console.print("  Cache indicators observed; testing selected unkeyed headers...")
+  for header in UNKEYED_HEADERS[:6]:
+   result = await _test_header_poison(url, header, client)
+   if not result:
+    continue
+   candidates.append({
+    **result,
+    "confidence": "candidate",
+    "requires_cache_key_and_cross_client_validation": True,
+    "verification_required": (
+     "Confirm the canary is absent from the poisoned request's direct response, "
+     "then present in an independently issued response without the header. "
+     "Repeat from a separate client/session and verify cache status, Age, "
+     "cache key variation, and expiry. The test canary alone does not prove "
+     "cross-user impact or persistent cache poisoning."
+    ),
+   })
 
-  for header, result in zip(UNKEYED_HEADERS, results):
-   if isinstance(result, dict):
-    severity = "high"
-    title = f"Web cache poisoning via {header}"
-    print_finding(title, severity, url)
-    findings.append({**result, "severity": severity})
-    if session:
-     await session.add_finding(
-      target=url, module="cache_poison",
-      vuln_type="cache_poisoning",
-      severity=severity, confidence="confirmed",
-      title=title,
-      description=(
-       f"Web cache can be poisoned via unkeyed header '{header}'. "
-       f"Value '{result['poison_value']}' was "
-       "found in subsequent cached responses."
-      ),
-      request=result["request"],
-      evidence=result["evidence"],
-      reproduction=(
-       f"1. Send GET {url} with {header}: evil.attacker.com\n"
-       f"2. Fetch {url} without the header\n"
-       f"3. Observe canary in response"
-      ),
-      remediation=(
-       "1. Ensure all headers that affect the response are included in the cache key.\n"
-       "2. Strip untrusted headers at the CDN/load balancer layer.\n"
-       "3. Use Vary header to explicitly declare cache-varying inputs.\n"
-       "4. Implement cache key normalization."
-      ),
-      cvss_score=8.1, cwe="CWE-444",
-     )
-
- console.print(f" Found {len(findings)} cache poisoning vulnerabilities")
- return {"target": url, "cached": True, "findings": findings, "count": len(findings)}
+ console.print(
+  f"  Cache assessment complete — {len(candidates)} candidates requiring "
+  "independent cache-key validation"
+ )
+ return {
+  "target": url,
+  "cached": True,
+  "findings": [],
+  "candidates": candidates,
+  "count": 0,
+  "candidate_count": len(candidates),
+  "destructive_probe_opt_in_required": True,
+ }

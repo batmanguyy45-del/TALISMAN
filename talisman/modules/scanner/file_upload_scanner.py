@@ -246,83 +246,68 @@ async def run(
     **kwargs: Any,
 ) -> dict[str, Any]:
     url = target if "://" in target else f"https://{target}"
-    console.print(f"\n[module][+] File Upload Vulnerability Scanner[/module] -> [target]{url}[/target]")
-    findings: list[dict[str, Any]] = []
+    if scope is None:
+        return {
+            "target": url,
+            "findings": [],
+            "candidates": [],
+            "count": 0,
+            "error": "scope_enforcer_required",
+        }
+    try:
+        scope.assert_destructive_allowed(url, "POST")
+    except Exception as exc:
+        return {
+            "target": url,
+            "findings": [],
+            "candidates": [],
+            "count": 0,
+            "skipped": True,
+            "reason": str(exc),
+        }
 
-    async with TalismanHTTPClient(proxy=proxy, timeout=15) as client:
-        console.print(f"  Testing {len(UPLOAD_ENDPOINTS)} upload endpoints...")
+    console.print(
+        f"\n[module][+] File Upload Candidate Scanner[/module] -> [target]{url}[/target]"
+    )
+    candidates: list[dict[str, Any]] = []
+
+    async with TalismanHTTPClient(
+        proxy=proxy,
+        timeout=15,
+        scope=scope,
+    ) as client:
         for endpoint in UPLOAD_ENDPOINTS:
-            # -- 1. Script upload acceptance ------------------------------------------
-            script_findings = await _test_upload_endpoint(url, endpoint, client)
-            for sf in script_findings:
-                title = f"Script file upload accepted at {endpoint} ({sf.get('filename', 'unknown')})"
-                print_finding(title, "critical", url)
-                findings.append(sf)
-                if session:
-                    await session.add_finding(
-                        target=url, module="file_upload",
-                        vuln_type="script_upload_accepted",
-                        severity="critical", confidence="confirmed",
-                        title=title,
-                        description=f"Upload endpoint {endpoint} accepted a script file ({sf.get('filename')}) with content-type application/x-php. The unique canary '{sf.get('canary', '')}' was reflected in the response.",
-                        evidence=sf.get("evidence", ""),
-                        remediation="1. Validate file extension against an allowlist. 2. Store files outside webroot. 3. Serve uploaded files with Content-Disposition: attachment. 4. Scan for malicious content.",
-                        cvss_score=9.8, cwe="CWE-434",
-                    )
+            probes = (
+                ("script_upload_acceptance", await _test_upload_endpoint(url, endpoint, client)),
+                ("content_type_spoofing", await _test_content_type_bypass(url, endpoint, client)),
+                ("double_extension", await _test_double_extension(url, endpoint, client)),
+                ("magic_byte", await _test_content_validation(url, endpoint, client)),
+            )
+            for probe_type, results in probes:
+                for result in results:
+                    candidate = {
+                        **result,
+                        "endpoint": endpoint,
+                        "probe_type": probe_type,
+                        "confidence": "candidate",
+                        "requires_follow_up": True,
+                        "verification_required": (
+                            "Confirm the uploaded object was persisted, identify its "
+                            "server-side storage URL, verify access controls, and safely "
+                            "determine whether the server executes or serves the content "
+                            "with an unsafe type. HTTP 200/201 or a reflected canary alone "
+                            "does not prove executable or publicly accessible upload."
+                        ),
+                    }
+                    candidates.append(candidate)
 
-            # -- 2. Content-type spoofing ---------------------------------------------
-            ct_findings = await _test_content_type_bypass(url, endpoint, client)
-            for cf in ct_findings:
-                title = f"Content-type spoofing bypass at {endpoint} (using {cf.get('content_type', 'unknown')})"
-                print_finding(title, "high", url)
-                findings.append(cf)
-                if session:
-                    await session.add_finding(
-                        target=url, module="file_upload",
-                        vuln_type="content_type_bypass",
-                        severity="high", confidence="confirmed",
-                        title=title,
-                        description=f"Upload endpoint {endpoint} accepted a .php file with spoofed content-type '{cf.get('content_type')}'. Content-type validation can be bypassed by manipulating the Content-Type header.",
-                        evidence=cf.get("evidence", ""),
-                        remediation="1. Validate file content (magic bytes) not just Content-Type header. 2. Reject files with mismatched extension and content-type.",
-                        cvss_score=8.6, cwe="CWE-434",
-                    )
-
-            # -- 3. Double extension bypass -------------------------------------------
-            ext_findings = await _test_double_extension(url, endpoint, client)
-            for ef in ext_findings:
-                title = f"Extension bypass at {endpoint} ({ef.get('extension', 'unknown')})"
-                print_finding(title, "high", url)
-                findings.append(ef)
-                if session:
-                    await session.add_finding(
-                        target=url, module="file_upload",
-                        vuln_type="double_extension_bypass",
-                        severity="high", confidence="confirmed",
-                        title=title,
-                        description=f"Upload endpoint {endpoint} accepted a file with bypass extension '{ef.get('extension')}' (filename: {ef.get('filename')}). Extension filtering can be bypassed using double extensions, case variations, or special characters.",
-                        evidence=ef.get("evidence", ""),
-                        remediation="1. Whitelist allowed extensions (not blacklist). 2. Reject files with multiple extensions. 3. Normalize extension to lowercase before validation. 4. Remove special characters from filename.",
-                        cvss_score=8.6, cwe="CWE-434",
-                    )
-
-            # -- 4. Magic byte bypass -------------------------------------------------
-            mb_findings = await _test_content_validation(url, endpoint, client)
-            for mf in mb_findings:
-                title = f"Magic byte validation bypass at {endpoint} (PHP with JPEG header)"
-                print_finding(title, "critical", url)
-                findings.append(mf)
-                if session:
-                    await session.add_finding(
-                        target=url, module="file_upload",
-                        vuln_type="magic_byte_bypass",
-                        severity="critical", confidence="confirmed",
-                        title=title,
-                        description=f"Upload endpoint {endpoint} accepted a .php file with JPEG magic bytes prepended. Content validation only checks magic bytes, allowing polyglot files (valid image + PHP code).",
-                        evidence=mf.get("evidence", ""),
-                        remediation="1. Validate file extension AND content magic bytes together. 2. Reject mismatched extension and magic bytes. 3. Store files outside webroot. 4. Use Content-Disposition: attachment.",
-                        cvss_score=9.8, cwe="CWE-434",
-                    )
-
-    console.print(f"  File upload scan complete -- {len(findings)} issues")
-    return {"target": url, "findings": findings, "count": len(findings)}
+    console.print(
+        f"  Found {len(candidates)} upload candidates requiring storage and execution verification"
+    )
+    return {
+        "target": url,
+        "findings": [],
+        "candidates": candidates,
+        "count": 0,
+        "candidate_count": len(candidates),
+    }

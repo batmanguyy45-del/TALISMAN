@@ -4,7 +4,9 @@ import asyncio
 import random
 import string
 from typing import Any
+from talisman.engine.scope import ScopeViolationError
 from talisman.utils.http_client import TalismanHTTPClient
+from talisman.utils.redaction import redact_sensitive_text
 from talisman.utils.logger import get_logger, console, print_finding
 
 log = get_logger(__name__)
@@ -199,76 +201,65 @@ async def run(
     proxy: str | None = None,
     **kwargs: Any,
 ) -> dict[str, Any]:
+    """Run LDAP probes only after explicit destructive permission; never auto-confirm."""
     url = target if "://" in target else f"https://{target}"
-    console.print(f"\n[module][+] LDAP Injection Scanner[/module] -> [target]{url}[/target]")
-    findings: list[dict[str, Any]] = []
+    if scope is None:
+        return {
+            "target": url, "findings": [], "candidates": [], "count": 0,
+            "candidate_count": 0, "error": "scope_enforcer_required",
+        }
+    scope.assert_in_scope(url)
 
-    async with TalismanHTTPClient(proxy=proxy, timeout=12) as client:
-        console.print(f"  Testing {len(LDAP_ENDPOINTS)} endpoints for LDAP injection...")
+    try:
+        scope.assert_destructive_allowed(url, "POST")
+    except ScopeViolationError as exc:
+        return {
+            "target": url,
+            "findings": [],
+            "candidates": [],
+            "count": 0,
+            "candidate_count": 0,
+            "skipped": True,
+            "reason": str(exc),
+        }
 
+    console.print(
+        f"\n[module][+] LDAP Injection Candidate Scanner[/module] -> [target]{url}[/target]"
+    )
+    candidates: list[dict[str, Any]] = []
+    async with TalismanHTTPClient(proxy=proxy, timeout=12, scope=scope) as client:
         for endpoint in LDAP_ENDPOINTS:
-            # -- 1. Wildcard injection ------------------------------------------------
-            w_findings = await _test_wildcard_injection(url, endpoint, client)
-            for f in w_findings:
-                ftype = f.get("type", "")
-                if ftype == "ldap_wildcard":
-                    title = f"LDAP wildcard injection at {endpoint}: {f.get('payload', '')}"
-                    print_finding(title, "critical", url)
-                    findings.append(f)
-                    if session:
-                        await session.add_finding(
-                            target=url, module="ldap_injection",
-                            vuln_type="ldap_wildcard",
-                            severity="critical", confidence="confirmed",
-                            title=title,
-                            description=f"LDAP wildcard injection confirmed at {endpoint}. Sending '{f.get('payload')}' returned {f.get('response_length', 0)} bytes vs baseline {f.get('baseline_length', 0)} bytes, indicating the injection expanded the search filter to return all directory entries.",
-                            evidence=f.get("evidence", ""),
-                            remediation="1. Sanitize LDAP search filter inputs. 2. Escape LDAP metacharacters (*, (, ), &, |, !). 3. Use parameterized LDAP queries. 4. Restrict LDAP bind account permissions.",
-                            cvss_score=9.1, cwe="CWE-90",
-                        )
+            checks = (
+                await _test_wildcard_injection(url, endpoint, client)
+                + await _test_auth_bypass(url, endpoint, client)
+                + await _test_blind_ldap(url, endpoint, client)
+            )
+            for item in checks:
+                safe_item = redact_sensitive_text(str(item.get("evidence", ""))[:400])
+                candidates.append({
+                    **item,
+                    "evidence": safe_item,
+                    "confidence": "candidate",
+                    "requires_controlled_validation": True,
+                    "verification_required": (
+                        "Use a disposable LDAP-backed test application and known "
+                        "test identities. Establish a benign baseline, show the "
+                        "LDAP filter interpretation changed, and verify access to "
+                        "a resource the test identity is not authorized to access. "
+                        "HTTP 200, response-length changes, LDAP words, or reflected "
+                        "strings alone do not prove injection or authentication bypass."
+                    ),
+                })
 
-                elif ftype == "ldap_error_reflection":
-                    title = f"LDAP error/info disclosure at {endpoint}"
-                    print_finding(title, "medium", url)
-                    findings.append(f)
-
-            # -- 2. Authentication bypass --------------------------------------------
-            a_findings = await _test_auth_bypass(url, endpoint, client)
-            for f in a_findings:
-                ftype = f.get("type", "")
-                severity = "critical" if ftype == "ldap_auth_bypass" else "high"
-                title = f"LDAP auth bypass at {endpoint}: {f.get('description', '')}"
-                print_finding(title, severity, url)
-                findings.append(f)
-                if session:
-                    await session.add_finding(
-                        target=url, module="ldap_injection",
-                        vuln_type=ftype,
-                        severity=severity, confidence="confirmed",
-                        title=title,
-                        description=f"LDAP authentication bypass detected at {endpoint}. Payload '{f.get('payload')}' returned HTTP {f.get('status')} with authentication indicators. An attacker can log in as any user without valid credentials.",
-                        evidence=f.get("evidence", ""),
-                        remediation="1. Use parameterized LDAP queries for authentication. 2. Escape all LDAP metacharacters in user input. 3. Implement account lockout. 4. Use bcrypt/scrypt for password verification instead of LDAP bind.",
-                        cvss_score=9.8 if severity == "critical" else 8.6, cwe="CWE-90",
-                    )
-
-            # -- 3. Blind LDAP injection ---------------------------------------------
-            bl_findings = await _test_blind_ldap(url, endpoint, client)
-            for f in bl_findings:
-                title = f"Blind LDAP injection possible at {endpoint}"
-                print_finding(title, "high", url)
-                findings.append(f)
-                if session:
-                    await session.add_finding(
-                        target=url, module="ldap_injection",
-                        vuln_type="ldap_blind_injection",
-                        severity="high", confidence="likely",
-                        title=title,
-                        description=f"Blind LDAP injection detected at {endpoint}. Different search patterns return different responses, enabling character-by-character data extraction.",
-                        evidence=f.get("evidence", ""),
-                        remediation="Same as wildcard: sanitize inputs, escape metacharacters, use parameterized queries.",
-                        cvss_score=8.6, cwe="CWE-90",
-                    )
-
-    console.print(f"  LDAP injection scan complete -- {len(findings)} issues")
-    return {"target": url, "findings": findings, "count": len(findings)}
+    console.print(
+        f"  LDAP scan complete -- {len(candidates)} candidates; "
+        "no access-control impact inferred automatically"
+    )
+    return {
+        "target": url,
+        "findings": [],
+        "candidates": candidates,
+        "count": 0,
+        "candidate_count": len(candidates),
+        "post_probes_enabled": True,
+    }

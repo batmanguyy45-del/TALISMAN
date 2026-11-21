@@ -18,11 +18,15 @@ CORRECT APPROACH:
 """
 from __future__ import annotations
 import asyncio
+import ipaddress
 import re
 import urllib.parse
 from typing import Any
 
+from talisman.engine.scope import ScopeViolationError
+
 from talisman.utils.http_client import TalismanHTTPClient
+from talisman.utils.oast import validate_public_oast_domain
 from talisman.utils.logger import get_logger, console, print_finding
 
 log = get_logger(__name__)
@@ -74,6 +78,60 @@ SSRF_INDICATORS: list[tuple[re.Pattern, str, str]] = [
  (_RE_REDIS, "Redis response data — internal Redis via SSRF", "high"),
  (_RE_SPRING_ACTUATOR, "Spring Actuator data — internal service via SSRF", "high"),
 ]
+
+
+def _is_internal_ssrf_target(value: str) -> bool:
+ """Recognize local, private, link-local and non-HTTP SSRF payloads."""
+ try:
+  parsed = urllib.parse.urlsplit(value)
+  if parsed.scheme not in {"http", "https"}:
+   return True
+  host = (parsed.hostname or "").strip("[]").rstrip(".").lower()
+  if not host:
+   return True
+  if host in {
+   "localhost",
+   "localhost.localdomain",
+   "metadata.google.internal",
+   "metadata",
+  } or host.endswith(".internal"):
+   return True
+
+  try:
+   address = ipaddress.ip_address(host)
+   return not address.is_global
+  except ValueError:
+   pass
+
+  # Reject legacy numeric IPv4 forms that URL parsers may accept but the
+  # standard ipaddress parser does not recognize.
+  if re.fullmatch(r"[0-9]+", host):
+   try:
+    address_int = int(host, 10)
+    if 0 <= address_int <= 0xFFFFFFFF:
+     return not ipaddress.ip_address(address_int).is_global
+   except ValueError:
+    return True
+
+  if re.fullmatch(r"[0-9.]+", host):
+   try:
+    octets = host.split(".")
+    if len(octets) == 4:
+     normalized = ".".join(
+      str(int(part, 8) if len(part) > 1 and part.startswith("0") else int(part, 10))
+      for part in octets
+     )
+     return not ipaddress.ip_address(normalized).is_global
+   except ValueError:
+    return True
+
+  if host.endswith(".nip.io") and any(
+   token in host for token in ("127.0.0.1", "127.1", "10.0.0.1", "169.254.169.254")
+  ):
+   return True
+  return False
+ except ValueError:
+  return True
 
 
 def _check_ssrf_response(text: str) -> tuple[bool, str, str]:
@@ -147,15 +205,23 @@ async def _test_ssrf_param(
  param: str,
  client: TalismanHTTPClient,
  oast_domain: str | None,
+ allow_internal_probes: bool = False,
+ allow_post_probes: bool = False,
 ) -> dict[str, Any] | None:
  parsed = urllib.parse.urlparse(url)
  base_params = dict(urllib.parse.parse_qsl(parsed.query))
 
- all_targets = [(t, d) for t, d in SSRF_TARGETS]
+ all_targets = [
+  (payload, description)
+  for payload, description in SSRF_TARGETS
+  if allow_internal_probes or not _is_internal_ssrf_target(payload)
+ ]
 
- # Add bypass variants
- for bypass in BYPASS_VARIANTS:
-  all_targets.append((bypass, f"Bypass variant: {bypass}"))
+ # Bypass variants often resolve to loopback or other private services.
+ # They are omitted unless the scope explicitly authorizes internal SSRF tests.
+ if allow_internal_probes:
+  for bypass in BYPASS_VARIANTS:
+   all_targets.append((bypass, f"Bypass variant: {bypass}"))
 
  # Add OAST targets (these we probe but don't auto-report)
  oast_targets = []
@@ -195,20 +261,20 @@ async def _test_ssrf_param(
      "response_snippet": response_text[:500],
     }
 
-   # Also check POST
-   r2 = await client.post(url, data={param: target_url}, timeout=10)
-   confirmed2, evidence2, severity2 = _check_ssrf_response(r2.text)
-   if confirmed2:
-    return {
-     "param": param,
-     "payload": target_url,
-     "target_description": description,
-     "status": r2.status_code,
-     "evidence": evidence2,
-     "severity": severity2,
-     "request": f"POST {url}\n{param}={urllib.parse.quote(target_url)}",
-     "response_snippet": r2.text[:500],
-    }
+   if allow_post_probes:
+    r2 = await client.post(url, data={param: target_url}, timeout=10)
+    confirmed2, evidence2, severity2 = _check_ssrf_response(r2.text)
+    if confirmed2:
+     return {
+      "param": param,
+      "payload": target_url,
+      "target_description": description,
+      "status": r2.status_code,
+      "evidence": evidence2,
+      "severity": severity2,
+      "request": f"POST {url}\n{param}={urllib.parse.quote(target_url)}",
+      "response_snippet": r2.text[:500],
+     }
 
   except Exception as e:
    log.debug("ssrf_test", param=param, target=target_url[:40], error=str(e)[:60])
@@ -237,6 +303,24 @@ async def run(
  **kwargs: Any,
 ) -> dict[str, Any]:
  url = target if "://" in target else f"https://{target}"
+ if scope is None:
+  return {"target": url, "findings": [], "count": 0, "error": "scope_enforcer_required"}
+ try:
+  scope.assert_in_scope(url)
+ except ScopeViolationError as exc:
+  return {"target": url, "findings": [], "count": 0, "error": str(exc)}
+ if oast_domain:
+  try:
+   oast_domain = await validate_public_oast_domain(oast_domain)
+  except ValueError as exc:
+   return {
+    "target": url,
+    "findings": [],
+    "candidates": [],
+    "count": 0,
+    "error": str(exc),
+   }
+
  console.print(
   f"\n[module][+] SSRF Scanner[/module] -> [target]{url}[/target]"
  )
@@ -247,20 +331,32 @@ async def run(
    f"(monitor for callbacks — NOT auto-reported)"
   )
 
- findings: list[dict[str, Any]] = []
-
  parsed = urllib.parse.urlparse(url)
  existing_params = list(dict(urllib.parse.parse_qsl(parsed.query)).keys())
  params_to_test = list(dict.fromkeys(existing_params + COMMON_SSRF_PARAMS[:15]))
+ allow_post_probes = False
+ try:
+  scope.assert_destructive_allowed(url, "POST")
+  allow_post_probes = True
+ except ScopeViolationError:
+  pass
 
- async with TalismanHTTPClient(proxy=proxy, timeout=15) as client:
+ async with TalismanHTTPClient(proxy=proxy, timeout=15, scope=scope) as client:
   tasks = [
-   _test_ssrf_param(url, param, client, oast_domain)
+   _test_ssrf_param(
+    url,
+    param,
+    client,
+    oast_domain,
+    allow_internal_probes=scope.config.allow_internal_ssrf_probes,
+    allow_post_probes=allow_post_probes,
+   )
    for param in params_to_test
   ]
   results = await asyncio.gather(*tasks, return_exceptions=True)
 
   seen_params: set[str] = set()
+  candidates: list[dict[str, Any]] = []
   for result in results:
    if not isinstance(result, dict):
     continue
@@ -268,51 +364,25 @@ async def run(
     continue
    seen_params.add(result["param"])
 
-   severity = result.get("severity", "high")
-   title = (
-    f"SSRF — parameter '{result['param']}' — "
-    f"{result['target_description']}"
+   result["confidence"] = "candidate"
+   result["requires_manual_verification"] = True
+   result["verification_required"] = (
+    "Confirm the server-side request independently, rule out response "
+    "reflection and cached content, and establish what data or service was "
+    "actually reached before reporting impact."
    )
-   print_finding(title, severity, url)
-   findings.append(result)
-
-   if session:
-    await session.add_finding(
-     target=url,
-     module="ssrf",
-     vuln_type="ssrf",
-     severity=severity,
-     confidence="confirmed",
-     title=title,
-     description=(
-      f"Server-Side Request Forgery confirmed. "
-      f"Parameter '{result['param']}' caused the server to "
-      f"request '{result['payload']}' and return its contents."
-     ),
-     request=result["request"],
-     evidence=result["evidence"],
-     response=result.get("response_snippet", ""),
-     reproduction=(
-      f"Set parameter '{result['param']}' to: {result['payload']}"
-     ),
-     remediation=(
-      "1. Validate and allowlist URLs — never allow arbitrary "
-      "user-supplied URLs.\n"
-      "2. Block requests to RFC 1918 / link-local addresses "
-      "and metadata endpoints.\n"
-      "3. Disable unused protocol handlers "
-      "(file://, gopher://, dict://).\n"
-      "4. Use IMDSv2 on AWS (requires session token)."
-     ),
-     cvss_score=9.8,
-     cwe="CWE-918",
-     references=[
-      "https://owasp.org/Top10/A10_2021-Server-Side_Request_"
-      "Forgery_%28SSRF%29/"
-     ],
-    )
+   candidates.append(result)
 
  console.print(
-  f" Found {len(findings)} confirmed SSRF vulnerabilities"
+  f" Found {len(candidates)} SSRF candidates requiring impact verification"
  )
- return {"target": url, "findings": findings, "count": len(findings)}
+ return {
+  "target": url,
+  "findings": [],
+  "candidates": candidates,
+  "count": 0,
+  "candidate_count": len(candidates),
+  "internal_probes_enabled": scope.config.allow_internal_ssrf_probes,
+  "post_probes_enabled": allow_post_probes,
+  "skipped_methods": [] if allow_post_probes else ["POST"],
+ }

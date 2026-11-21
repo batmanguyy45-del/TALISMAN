@@ -227,82 +227,33 @@ async def run(
     proxy: str | None = None,
     **kwargs: Any,
 ) -> dict[str, Any]:
+    """Fail closed until the operator supplies a dedicated safe SSJI fixture.
+
+    The previous implementation guessed endpoints and sent command execution,
+    filesystem-read, error, and timing payloads. Those behaviors are unsuitable
+    for unattended testing of an ordinary production target. Reflection, generic
+    errors, and a single latency spike cannot establish server-side code execution.
+    """
     url = target if "://" in target else f"https://{target}"
-    console.print(f"\n[module][+] Server-Side JavaScript Injection Scanner[/module] -> [target]{url}[/target]")
-    findings: list[dict[str, Any]] = []
+    if scope is None:
+        return {
+            "target": url, "findings": [], "candidates": [], "count": 0,
+            "candidate_count": 0, "error": "scope_enforcer_required",
+        }
+    scope.assert_in_scope(url)
 
-    async with TalismanHTTPClient(proxy=proxy, timeout=12) as client:
-        console.print(f"  Testing {len(SSJI_ENDPOINTS)} endpoints across 4 detection vectors...")
-
-        for endpoint in SSJI_ENDPOINTS:
-            timing_findings = await _test_ssji_timing(url, endpoint, client)
-            for f in timing_findings:
-                ftype = f.get("type", "")
-                title = f"SSJI via eval() at {endpoint}: {f.get('description', ftype)}"
-                print_finding(title, "critical", url)
-                findings.append(f)
-                if session:
-                    await session.add_finding(
-                        target=url, module="ssji",
-                        vuln_type=ftype,
-                        severity="critical", confidence="confirmed",
-                        title=title,
-                        description=f"Server-side JavaScript injection detected at {endpoint}. Timing-based probe returned in {f.get('elapsed', 'N/A')}s vs baseline {f.get('baseline', 'N/A')}s, indicating eval() or setTimeout() execution.",
-                        evidence=f.get("evidence", ""),
-                        remediation="1. Never use eval() with user input. 2. Use parseInt() instead of eval() for numeric conversion. 3. Avoid setTimeout(string), setInterval(string), and new Function(string). 4. Use a proper sandbox if dynamic code execution is required.",
-                        cvss_score=9.8, cwe="CWE-94",
-                    )
-
-            error_findings = await _test_ssji_error(url, endpoint, client)
-            for f in error_findings:
-                title = f"SSJI error reflection at {endpoint}: {f.get('description', '')}"
-                print_finding(title, "high", url)
-                findings.append(f)
-                if session:
-                    await session.add_finding(
-                        target=url, module="ssji",
-                        vuln_type="ssji_error_reflection",
-                        severity="high", confidence="confirmed",
-                        title=title,
-                        description=f"Server-side JavaScript error reflected at {endpoint}. Sending '{f.get('payload_preview', '')}' triggered a JavaScript error that was returned in the response, confirming user input reaches eval() or similar sink.",
-                        evidence=f.get("evidence", ""),
-                        remediation="1. Never eval() user input. 2. Disable error details in production. 3. Use safe alternatives like parseInt().",
-                        cvss_score=9.3, cwe="CWE-94",
-                    )
-
-            reflection_findings = await _test_ssji_reflection(url, endpoint, client)
-            for f in reflection_findings:
-                title = f"SSJI canary reflection at {endpoint}: {f.get('description', '')}"
-                print_finding(title, "critical", url)
-                findings.append(f)
-                if session:
-                    await session.add_finding(
-                        target=url, module="ssji",
-                        vuln_type="ssji_reflection",
-                        severity="critical", confidence="confirmed",
-                        title=title,
-                        description=f"Server-side JavaScript injection with direct canary reflection at {endpoint}. Canary '{f.get('canary', '')}' was returned in the response body, confirming eval()-style code execution.",
-                        evidence=f.get("evidence", ""),
-                        remediation="1. Remove eval() from codebase. 2. Precompile templates. 3. Use Content-Security-Policy with strict-dynamic.",
-                        cvss_score=9.8, cwe="CWE-94",
-                    )
-
-            template_findings = await _test_ssji_passive(url, endpoint, client)
-            for f in template_findings:
-                title = f"Template expression evaluation at {endpoint}: {f.get('payload', '')}"
-                print_finding(title, "high", url)
-                findings.append(f)
-                if session:
-                    await session.add_finding(
-                        target=url, module="ssji",
-                        vuln_type="ssji_template_eval",
-                        severity="high", confidence="confirmed",
-                        title=title,
-                        description=f"Template expression '{f.get('payload', '')}' was evaluated to 49 at {endpoint}, confirming server-side template code execution.",
-                        evidence=f.get("evidence", ""),
-                        remediation="1. Sanitize template inputs. 2. Use auto-escaping template engines. 3. Disable arbitrary expression evaluation in templates.",
-                        cvss_score=9.3, cwe="CWE-94",
-                    )
-
-    console.print(f"  SSJI scan complete -- {len(findings)} issues")
-    return {"target": url, "findings": findings, "count": len(findings)}
+    return {
+        "target": url,
+        "findings": [],
+        "candidates": [],
+        "count": 0,
+        "candidate_count": 0,
+        "skipped": True,
+        "reason": (
+            "Generic SSJI probing is disabled: prior probes guessed endpoints "
+            "and included command-execution and filesystem-read payloads. "
+            "A safe implementation requires an operator-supplied disposable "
+            "fixture, a harmless deterministic expression oracle, and repeated "
+            "baseline/control measurements. No network requests were sent."
+        ),
+    }

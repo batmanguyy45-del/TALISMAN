@@ -1,30 +1,44 @@
-"""Email security posture checker -- SPF, DKIM, DMARC record analysis."""
+"""Email DNS posture checker.
+
+SPF, DKIM and DMARC observations are operational hygiene, not automatically
+reportable vulnerabilities. This module therefore returns observations only.
+"""
 from __future__ import annotations
-import asyncio
+
+from typing import Any
+from urllib.parse import urlsplit
+
 import dns.asyncresolver
 import dns.exception
-from typing import Any
-from talisman.utils.logger import get_logger, console, print_finding
+
+from talisman.engine.scope import ScopeViolationError
+from talisman.utils.logger import console, get_logger
 
 log = get_logger(__name__)
 
 
-async def _query_txt(domain: str) -> list[str]:
-    """Query TXT records for a domain."""
+async def _query_txt(domain: str, scope: Any, base_domain: str) -> list[str]:
+    """Query TXT records only within the DNS zone derived from the scoped host."""
+    normalized = domain.rstrip(".").lower()
+    base = base_domain.rstrip(".").lower()
+    if normalized != base and not normalized.endswith("." + base):
+        return []
+
     try:
+        await scope.acquire_request_slot()
         resolver = dns.asyncresolver.Resolver()
         resolver.timeout = 5
         resolver.lifetime = 5
-        answers = await resolver.resolve(domain, "TXT")
-        return [str(r).strip('"') for r in answers]
-    except dns.exception.DNSException:
+        answers = await resolver.resolve(normalized, "TXT")
+        return [str(record).strip('"') for record in answers]
+    except (dns.exception.DNSException, OSError):
         return []
-    except Exception:
+    except Exception as exc:
+        log.debug("email_dns_query_error", error=type(exc).__name__)
         return []
 
 
-async def _check_spf(domain: str) -> dict[str, Any]:
-    """Check SPF record."""
+async def _check_spf(domain: str, scope: Any) -> dict[str, Any]:
     result: dict[str, Any] = {
         "present": False,
         "record": None,
@@ -32,38 +46,41 @@ async def _check_spf(domain: str) -> dict[str, Any]:
         "valid": False,
         "issues": [],
     }
-    records = await _query_txt(domain)
-    for record in records:
-        if record.startswith("v=spf1"):
-            result["present"] = True
-            result["record"] = record
-            result["valid"] = True
+    records = await _query_txt(domain, scope, domain)
+    spf_records = [record for record in records if record.lower().startswith("v=spf1")]
 
-            # Check for ~all (softfail) or -all (hardfail)
-            if " -all" in record:
-                result["strict"] = True
-            elif " ~all" in record:
-                result["strict"] = False
-                result["issues"].append("Softfail (~all) policy allows unauthorized senders")
-            elif " ?all" in record or record.endswith("all"):
-                result["issues"].append("Neutral (?all or no explicit all mechanism) provides no enforcement")
-            else:
-                result["issues"].append("Missing 'all' mechanism -- no enforcement of SPF policy")
+    if not spf_records:
+        result["issues"].append("No SPF record found at the queried hostname")
+        return result
+    if len(spf_records) > 1:
+        result["issues"].append("Multiple SPF records were returned; verify DNS configuration")
 
-            # Check include limit
-            include_count = record.count("include:")
-            if include_count > 10:
-                result["issues"].append(f"High DNS lookup count ({include_count} includes) -- may exceed 10-lookup limit")
+    record = spf_records[0]
+    result["present"] = True
+    result["record"] = record
+    result["valid"] = True
 
-            break
-    else:
-        result["issues"].append("No SPF record found")
+    mechanisms = [part.lower() for part in record.split()]
+    if "-all" in mechanisms:
+        result["strict"] = True
+    elif "~all" in mechanisms:
+        result["issues"].append("SPF uses softfail (~all)")
+    elif "?all" in mechanisms or "+all" in mechanisms:
+        result["issues"].append("SPF uses a non-restrictive all mechanism")
 
+    include_count = record.lower().count("include:")
+    if include_count > 10:
+        result["issues"].append(
+            f"SPF contains {include_count} include mechanisms; evaluate DNS lookup limits"
+        )
     return result
 
 
-async def _check_dkim(domain: str, selector: str = "default") -> dict[str, Any]:
-    """Check DKIM record for a given selector."""
+async def _check_dkim(
+    domain: str,
+    selector: str,
+    scope: Any,
+) -> dict[str, Any]:
     result: dict[str, Any] = {
         "present": False,
         "selector": selector,
@@ -71,25 +88,29 @@ async def _check_dkim(domain: str, selector: str = "default") -> dict[str, Any]:
         "valid": False,
         "issues": [],
     }
+    if not selector or any(char not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-" for char in selector):
+        result["issues"].append("Invalid DKIM selector")
+        return result
+
     dkim_domain = f"{selector}._domainkey.{domain}"
-    records = await _query_txt(dkim_domain)
+    records = await _query_txt(dkim_domain, scope, domain)
     for record in records:
-        if record.startswith("v=DKIM1"):
+        if record.lower().startswith("v=dkim1"):
             result["present"] = True
             result["record"] = record
-            result["valid"] = True
-
-            if "p=" not in record:
-                result["issues"].append("DKIM record missing public key (p= tag)")
+            result["valid"] = "p=" in record.lower()
+            if not result["valid"]:
+                result["issues"].append("DKIM record has no public-key p= value")
             break
-    else:
-        result["issues"].append(f"No DKIM record found for selector '{selector}'")
 
+    if not result["present"]:
+        result["issues"].append(
+            f"No DKIM record found for the supplied selector '{selector}'"
+        )
     return result
 
 
-async def _check_dmarc(domain: str) -> dict[str, Any]:
-    """Check DMARC record."""
+async def _check_dmarc(domain: str, scope: Any) -> dict[str, Any]:
     result: dict[str, Any] = {
         "present": False,
         "record": None,
@@ -100,46 +121,47 @@ async def _check_dmarc(domain: str) -> dict[str, Any]:
         "valid": False,
         "issues": [],
     }
-    dmarc_domain = f"_dmarc.{domain}"
-    records = await _query_txt(dmarc_domain)
-    for record in records:
-        if record.startswith("v=DMARC1"):
-            result["present"] = True
-            result["record"] = record
-            result["valid"] = True
+    records = await _query_txt(f"_dmarc.{domain}", scope, domain)
+    dmarc_records = [record for record in records if record.lower().startswith("v=dmarc1")]
 
-            # Extract policy
-            for part in record.split(";"):
-                part = part.strip()
-                if part.startswith("p="):
-                    result["policy"] = part[2:]
-                    result["strict"] = part[2:] == "reject"
-                elif part.startswith("pct="):
-                    try:
-                        result["pct"] = int(part[4:])
-                    except ValueError:
-                        pass
-                elif part.startswith("rua="):
-                    result["rua"] = part[4:]
+    if not dmarc_records:
+        result["issues"].append("No DMARC record found at the queried hostname")
+        return result
+    if len(dmarc_records) > 1:
+        result["issues"].append("Multiple DMARC records were returned; verify DNS configuration")
 
-            # Analyze policy
-            if result["policy"] == "none":
-                result["issues"].append("DMARC policy is 'none' -- no enforcement of SPF/DKIM alignment")
-            elif result["policy"] == "quarantine":
-                result["issues"].append("DMARC policy is 'quarantine' -- unauthorized email may be marked as spam")
-            elif result["policy"] == "reject":
-                pass  # Best policy
+    record = dmarc_records[0]
+    result["present"] = True
+    result["record"] = record
+    result["valid"] = True
 
-            if result["pct"] < 100:
-                result["issues"].append(f"DMARC only applies to {result['pct']}% of email")
+    for item in record.split(";"):
+        part = item.strip()
+        if part.lower().startswith("p="):
+            result["policy"] = part[2:].lower()
+        elif part.lower().startswith("pct="):
+            try:
+                percentage = int(part[4:])
+                if 0 <= percentage <= 100:
+                    result["pct"] = percentage
+                else:
+                    result["issues"].append("DMARC pct value is outside 0-100")
+            except ValueError:
+                result["issues"].append("DMARC pct value is not an integer")
+        elif part.lower().startswith("rua="):
+            result["rua"] = part[4:]
 
-            if not result["rua"]:
-                result["issues"].append("No aggregate reporting (rua) configured -- cannot monitor DMARC failures")
-
-            break
-    else:
-        result["issues"].append("No DMARC record found")
-
+    result["strict"] = result["policy"] == "reject" and result["pct"] == 100
+    if result["policy"] == "none":
+        result["issues"].append("DMARC policy is monitor-only (p=none)")
+    elif result["policy"] == "quarantine":
+        result["issues"].append("DMARC policy is quarantine (p=quarantine)")
+    elif result["policy"] not in {"reject", "quarantine", "none"}:
+        result["issues"].append("DMARC policy is missing or unrecognized")
+    if result["pct"] < 100:
+        result["issues"].append(f"DMARC policy applies to {result['pct']}% of messages")
+    if not result["rua"]:
+        result["issues"].append("No aggregate reporting (rua) address is configured")
     return result
 
 
@@ -152,131 +174,59 @@ async def run(
     dkim_selectors: list[str] | None = None,
     **kwargs: Any,
 ) -> dict[str, Any]:
-    domain = target.split("://")[-1].split("/")[0].split(":")[0]
-    console.print(f"\n[module][+] Email Security Checker[/module] -> [target]{domain}[/target]")
-    findings: list[dict[str, Any]] = []
+    parsed = urlsplit(target if "://" in target else f"https://{target}")
+    domain = (parsed.hostname or "").rstrip(".").lower()
+    if not domain:
+        return {"target": target, "observations": [], "error": "invalid_target"}
+    if scope is None:
+        return {
+            "target": domain,
+            "observations": [],
+            "error": "scope_enforcer_required",
+        }
+    try:
+        scope.assert_in_scope(domain)
+    except ScopeViolationError as exc:
+        return {"target": domain, "observations": [], "error": str(exc)}
 
-    # Remove leading www. for root domain check
-    if domain.startswith("www."):
-        domain = domain[4:]
+    console.print(
+        f"\n[module][+] Email DNS Posture[/module] -> [target]{domain}[/target]"
+    )
+    spf_result = await _check_spf(domain, scope)
+    dmarc_result = await _check_dmarc(domain, scope)
 
-    selectors = dkim_selectors or ["default", "google", "protonmail", "selector1", "selector2"]
+    # DKIM selectors are not generally discoverable from DNS. Only test
+    # selectors supplied by the operator; never claim DKIM is absent based on
+    # a small guessed list.
+    selectors = list(dict.fromkeys(dkim_selectors or []))[:20]
+    dkim_results = [
+        await _check_dkim(domain, selector, scope)
+        for selector in selectors
+    ]
 
-    spf_result = await _check_spf(domain)
-    console.print(f"  SPF: {'[success]Present[/success]' if spf_result['present'] else '[error]Missing[/error]'}")
+    observations: list[dict[str, Any]] = []
+    if spf_result["issues"]:
+        observations.append({"type": "spf_posture", "detail": spf_result})
+    if dmarc_result["issues"]:
+        observations.append({"type": "dmarc_posture", "detail": dmarc_result})
+    for item in dkim_results:
+        if item["issues"]:
+            observations.append({"type": "dkim_selector_check", "detail": item})
 
-    if spf_result["present"] and not spf_result["strict"]:
-        spf_title = f"SPF record for {domain} uses softfail or no enforcement"
-        print_finding(spf_title, "medium", domain)
-        findings.append({"issue": "spf_weak_policy", "detail": spf_result})
-        if session:
-            await session.add_finding(
-                target=domain, module="email_security",
-                vuln_type="spf_weak_policy",
-                severity="medium", confidence="confirmed",
-                title=spf_title,
-                description=f"SPF record for {domain}: {spf_result['record'][:100]}. Issues: {'; '.join(spf_result['issues'])}",
-                remediation="1. Use -all (hardfail) instead of ~all. 2. Avoid excessive DNS lookups. 3. Keep include lists minimal.",
-                cwe="CWE-345",
-            )
-
-    if not spf_result["present"]:
-        print_finding(f"Missing SPF record for {domain}", "high", domain)
-        findings.append({"issue": "spf_missing", "detail": spf_result})
-        if session:
-            await session.add_finding(
-                target=domain, module="email_security",
-                vuln_type="spf_missing",
-                severity="high", confidence="confirmed",
-                title="Missing SPF record",
-                description=f"No SPF record found for {domain}. Anyone can send email appearing to come from this domain.",
-                remediation="Publish an SPF record listing authorized email senders.",
-                cvss_score=6.5, cwe="CWE-345",
-            )
-
-    # DKIM
-    dkim_results = []
-    for selector in selectors:
-        dkim_result = await _check_dkim(domain, selector)
-        dkim_results.append(dkim_result)
-        if dkim_result["present"]:
-            console.print(f"  DKIM ({selector}): [success]Present[/success]")
-            break
-    else:
-        console.print("  DKIM: [error]No record found (checked selectors: {})[/error]".format(", ".join(selectors)))
-
-    dkim_found = any(r["present"] for r in dkim_results)
-    if not dkim_found:
-        print_finding(f"Missing DKIM record for {domain}", "high", domain)
-        findings.append({"issue": "dkim_missing", "selectors_checked": selectors})
-        if session:
-            await session.add_finding(
-                target=domain, module="email_security",
-                vuln_type="dkim_missing",
-                severity="high", confidence="confirmed",
-                title="Missing DKIM record",
-                description=f"No DKIM record found for {domain} (checked selectors: {', '.join(selectors)}). Emails from this domain cannot be cryptographically signed.",
-                remediation="Configure DKIM signing for all outgoing email and publish the public key in DNS.",
-                cvss_score=6.5, cwe="CWE-345",
-            )
-
-    # DMARC
-    dmarc_result = await _check_dmarc(domain)
-    console.print(f"  DMARC: {'[success]Present[/success]' if dmarc_result['present'] else '[error]Missing[/error]'}")
-
-    if dmarc_result["present"]:
-        if dmarc_result["policy"] != "reject":
-            print_finding(f"DMARC policy for {domain} is '{dmarc_result['policy']}' -- not enforcing reject", "high", domain)
-            findings.append({"issue": "dmarc_weak_policy", "detail": dmarc_result})
-            if session:
-                await session.add_finding(
-                    target=domain, module="email_security",
-                    vuln_type="dmarc_weak_policy",
-                    severity="high", confidence="confirmed",
-                    title=f"DMARC policy for {domain} is '{dmarc_result['policy']}'",
-                    description=f"DMARC record: {dmarc_result['record'][:100]}. Policy '{dmarc_result['policy']}' does not reject unauthorized email. Issues: {'; '.join(dmarc_result['issues'])}",
-                    remediation="1. Set DMARC policy to 'reject' after monitoring. 2. Configure aggregate reporting (rua). 3. Ensure SPF and DKIM alignment.",
-                    cvss_score=6.5, cwe="CWE-345",
-                )
-
-        if not dmarc_result["rua"]:
-            print_finding(f"No DMARC reporting (rua) configured for {domain}", "low", domain)
-            findings.append({"issue": "dmarc_no_reporting"})
-    else:
-        print_finding(f"Missing DMARC record for {domain}", "high", domain)
-        findings.append({"issue": "dmarc_missing", "detail": dmarc_result})
-        if session:
-            await session.add_finding(
-                target=domain, module="email_security",
-                vuln_type="dmarc_missing",
-                severity="high", confidence="confirmed",
-                title="Missing DMARC record",
-                description=f"No DMARC record found for {domain}. Receiving mail servers have no policy for handling SPF/DKIM failures.",
-                remediation="Publish a DMARC record with policy 'reject' and configure aggregate reporting.",
-                cvss_score=6.5, cwe="CWE-345",
-            )
-
-    # Overall score
-    score = 0
-    if spf_result["present"]:
-        score += 1
-        if spf_result["strict"]:
-            score += 1
-    if dkim_found:
-        score += 1
-    if dmarc_result["present"]:
-        score += 1
-        if dmarc_result["policy"] == "reject":
-            score += 1
-
-    console.print(f"  Email security score: {score}/5 (SPF={'Y' if spf_result['present'] else 'N'}, DKIM={'Y' if dkim_found else 'N'}, DMARC={'Y' if dmarc_result['present'] else 'N'})")
+    console.print(
+        "  SPF: "
+        + ("present" if spf_result["present"] else "not found")
+        + " | DMARC: "
+        + ("present" if dmarc_result["present"] else "not found")
+        + f" | DKIM selectors checked: {len(dkim_results)}"
+    )
     return {
         "target": domain,
         "spf": spf_result,
         "dkim": dkim_results,
+        "dkim_selector_check_performed": bool(selectors),
         "dmarc": dmarc_result,
-        "score": score,
-        "max_score": 5,
-        "findings": findings,
-        "count": len(findings),
+        "observations": observations,
+        "findings": [],
+        "count": 0,
     }

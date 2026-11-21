@@ -8,8 +8,7 @@ steps:
   - id: s3_enum
     module: cloud.aws
     args:
-      s3_enum: true
-      cloudfront_bypass: true
+      s3_enum: false
 
   - id: secrets_scan
     module: cloud.secrets
@@ -18,4 +17,4 @@ steps:
     module: recon.osint
     parallel: true
     args:
-      checks: [s3_buckets]
+      checks: [emails, pastebin]

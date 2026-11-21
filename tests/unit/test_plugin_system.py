@@ -5,7 +5,13 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
+from talisman.engine.scope import ScopeConfig, ScopeEnforcer
+
 COMMUNITY_PLUGIN_DIR = Path("talisman/plugins/community/example_scanner")
+
+
+def _plugin_scope() -> ScopeEnforcer:
+    return ScopeEnforcer(ScopeConfig(include=["test.com"], service_allowlist=[]))
 
 
 @pytest.mark.asyncio
@@ -52,7 +58,11 @@ async def test_plugin_base_run_method(tmp_path):
             resp.headers = {"X-Content-Type-Options": ""}
             mock_instance.get = AsyncMock(return_value=resp)
 
-            result = await instance.run(target="http://test.com", session=session)
+            result = await instance.run(
+                target="http://test.com",
+                session=session,
+                scope=_plugin_scope(),
+            )
             assert isinstance(result, dict)
             assert "findings" in result
             assert result["count"] > 0
@@ -78,7 +88,7 @@ async def test_plugin_base_run_no_finding_when_header_present(tmp_path):
             resp.headers = {"X-Content-Type-Options": "nosniff"}
             mock_instance.get = AsyncMock(return_value=resp)
 
-            result = await instance.run(target="http://test.com")
+            result = await instance.run(target="http://test.com", scope=_plugin_scope())
             assert isinstance(result, dict)
             assert result["count"] == 0
     finally:
@@ -101,13 +111,14 @@ async def test_discover_discovers_example_plugin():
 
 
 @pytest.mark.asyncio
-async def test_resolve_and_run_plugin():
+async def test_resolve_and_run_plugin(monkeypatch):
     from talisman.engine.plugin_manager import (
         resolve_plugin,
         _plugin_registry,
         register_plugins_to_registry,
     )
 
+    monkeypatch.setenv("TALISMAN_ENABLE_UNTRUSTED_PLUGINS", "1")
     _plugin_registry.clear()
     registry = register_plugins_to_registry({})
     assert "scanner.example" in registry or "plugin.example-scanner" in registry
@@ -116,3 +127,83 @@ async def test_resolve_and_run_plugin():
     fn = resolve_plugin(alias)
     assert fn is not None, f"Could not resolve plugin with alias {alias}"
     assert callable(fn)
+
+
+
+@pytest.mark.asyncio
+async def test_installed_plugins_are_not_loaded_without_explicit_opt_in(monkeypatch):
+    from talisman.engine.plugin_manager import (
+        _plugin_registry,
+        register_plugins_to_registry,
+    )
+
+    monkeypatch.delenv("TALISMAN_ENABLE_UNTRUSTED_PLUGINS", raising=False)
+    _plugin_registry.clear()
+    registry = register_plugins_to_registry({})
+    assert "scanner.example" not in registry
+    assert _plugin_registry == {}
+
+
+
+def test_plugin_manifest_rejects_path_traversal_entrypoint():
+    from talisman.engine.plugin_manager import _validated_manifest
+
+    manifest = {
+        "name": "safe-plugin",
+        "type": "scanner",
+        "entrypoint": "../../outside.payload",
+        "module_alias": "plugin.safe-plugin",
+    }
+    assert _validated_manifest(manifest, "safe-plugin") is None
+
+
+def test_plugin_install_rejects_path_traversal_name_without_cloning():
+    from talisman.engine.plugin_manager import install_plugin
+
+    result = install_plugin("../outside")
+    assert result["success"] is False
+    assert "Invalid plugin name" in result["error"]
+
+
+def test_plugin_uninstall_rejects_path_traversal_name():
+    from talisman.engine.plugin_manager import uninstall_plugin
+
+    result = uninstall_plugin("../outside")
+    assert result["success"] is False
+    assert "Invalid plugin name" in result["error"]
+
+
+def test_plugin_load_requires_explicit_opt_in(monkeypatch):
+    from talisman.engine.plugin_manager import discover_plugins, load_plugin
+
+    monkeypatch.delenv("TALISMAN_ENABLE_UNTRUSTED_PLUGINS", raising=False)
+    plugin = discover_plugins()["example-scanner"]
+    assert load_plugin(plugin) is None
+
+
+
+def test_plugin_tree_symlinks_are_rejected(tmp_path):
+    from talisman.engine.plugin_manager import _contains_symlinks
+
+    plugin_root = tmp_path / "plugin"
+    plugin_root.mkdir()
+    (plugin_root / "plugin.yaml").write_text(
+        "name: sample\ntype: scanner\nentrypoint: scanner.Plugin\n",
+        encoding="utf-8",
+    )
+    outside = tmp_path / "outside.txt"
+    outside.write_text("outside", encoding="utf-8")
+
+    try:
+        (plugin_root / "linked.txt").symlink_to(outside)
+    except OSError:
+        pytest.skip("symlinks are not supported on this platform")
+
+    assert _contains_symlinks(plugin_root)
+
+
+def test_plugin_github_repo_url_rejects_unusual_port():
+    from talisman.engine.plugin_manager import _validate_repo_url
+
+    with pytest.raises(ValueError):
+        _validate_repo_url("https://github.com:8443/owner/repo")

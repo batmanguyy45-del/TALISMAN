@@ -7,8 +7,9 @@ import ssl
 import string
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
+
 import aiodns
-import httpx
 from talisman.utils.http_client import TalismanHTTPClient
 from talisman.utils.logger import get_logger, console, print_finding
 
@@ -74,18 +75,34 @@ async def _wayback(domain: str, client: TalismanHTTPClient) -> list[str]:
   log.debug("wayback_error", domain=domain, error=str(e))
  return list(set(found))
 
-async def _dnsx_resolve(subdomain: str, resolver: aiodns.DNSResolver) -> dict[str, Any] | None:
+async def _dnsx_resolve(
+ subdomain: str,
+ resolver: aiodns.DNSResolver,
+ scope: Any,
+) -> dict[str, Any] | None:
  try:
-  result = await resolver.query(subdomain, "A")
+  if not scope.is_in_scope(subdomain):
+   return None
+  async with scope.request_concurrency_slot():
+   await scope.acquire_request_slot()
+   result = await resolver.query(subdomain, "A")
   ips = [r.host for r in result]
   return {"host": subdomain, "ips": ips, "resolved": True}
  except Exception:
   return None
 
-async def _wildcard_detect(domain: str, resolver: aiodns.DNSResolver) -> bool:
+async def _wildcard_detect(
+ domain: str,
+ resolver: aiodns.DNSResolver,
+ scope: Any,
+) -> bool:
  random_sub = "talismanrandom123xyz789abc456." + domain
  try:
-  await resolver.query(random_sub, "A")
+  if not scope.is_in_scope(random_sub):
+   return False
+  async with scope.request_concurrency_slot():
+   await scope.acquire_request_slot()
+   await resolver.query(random_sub, "A")
   log.warning("wildcard_detected", domain=domain)
   return True
  except Exception:
@@ -117,17 +134,28 @@ async def run(
  alive_only: bool = True,
  **kwargs: Any,
 ) -> dict[str, Any]:
- domain = target.replace("https://", "").replace("http://", "").split("/")[0].split(":")[0]
+ parsed_target = urlsplit(target if "://" in target else f"https://{target}")
+ domain = (parsed_target.hostname or "").rstrip(".").lower()
+ if not domain:
+  return {"subdomains": [], "live_count": 0, "wildcard": False, "error": "invalid_target"}
+ if scope is None:
+  return {"subdomains": [], "live_count": 0, "wildcard": False, "error": "scope_enforcer_required"}
+ try:
+  scope.assert_in_scope(domain)
+ except Exception as exc:
+  return {"subdomains": [], "live_count": 0, "wildcard": False, "error": str(exc)}
  active_sources = sources or ["crtsh", "hackertarget", "wayback", "permutation"]
  console.print(f"\n[module][+] Subdomain Enumeration[/module] -> [target]{domain}[/target]")
  console.print(f" Sources: {', '.join(active_sources)}")
  all_subdomains: set[str] = set()
  all_subdomains.add(domain)
- resolver = aiodns.DNSResolver(nameservers=["8.8.8.8", "1.1.1.1", "8.8.4.4"])
- is_wildcard = await _wildcard_detect(domain, resolver)
+ # Use the configured system resolver instead of disclosing all candidate names
+ # to hard-coded public DNS providers.
+ resolver = aiodns.DNSResolver()
+ is_wildcard = await _wildcard_detect(domain, resolver, scope)
  if is_wildcard:
   console.print(" [warning][!] Wildcard DNS detected — results may be noisy[/warning]")
- async with TalismanHTTPClient(proxy=proxy, timeout=20, rotate_ua=True) as client:
+ async with TalismanHTTPClient(proxy=proxy, timeout=20, scope=scope) as client:
   tasks: list[asyncio.Task] = []
   if "crtsh" in active_sources:
    tasks.append(asyncio.create_task(_crtsh(domain, client)))
@@ -145,18 +173,26 @@ async def run(
  if bruteforce and wordlist:
   wl_path = Path(wordlist)
   if wl_path.exists():
-   with open(wl_path) as f:
-    words = [line.strip() for line in f if line.strip()]
+   with wl_path.open(encoding="utf-8", errors="ignore") as handle:
+    words = [
+     line.strip()
+     for _, line in zip(range(10000), handle)
+     if line.strip()
+    ]
    for word in words[:10000]:
     all_subdomains.add(f"{word}.{domain}")
  console.print(f" Found {len(all_subdomains)} candidates — resolving...")
  resolved: list[dict[str, Any]] = []
- sem = asyncio.Semaphore(threads)
+ try:
+  requested_threads = int(threads)
+ except (TypeError, ValueError):
+  requested_threads = 1
+ sem = asyncio.Semaphore(max(1, min(requested_threads, 20)))
  async def resolve_one(sub: str) -> None:
   async with sem:
    if not scope.is_in_scope(sub):
     return
-   result = await _dnsx_resolve(sub, resolver)
+   result = await _dnsx_resolve(sub, resolver, scope)
    if result:
     resolved.append(result)
     if session:

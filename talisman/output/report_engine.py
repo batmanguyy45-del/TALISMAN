@@ -8,14 +8,20 @@ Quality guarantees:
 from __future__ import annotations
 import hashlib
 import json
-from datetime import datetime, timezone
+import math
+import os
+import re
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from talisman.utils.logger import get_logger, console
+from talisman.utils.redaction import redact_sensitive_value
 
 log = get_logger(__name__)
+_SESSION_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 
 SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
+ALLOWED_SEVERITIES = set(SEVERITY_ORDER)
 SEVERITY_COLORS = {
  "critical": "#dc2626",
  "high":  "#ea580c",
@@ -49,30 +55,73 @@ def _deduplicate(findings: list[dict]) -> list[dict]:
 
 
 def _quality_gate(findings: list[dict]) -> list[dict]:
- """Downgrade findings to info if they lack both evidence and reproduction steps."""
+ """Normalize untrusted fields and down-rank unsupported high-impact claims."""
  qualified: list[dict] = []
- for f in findings:
-  has_evidence = bool(f.get("evidence"))
-  has_reproduction = bool(f.get("reproduction"))
-  if not has_evidence and not has_reproduction:
-   f["confidence"] = "low"
-   if f.get("severity", "info") in ("critical", "high"):
-    f["severity"] = "info"
-  qualified.append(f)
+ for original in findings:
+  if not isinstance(original, dict):
+   continue
+  finding = redact_sensitive_value(dict(original))
+  severity = str(finding.get("severity", "info")).lower()
+  if severity not in ALLOWED_SEVERITIES:
+   severity = "info"
+  finding["severity"] = severity
+  confidence = str(finding.get("confidence", "low")).lower()
+  finding["confidence"] = confidence if confidence in {"confirmed", "high", "medium", "low", "likely"} else "low"
+  if not finding.get("evidence") and not finding.get("reproduction"):
+   finding["confidence"] = "low"
+   if severity in {"critical", "high"}:
+    finding["severity"] = "info"
+  qualified.append(finding)
  return qualified
+
+
+def _markdown_text(value: Any) -> str:
+ text = str(value or "")
+ return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _markdown_code(value: Any, limit: int) -> str:
+ text = _markdown_text(value)
+ return text.replace("```", "``&#96;")[:limit]
+
+
+def _safe_cvss(value: Any) -> float | None:
+ if isinstance(value, bool) or not isinstance(value, (int, float)):
+  return None
+ numeric = float(value)
+ if not math.isfinite(numeric) or not 0 <= numeric <= 10:
+  return None
+ return numeric
 
 
 class ReportEngine:
  def __init__(self, session_name: str, findings: list[dict[str, Any]],
      targets: list[dict[str, Any]], output_dir: Path):
+  if not isinstance(session_name, str) or not _SESSION_NAME_RE.fullmatch(session_name):
+   raise ValueError("Invalid report session name")
   self.session = session_name
   findings = _quality_gate(findings)
   findings = _deduplicate(findings)
   self.findings = sorted(findings, key=lambda f: SEVERITY_ORDER.get(f.get("severity", "info"), 99))
-  self.targets = targets
-  self.output_dir = output_dir
-  self.output_dir.mkdir(parents=True, exist_ok=True)
-  self.generated_at = datetime.now(timezone.utc).isoformat()
+  self.targets = redact_sensitive_value(targets)
+  self.output_dir = output_dir.expanduser()
+  if self.output_dir.is_symlink():
+   raise ValueError("Report output directory must not be a symbolic link")
+  self.output_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+  os.chmod(self.output_dir, 0o700)
+  self.generated_at = datetime.now(UTC).isoformat()
+
+ def _write_private(self, path: Path, content: str) -> Path:
+  """Create reports with owner-only permissions and refuse symlink targets."""
+  if path.is_symlink():
+   raise ValueError(f"Refusing to overwrite symlink report path: {path}")
+  flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+  flags |= getattr(os, "O_NOFOLLOW", 0)
+  descriptor = os.open(path, flags, 0o600)
+  with os.fdopen(descriptor, "w", encoding="utf-8", newline="") as handle:
+   handle.write(content)
+  os.chmod(path, 0o600)
+  return path
 
  def _severity_counts(self) -> dict[str, int]:
   counts: dict[str, int] = {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
@@ -94,7 +143,7 @@ class ReportEngine:
    "targets": self.targets,
    "findings": self.findings,
   }
-  out.write_text(json.dumps(report, indent=2, default=str))
+  self._write_private(out, json.dumps(report, indent=2, default=str))
   console.print(f" [success][+] JSON report: {out}[/success]")
   return out
 
@@ -118,38 +167,39 @@ class ReportEngine:
   for i, f in enumerate(self.findings, 1):
    sev = f.get("severity", "info")
    lines.extend([
-    f"### {i}. {f.get('title', 'Untitled')}",
+    f"### {i}. {_markdown_text(f.get('title', 'Untitled'))}",
     f"\n**Severity:** {SEVERITY_BADGES[sev]} {sev.upper()} ",
-    f"**Target:** `{f.get('target', 'N/A')}` ",
-    f"**Module:** {f.get('module', 'N/A')} ",
-    f"**Confidence:** {f.get('confidence', 'N/A')} ",
+    f"**Target:** `{_markdown_code(f.get('target', 'N/A'), 500)}` ",
+    f"**Module:** {_markdown_text(f.get('module', 'N/A'))} ",
+    f"**Confidence:** {_markdown_text(f.get('confidence', 'N/A'))} ",
    ])
-   if f.get("cvss_score"):
-    lines.append(f"**CVSS Score:** {f['cvss_score']} ")
+   cvss = _safe_cvss(f.get("cvss_score"))
+   if cvss is not None:
+    lines.append(f"**CVSS Score:** {cvss:g} ")
    if f.get("cwe"):
-    lines.append(f"**CWE:** {f['cwe']} ")
-   lines.append(f"\n**Description:** \n{f.get('description', 'N/A')}\n")
+    lines.append(f"**CWE:** {_markdown_text(f['cwe'])} ")
+   lines.append(f"\n**Description:** \n{_markdown_text(f.get('description', 'N/A'))}\n")
    if f.get("request"):
     lines.extend([
      "**Request:**",
      "```http",
-     f.get("request", ""),
+     _markdown_code(f.get("request", ""), 4000),
      "```",
     ])
    if f.get("evidence"):
     lines.extend([
      "**Evidence:**",
      "```",
-     str(f.get("evidence", ""))[:500],
+     _markdown_code(f.get("evidence", ""), 500),
      "```",
     ])
    if f.get("reproduction"):
-    lines.append(f"\n**Steps to Reproduce:** \n{f.get('reproduction', '')}\n")
+    lines.append(f"\n**Steps to Reproduce:** \n{_markdown_text(f.get('reproduction', ''))}\n")
    if f.get("remediation"):
-    lines.append(f"\n**Remediation:** \n{f.get('remediation', '')}\n")
+    lines.append(f"\n**Remediation:** \n{_markdown_text(f.get('remediation', ''))}\n")
    lines.append("\n---\n")
 
-  out.write_text("\n".join(lines))
+  self._write_private(out, "\n".join(lines))
   console.print(f" [success][+] Markdown report: {out}[/success]")
   return out
 
@@ -165,8 +215,19 @@ class ReportEngine:
   for i, f in enumerate(self.findings, 1):
    sev = f.get("severity", "info").lower()
    color = SEVERITY_COLORS.get(sev, "#6b7280")
-   req_html = f"<pre class='code'>{self._esc(f.get('request',''))}</pre>" if f.get("request") else ""
-   evidence_html = f"<pre class='code'>{self._esc(str(f.get('evidence',''))[:800])}</pre>" if f.get("evidence") else ""
+   cvss = _safe_cvss(f.get("cvss_score"))
+   cvss_html = (
+    f"<tr><td>CVSS</td><td>{cvss:g}</td></tr>"
+    if cvss is not None else ""
+   )
+   req_html = (
+    f"<pre class='code'>{self._esc(f.get('request', ''))}</pre>"
+    if f.get("request") else ""
+   )
+   evidence_html = (
+    f"<pre class='code'>{self._esc(str(f.get('evidence', ''))[:800])}</pre>"
+    if f.get("evidence") else ""
+   )
    findings_html += f"""
 <div class='finding' id='finding-{i}'>
  <div class='finding-header' style='border-left:4px solid {color}'>
@@ -178,7 +239,7 @@ class ReportEngine:
  <table class='meta'>
   <tr><td>Module</td><td>{self._esc(f.get('module',''))}</td></tr>
   <tr><td>Confidence</td><td>{self._esc(f.get('confidence',''))}</td></tr>
-  {'<tr><td>CVSS</td><td>' + str(f.get('cvss_score','')) + '</td></tr>' if f.get('cvss_score') else ''}
+  {cvss_html}
   {'<tr><td>CWE</td><td>' + self._esc(f.get('cwe','')) + '</td></tr>' if f.get('cwe') else ''}
  </table>
  <h4>Description</h4><p>{self._esc(f.get('description',''))}</p>
@@ -241,13 +302,19 @@ class ReportEngine:
 </div>
 </body>
 </html>"""
-  out.write_text(html)
+  self._write_private(out, html)
   console.print(f" [success][+] HTML report: {out}[/success]")
   return out
 
  @staticmethod
- def _esc(s: str) -> str:
-  return (s or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+ def _esc(s: Any) -> str:
+  text = str(s or "")
+  return (
+   text.replace("&", "&amp;")
+   .replace("<", "&lt;")
+   .replace(">", "&gt;")
+   .replace('"', "&quot;")
+  )
 
  def generate_all(self, formats: list[str] | None = None) -> list[Path]:
   fmts = formats or ["json", "markdown", "html"]

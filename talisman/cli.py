@@ -3,9 +3,14 @@ TALISMAN CLI — Advanced Bug Bounty & Security Research Platform
 Author: MR MARCUS TAYK | Version: 1.0.0
 """
 from __future__ import annotations
-import asyncio, json, os, sys
+
+import asyncio
+import json
+import os
+import sys
 from pathlib import Path
 from typing import Optional
+
 import typer
 from rich.table import Table
 from rich.panel import Panel
@@ -13,7 +18,7 @@ from rich import print as rprint
 from talisman import __version__
 from talisman.utils.logger import setup_logging, console, print_banner
 from talisman.engine.session import SessionManager
-from talisman.engine.scope import ScopeEnforcer, ScopeConfig
+from talisman.engine.scope import ScopeConfig, ScopeEnforcer, set_active_scope
 from talisman.engine.rate_limiter import RateLimiter, RATE_PROFILES
 from talisman.engine.orchestrator import ChainOrchestrator
 
@@ -48,7 +53,7 @@ chain_app  = typer.Typer(help="Chain orchestrator — YAML workflows: full_recon
 session_app = typer.Typer(help="Session management — list, findings, summary, notes, delete", no_args_is_help=True)
 report_app = typer.Typer(help="Reports — HTML (dark theme), Markdown (HackerOne/Bugcrowd), JSON", no_args_is_help=True)
 cms_app  = typer.Typer(help="CMS — WordPress deep audit (version, plugins, users, XML-RPC, REST API)", no_args_is_help=True)
-ad_app  = typer.Typer(help="Active Directory — LDAP enum, Kerberoasting, SMB, password spray, AD CS", no_args_is_help=True)
+ad_app  = typer.Typer(help="Active Directory — safe transports only; generic LDAP, SMB, Kerberos, spraying and AD CS paths are disabled pending scope-pinned transports", no_args_is_help=True)
 intel_app  = typer.Typer(help="Intelligence — CVE lookup, CVSS scoring, knowledge base", no_args_is_help=True)
 plugin_app = typer.Typer(help="Plugin management — list, search, install, uninstall community scanners", no_args_is_help=True)
 
@@ -68,12 +73,30 @@ def _run(coro):
   console.print("\n[yellow][!] Interrupted[/yellow]")
   sys.exit(0)
 
+def _load_scope_config(target: str, scope_file: Optional[Path]) -> ScopeConfig:
+ """Load the explicitly requested scope file or build an exact-target scope.
+
+ An operator-supplied path is a security boundary: never silently replace a
+ missing or invalid scope file with a broader default target configuration.
+ """
+ if scope_file is not None:
+  if scope_file.is_symlink():
+   raise ValueError(f"Scope file must not be a symbolic link: {scope_file}")
+  if not scope_file.exists():
+   raise FileNotFoundError(f"Scope file does not exist: {scope_file}")
+  if not scope_file.is_file():
+   raise ValueError(f"Scope path is not a regular file: {scope_file}")
+  return ScopeConfig.from_file(scope_file)
+ return ScopeConfig.from_target(target)
+
+
 async def _session_scope(session_name, target, scope_file):
+ cfg = _load_scope_config(target, scope_file)
  sm = SessionManager()
  sess = sm.get(session_name)
- await sess.open()
- cfg = ScopeConfig.from_file(scope_file) if scope_file and scope_file.exists() else ScopeConfig.from_target(target)
- return sess, ScopeEnforcer(cfg)
+ active_scope = ScopeEnforcer(cfg)
+ sess._scope_token = set_active_scope(active_scope)
+ return sess, active_scope
 
 PROFILE_HELP = (
  "Rate profile for scan speed/stealth:\n"
@@ -657,7 +680,7 @@ _mkscan("websocket","talisman.modules.scanner.websocket",
 _mkscan("crlf","talisman.modules.scanner.crlf",
  "CRLF Injection / HTTP Response Splitting — header injection, response splitting.\n\n\\b\nExamples:\n talisman scan crlf -t https://example.com\n talisman scan crlf -t 'https://example.com/redirect?url=FUZZ'")
 _mkscan("nuclei","talisman.modules.scanner.nuclei_runner",
- "Nuclei — run Nuclei CVE/community templates against target.\n\n\\b\nExamples:\n talisman scan nuclei -t https://example.com\n talisman scan nuclei -t https://example.com -s bounty")
+ "Nuclei — external template execution is disabled by default because its resolver cannot be pinned to TALISMAN-approved IPs. Requires explicit TALISMAN_ALLOW_UNPINNED_NUCLEI=1 plus destructive scope permission.\n\n\\b\nExample:\n talisman scan nuclei -t https://example.com -s bounty")
 _mkscan("ratelimit","talisman.modules.scanner.rate_limit",
  "Rate Limit Testing — auth, OTP, password reset, API endpoint burst testing.\n\n\\b\nExamples:\n talisman scan ratelimit -t https://example.com/login\n talisman scan ratelimit -t https://example.com/api")
 _mkscan("mass","talisman.modules.scanner.mass_assignment",
@@ -681,21 +704,21 @@ _mkscan("verb","talisman.modules.scanner.verb_tampering",
 _mkscan("upload","talisman.modules.scanner.file_upload_scanner",
  "File Upload — extension bypass, content-type spoof, magic byte injection.\n\n\\b\nExamples:\n talisman scan upload -t https://example.com/upload\n talisman scan upload -t https://example.com/api/upload")
 _mkscan("git","talisman.modules.scanner.git_exposure",
- "Git Exposure — .git/config, .env, credential disclosure, 80+ sensitive paths.\n\n\\b\nExamples:\n talisman scan git -t https://example.com\n talisman scan git -t https://github.com/org/repo")
+ "Git/file exposure inventory — read-only path checks; exposed content is a candidate until the file and any secret are validated.\n\n\\b\nExample:\n talisman scan git -t https://example.com")
 _mkscan("depconf","talisman.modules.scanner.dep_confusion",
  "Dependency Confusion — package.json, requirements.txt, Gemfile, public registry cross-check.\n\n\\b\nExamples:\n talisman scan depconf -t https://example.com\n talisman scan depconf -t https://example.com/src")
 _mkscan("hpp","talisman.modules.scanner.hpp",
- "HTTP Parameter Pollution — query, body, header, mixed-source HPP bypass.\n\n\\b\nExamples:\n talisman scan hpp -t 'https://example.com/api?param=1&param=2'\n talisman scan hpp -t https://example.com")
+ "HTTP Parameter Pollution — reports reflected canary candidates; POST vectors require explicit destructive permission; duplicate-header testing is not supported by the current mapping API.\n\n\\b\nExample:\n talisman scan hpp -t 'https://example.com/api?param=1&param=2'")
 _mkscan("ldap","talisman.modules.scanner.ldap_injection",
- "LDAP Injection — wildcard, auth bypass, blind extraction payloads.\n\n\\b\nExamples:\n talisman scan ldap -t https://example.com/login\n talisman scan ldap -t https://example.com/search")
+ "LDAP injection candidates — active login/search POST probes run only with explicit destructive scope permission; results require controlled authorization validation.\n\n\\b\nExample:\n talisman scan ldap -t https://example.com/login")
 _mkscan("ssji","talisman.modules.scanner.ssji",
- "Server-Side JS Injection — Node.js eval, timing, error, reflection probes.\n\n\\b\nExamples:\n talisman scan ssji -t https://example.com/api\n talisman scan ssji -t 'https://example.com/eval?code=FUZZ'")
+ "Server-Side JavaScript Injection — disabled pending a dedicated disposable fixture and reliable execution oracle; no generic command or filesystem probes are sent.\n\n\\b\nExample:\n talisman scan ssji -t https://example.com/api")
 _mkscan("domclobber","talisman.modules.scanner.dom_clobbering",
- "DOM Clobbering — 10+ HTML element collisions, global sink overwrite.\n\n\\b\nExamples:\n talisman scan domclobber -t https://example.com\n talisman scan domclobber -t https://example.com/page")
+ "DOM Clobbering candidates — requires browser parsing, a real application gadget, and demonstrated security impact; POST probes require explicit destructive permission.\n\n\\b\nExample:\n talisman scan domclobber -t https://example.com")
 _mkscan("dangle","talisman.modules.scanner.dangling_markup",
- "Dangling Markup — unquoted attr, form hijack, script src injection.\n\n\\b\nExamples:\n talisman scan dangle -t https://example.com\n talisman scan dangle -t https://example.com/search?q=FUZZ")
+ "Dangling-markup reflection candidates — browser-side parsing and controlled canary capture must be verified manually; payload URLs use a reserved non-routable domain.\n\n\\b\nExample:\n talisman scan dangle -t https://example.com")
 _mkscan("unicode","talisman.modules.scanner.unicode_attacks",
- "Unicode Attacks — Bidi override, invisible chars, homoglyph, normalization bypass.\n\n\\b\nExamples:\n talisman scan unicode -t https://example.com\n talisman scan unicode -t 'https://example.com/search?q=FUZZ'")
+ "Unicode posture observations and candidate input-filter differences; active POST probes require explicit destructive scope permission, and reflection alone is not a bypass.\n\n\\b\nExample:\n talisman scan unicode -t https://example.com")
 _mkscan("grpc","talisman.modules.api.grpc",
  "gRPC Security — reflection API, TLS check, health check, gRPC-Web probing.\n\n\\b\nExamples:\n talisman scan grpc -t https://example.com\n talisman scan grpc -t grpc://api.example.com:50051")
 _mkscan("email","talisman.modules.network.email_security",
@@ -819,28 +842,45 @@ def waf_detect(
 @waf_app.command("origin")
 def waf_origin(
  target: str = typer.Option(..., "-t", "--target", help="Domain behind CDN/WAF"),
+ session_name: str = typer.Option("default", "-s", "--session", help="Session for scope-bound assessment"),
+ scope_file: Optional[Path] = typer.Option(None, "--scope", help="Scope YAML including any origin IPs authorized for active verification"),
  proxy: Optional[str] = typer.Option(None, "--proxy"),
  shodan_key: Optional[str] = typer.Option(None, "--shodan-key", envvar="SHODAN_API_KEY"),
  debug: bool = typer.Option(False, "--debug"),
 ):
  """
- Find real origin IP behind Cloudflare/CDN — bypass WAF entirely.
+ Discover possible origin IPs. Only IPs explicitly included in scope are actively verified.
 
  \b
- Methods: crt.sh CT logs, MX correlation, Shodan, favicon hash, subdomain enum
+ Passive sources: certificate-transparency records, MX correlation and Shodan.
+ Discovered origin IPs are candidates, not authorization to connect to them.
 
  \b
  Examples:
-  talisman waf origin -t example.com
-  talisman waf origin -t example.com --shodan-key YOUR_KEY
+  talisman waf origin -t example.com --scope ./scope.yaml
+  talisman waf origin -t example.com --scope ./scope.yaml --shodan-key YOUR_KEY
  """
  setup_logging("DEBUG" if debug else "INFO"); print_banner()
  from talisman.modules.waf.vendors.cloudflare import find_origin
- _run(find_origin(target=target, proxy=proxy, shodan_key=shodan_key))
+ async def _r():
+  sess, scope = await _session_scope(session_name, target, scope_file)
+  async with sess:
+   result = await find_origin(
+    target=target, proxy=proxy, shodan_key=shodan_key, scope=scope
+   )
+   if result.get("out_of_scope_candidates"):
+    console.print(
+     f" [dim]{len(result['out_of_scope_candidates'])} discovered IPs were not "
+     "verified because they are not explicitly included in scope[/dim]"
+    )
+   return result
+ _run(_r())
 
 @waf_app.command("bypass")
 def waf_bypass(
  target: str = typer.Option(..., "-t", "--target"),
+ session_name: str = typer.Option("default", "-s", "--session"),
+ scope_file: Optional[Path] = typer.Option(None, "--scope"),
  waf: str = typer.Option("auto", "--waf", help="WAF vendor: auto, Cloudflare, Akamai, ModSecurity, AWS WAF"),
  vuln_type: str = typer.Option("xss", "--type", help="Vuln type: xss, sqli, lfi, cmdi"),
  param: str = typer.Option("q", "--param", help="URL parameter to test"),
@@ -848,16 +888,26 @@ def waf_bypass(
  debug: bool = typer.Option(False, "--debug"),
 ):
  """
- Generate and score vendor-specific WAF bypass payloads.
+ Score vendor-specific WAF payloads against an explicitly scoped target.
+
+ \b
+ This performs active GET probes. Use only where the program permits this testing.
 
  \b
  Examples:
-  talisman waf bypass -t https://example.com --waf Cloudflare --type xss
-  talisman waf bypass -t https://example.com --waf Akamai --type sqli --param id
+  talisman waf bypass -t https://example.com --scope ./scope.yaml --waf Cloudflare --type xss
+  talisman waf bypass -t https://example.com --scope ./scope.yaml --waf Akamai --type sqli --param id
  """
  setup_logging("DEBUG" if debug else "INFO"); print_banner()
  from talisman.modules.waf.bypass_engine import run
- _run(run(target=target, waf=waf, vuln_type=vuln_type, proxy=proxy, param=param))
+ async def _r():
+  sess, scope = await _session_scope(session_name, target, scope_file)
+  async with sess:
+   return await run(
+    target=target, session=sess, scope=scope, waf=waf,
+    vuln_type=vuln_type, proxy=proxy, param=param
+   )
+ _run(_r())
 
 # ── FUZZ ──────────────────────────────────────────────────────────────────────
 @fuzz_app.command("paths")
@@ -901,17 +951,22 @@ def fuzz_params(
  session_name: str = typer.Option("default", "-s", "--session"),
  proxy: Optional[str] = typer.Option(None, "--proxy"),
  wordlist: Optional[str] = typer.Option(None, "--wordlist"),
- methods: str = typer.Option("GET,POST", "--methods"),
+ methods: str = typer.Option(
+  "GET",
+  "--methods",
+  help="Methods to fuzz: GET,POST. POST requires explicit destructive-scope permission.",
+ ),
  threads: int = typer.Option(20, "--threads"),
  debug: bool = typer.Option(False, "--debug"),
 ):
  """
  Parameter discovery — find hidden params via response differential analysis.
+ POST probes are opt-in through the scope's destructive-testing policy.
 
  \b
  Examples:
   talisman fuzz params -t https://example.com/api/users -s bounty
-  talisman fuzz params -t https://example.com --methods GET,POST,PUT
+  talisman fuzz params -t https://example.com --methods GET,POST
  """
  setup_logging("DEBUG" if debug else "INFO"); print_banner()
  async def _r():
@@ -1339,12 +1394,11 @@ def ad_spray(
  debug: bool = typer.Option(False, "--debug"),
 ):
  """
- AD Password Spray — lockout-safe, smart password list, configurable delay.
+ AD Password Spray — disabled pending pinned LDAP transport and safe lockout/credential handling.
 
  \b
- Examples:
-  talisman ad spray -t 192.168.1.10 --domain corp.local --dc-ip 192.168.1.10 \\
-  --users users.txt --passwords 'Password1,Welcome1!' -s internal
+ This command currently performs no network requests. The legacy implementation
+ did not honor its advertised lockout delay and could expose passwords in output.
  """
  setup_logging("DEBUG" if debug else "INFO"); print_banner()
  async def _r():
@@ -1368,18 +1422,12 @@ def ad_cs_cmd(
  debug: bool = typer.Option(False, "--debug"),
 ):
  """
- AD Certificate Services — ESC1-ESC8 vulnerability detection.
+ AD Certificate Services — disabled pending pinned, encrypted LDAP transport and safe credential handling.
 
  \b
- ESC1: SAN + Client Auth = forge admin certs
- ESC2: Any Purpose EKU
- ESC4: Template ACL misconfiguration
- ESC8: NTLM relay to ADCS HTTP endpoint -> DCSync
-
- \b
- Examples:
-  talisman ad adcs -t 192.168.1.10 --domain corp.local --dc-ip 192.168.1.10 \\
-  --user jsmith --password Password1 -s internal
+ This command currently performs no network requests. The legacy implementation
+ used unpinned LDAP connections and could persist the supplied password in
+ finding reproduction text.
  """
  setup_logging("DEBUG" if debug else "INFO"); print_banner()
  async def _r():

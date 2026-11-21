@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 from typing import Any
+from talisman.engine.scope import ScopeViolationError
 from talisman.utils.http_client import TalismanHTTPClient
 from talisman.utils.logger import get_logger, console, print_finding
 
@@ -51,7 +52,7 @@ def _extract_endpoints(spec: dict) -> list[dict[str, Any]]:
      "method": method.upper(),
      "operation_id": op.get("operationId", ""),
      "summary": op.get("summary", ""),
-     "requires_auth": bool(op.get("security") or spec.get("securityDefinitions")),
+     "requires_auth": bool(op.get("security", spec.get("security", []))),
      "params": [p.get("name") for p in params],
      "tags": op.get("tags", []),
     })
@@ -87,80 +88,124 @@ async def run(
  **kwargs: Any,
 ) -> dict[str, Any]:
  url = target if "://" in target else f"https://{target}"
- console.print(f"\n[module][+] Swagger/OpenAPI Audit[/module] -> [target]{url}[/target]")
-
- async with TalismanHTTPClient(proxy=proxy, timeout=15) as client:
-  # Find spec
-  spec_data: dict = {}
-  spec_location: str = ""
-  if spec_url:
-   try:
-    r = await client.get(spec_url, timeout=10)
-    spec_data = r.json()
-    spec_location = spec_url
-   except Exception as e:
-    console.print(f" [dim]Spec load error: {e}[/dim]")
-  else:
-   result = await _find_spec(url, client)
-   if result:
-    spec_location, spec_data = result
-
-  if not spec_data:
-   console.print(" No OpenAPI spec found")
-   return {"target": url, "spec_found": False, "endpoints": [], "findings": []}
-
-  console.print(f" [success][+] Spec found: {spec_location}[/success]")
-
-  # Parse spec
-  endpoints = _extract_endpoints(spec_data)
-  sensitive = _find_sensitive_endpoints(endpoints)
-  console.print(f" Endpoints: {len(endpoints)} total, {len(sensitive)} sensitive")
-
-  findings: list[dict[str, Any]] = []
-
-  # Flag unauthenticated sensitive endpoints
-  unauth_sensitive = [ep for ep in sensitive if not ep.get("requires_auth")]
-  if unauth_sensitive:
-   for ep in unauth_sensitive[:10]:
-    title = f"Sensitive endpoint without auth: {ep['method']} {ep['path']}"
-    print_finding(title, "high", url)
-    findings.append({"type": "unauth_endpoint", "endpoint": ep})
-    if session:
-     await session.add_finding(
-      target=url, module="swagger_audit",
-      vuln_type="unauth_endpoint",
-      severity="high", confidence="likely",
-      title=title,
-      description=f"Endpoint {ep['method']} {ep['path']} appears sensitive but lacks authentication requirement in spec.",
-      remediation="Add security requirements to all sensitive endpoints in the OpenAPI spec and enforce them server-side.",
-      cwe="CWE-306",
-     )
-
-  # Test for unauthenticated access on "DELETE" and "PUT" endpoints
-  if test_endpoints:
-   headers: dict[str, str] = {}
-   if auth_header:
-    headers["Authorization"] = auth_header
-
-   dangerous_methods = [ep for ep in endpoints if ep["method"] in ("DELETE", "PUT", "PATCH")]
-   for ep in dangerous_methods[:5]:
-    test_url = url.rstrip("/") + ep["path"]
-    try:
-     r = await client.request(ep["method"], test_url, headers=headers, timeout=8)
-     if r.status_code not in (401, 403, 404, 405):
-      severity = "high" if r.status_code in (200, 201, 204) else "medium"
-      title = f"{ep['method']} {ep['path']} accepts request (status {r.status_code})"
-      print_finding(title, severity, url)
-      findings.append({"type": "dangerous_method_accepted", "endpoint": ep, "status": r.status_code})
-    except Exception:
-     pass
-
-  console.print(f" Swagger audit complete — {len(findings)} findings")
+ if scope is None:
   return {
    "target": url,
-   "spec_found": True,
-   "spec_url": spec_location,
-   "endpoints": endpoints,
-   "sensitive_endpoints": sensitive,
-   "findings": findings,
+   "spec_found": False,
+   "endpoints": [],
+   "findings": [],
+   "candidates": [],
+   "observations": [],
+   "count": 0,
+   "error": "scope_enforcer_required",
   }
+ try:
+  scope.assert_in_scope(url)
+  if spec_url:
+   scope.assert_in_scope(spec_url)
+ except ScopeViolationError as exc:
+  return {
+   "target": url,
+   "spec_found": False,
+   "endpoints": [],
+   "findings": [],
+   "candidates": [],
+   "observations": [],
+   "count": 0,
+   "error": str(exc),
+  }
+
+ console.print(f"\\n[module][+] Passive OpenAPI/Swagger Audit[/module] -> [target]{url}[/target]")
+ spec_data: dict[str, Any] = {}
+ spec_location = ""
+
+ async with TalismanHTTPClient(
+  proxy=proxy,
+  timeout=15,
+  verify_ssl=True,
+  follow_redirects=False,
+  scope=scope,
+ ) as client:
+  if spec_url:
+   try:
+    response = await client.get(spec_url, timeout=10)
+    if response.status_code == 200:
+     parsed = response.json()
+     if isinstance(parsed, dict):
+      spec_data = parsed
+      spec_location = spec_url
+   except Exception as exc:
+    log.debug("openapi_explicit_spec_failed", error=type(exc).__name__)
+  else:
+   found = await _find_spec(url, client)
+   if found:
+    spec_location, spec_data = found
+
+ if not spec_data:
+  return {
+   "target": url,
+   "spec_found": False,
+   "endpoints": [],
+   "findings": [],
+   "candidates": [],
+   "observations": [],
+   "count": 0,
+   "active_endpoint_tests_performed": False,
+  }
+
+ endpoints = _extract_endpoints(spec_data)
+ sensitive = _find_sensitive_endpoints(endpoints)
+ observations: list[dict[str, Any]] = []
+ candidates: list[dict[str, Any]] = []
+
+ global_security = spec_data.get("security", [])
+ for endpoint in sensitive:
+  if not endpoint.get("requires_auth"):
+   candidates.append({
+    "type": "sensitive_operation_without_documented_security",
+    "endpoint": {
+     "path": endpoint.get("path"),
+     "method": endpoint.get("method"),
+     "operation_id": endpoint.get("operation_id"),
+    },
+    "confidence": "candidate",
+    "verification_required": (
+     "An OpenAPI security omission does not prove the server endpoint is public. "
+     "Verify authorization behavior with a non-destructive request and a "
+     "dedicated low-privilege account; inspect gateway and middleware policy."
+    ),
+   })
+
+ if isinstance(global_security, list) and not global_security:
+  observations.append({
+   "type": "openapi_global_security_not_declared",
+   "classification": "api_documentation_observation",
+   "note": (
+    "The OpenAPI document does not declare global security requirements. "
+    "Runtime authorization may still be enforced outside the specification."
+   ),
+  })
+
+ console.print(
+  f" OpenAPI audit complete — {len(endpoints)} endpoints, "
+  f"{len(candidates)} authorization candidates, {len(observations)} observations"
+ )
+ return {
+  "target": url,
+  "spec_found": True,
+  "spec_url": spec_location,
+  "endpoints": endpoints,
+  "sensitive_endpoints": sensitive,
+  "findings": [],
+  "candidates": candidates,
+  "observations": observations,
+  "count": 0,
+  "candidate_count": len(candidates),
+  "observation_count": len(observations),
+  "active_endpoint_tests_performed": False,
+  "active_endpoint_tests_requested": bool(test_endpoints),
+  "note": (
+   "Automatic PUT, PATCH and DELETE probes are disabled. Documented sensitive "
+   "operations require runtime authorization verification."
+  ),
+ }

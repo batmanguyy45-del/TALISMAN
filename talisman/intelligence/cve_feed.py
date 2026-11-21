@@ -2,19 +2,41 @@
 from __future__ import annotations
 import asyncio
 from typing import Any
+from talisman.engine.scope import ScopeConfig, ScopeEnforcer
 from talisman.utils.http_client import TalismanHTTPClient
 from talisman.utils.logger import get_logger, console
 
 log = get_logger(__name__)
 
-async def lookup_cves(technology: str, version: str | None = None) -> list[dict[str, Any]]:
- """Query NVD API for CVEs matching a technology and version."""
+async def lookup_cves(
+ technology: str,
+ version: str | None = None,
+ scope: Any = None,
+) -> list[dict[str, Any]]:
+ """Query the NVD API through a narrowly scoped, read-only provider client."""
  cves: list[dict[str, Any]] = []
  try:
-  async with TalismanHTTPClient(timeout=15) as client:
+  # The CLI CVE lookup is an external reference-data request, not a request
+  # against the assessment target. Give it an exact NVD-only scope instead
+  # of falling back to an ambient or unrestricted network client.
+  if scope is None:
+   scope = ScopeEnforcer(
+    ScopeConfig(
+     include=["services.nvd.nist.gov"],
+     exclude=[],
+     service_allowlist=[],
+    )
+   )
+  async with TalismanHTTPClient(
+   timeout=15,
+   verify_ssl=True,
+   follow_redirects=False,
+   scope=scope,
+  ) as client:
    keyword = f"{technology} {version}" if version else technology
    r = await client.get(
-    f"https://services.nvd.nist.gov/rest/json/cves/2.0?keywordSearch={keyword}&resultsPerPage=10",
+    "https://services.nvd.nist.gov/rest/json/cves/2.0",
+    params={"keywordSearch": keyword, "resultsPerPage": 10},
     timeout=15,
    )
    if r.status_code == 200:

@@ -1,128 +1,23 @@
-"""Rate limit tester -- detects missing or weak rate limiting on auth, OTP, and API endpoints."""
+"""Rate-limit assessment using an operator-supplied disposable test fixture.
+
+The generic implementation previously guessed login/OTP/password-reset routes and
+sent bursts of requests. That could lock real accounts or trigger email/OTP
+side effects. This implementation sends no traffic unless the operator supplies
+a disposable endpoint and bounded test payload explicitly.
+"""
 from __future__ import annotations
-import asyncio
-import random
-import string
+
+import time
 from typing import Any
+from urllib.parse import urljoin, urlsplit
+
+from talisman.engine.scope import ScopeViolationError
 from talisman.utils.http_client import TalismanHTTPClient
-from talisman.utils.logger import get_logger, console, print_finding
+from talisman.utils.logger import console, get_logger
 
 log = get_logger(__name__)
 
-AUTH_ENDPOINTS = [
-    "/login", "/api/login", "/auth", "/api/auth",
-    "/signin", "/api/signin", "/authenticate",
-]
-
-OTP_ENDPOINTS = [
-    "/verify-otp", "/verify", "/api/verify",
-    "/otp", "/api/otp", "/2fa", "/mfa",
-]
-
-PASSWORD_RESET_ENDPOINTS = [
-    "/forgot-password", "/api/forgot-password",
-    "/reset-password", "/api/reset-password",
-    "/forgot", "/api/forgot",
-]
-
-RAPID_REQUEST_COUNT = 20
-CONCURRENT_BURST_COUNT = 10
-
-
-async def _test_single_endpoint(
-    url: str,
-    endpoint: str,
-    method: str,
-    client: TalismanHTTPClient,
-    payload_template: dict[str, Any],
-    burst_count: int = RAPID_REQUEST_COUNT,
-) -> dict[str, Any]:
-    """Send rapid requests to an endpoint and analyze rate limiting behavior."""
-    test_url = url.rstrip("/") + endpoint
-    statuses: list[int] = []
-    response_times: list[float] = []
-
-    for i in range(burst_count):
-        payload = {
-            k: (v + str(i) if isinstance(v, str) and "{i}" in v else v)
-            for k, v in payload_template.items()
-        }
-        # Replace {i} with the actual index
-        payload = {
-            k: v.replace("{i}", str(i)) if isinstance(v, str) else v
-            for k, v in payload.items()
-        }
-        try:
-            start = asyncio.get_event_loop().time()
-            if method.upper() == "POST":
-                r = await client.post(test_url, json=payload, timeout=8)
-            else:
-                r = await client.get(test_url, params=payload, timeout=8)
-            elapsed = asyncio.get_event_loop().time() - start
-            statuses.append(r.status_code)
-            response_times.append(elapsed)
-        except Exception:
-            statuses.append(0)
-            response_times.append(0)
-
-    unique_statuses = set(statuses)
-    has_429 = 429 in unique_statuses
-    has_200 = 200 in unique_statuses
-
-    # Analyze rate limiting effectiveness
-    result: dict[str, Any] = {
-        "endpoint": test_url,
-        "requests": burst_count,
-        "statuses": statuses,
-        "unique_statuses": sorted(unique_statuses),
-        "has_rate_limiting": has_429,
-        "all_successful": all(s == 200 for s in statuses if s != 0),
-        "avg_response_time": sum(response_times) / max(len(response_times), 1),
-    }
-
-    return result
-
-
-async def _test_concurrent_burst(
-    url: str,
-    endpoint: str,
-    method: str,
-    client: TalismanHTTPClient,
-    payload_template: dict[str, Any],
-    concurrency: int = CONCURRENT_BURST_COUNT,
-) -> dict[str, Any]:
-    """Send concurrent requests to test rate limiting under parallel load."""
-    test_url = url.rstrip("/") + endpoint
-
-    async def _send_one(idx: int) -> int:
-        payload = {
-            k: v.replace("{i}", str(idx)) if isinstance(v, str) else v
-            for k, v in payload_template.items()
-        }
-        try:
-            if method.upper() == "POST":
-                r = await client.post(test_url, json=payload, timeout=10)
-            else:
-                r = await client.get(test_url, params=payload, timeout=10)
-            return r.status_code
-        except Exception:
-            return 0
-
-    results = await asyncio.gather(*[_send_one(i) for i in range(concurrency)])
-    unique = set(results)
-    has_429 = 429 in unique
-    has_200 = 200 in unique
-    rate_limited_count = sum(1 for s in results if s in (429, 429))
-
-    return {
-        "endpoint": test_url,
-        "concurrent_requests": concurrency,
-        "statuses": results,
-        "unique_statuses": sorted(unique),
-        "has_rate_limiting": has_429,
-        "some_successful": has_200,
-        "rate_limited_count": rate_limited_count,
-    }
+MAX_FIXTURE_ATTEMPTS = 10
 
 
 async def run(
@@ -131,113 +26,177 @@ async def run(
     scope: Any = None,
     rate_limiter: Any = None,
     proxy: str | None = None,
+    test_fixture: dict[str, Any] | None = None,
     **kwargs: Any,
 ) -> dict[str, Any]:
     url = target if "://" in target else f"https://{target}"
-    console.print(f"\n[module][+] Rate Limit Tester[/module] -> [target]{url}[/target]")
-    findings: list[dict[str, Any]] = []
+    if scope is None:
+        return {
+            "target": url,
+            "findings": [],
+            "candidates": [],
+            "count": 0,
+            "error": "scope_enforcer_required",
+        }
 
-    username = f"test_{''.join(random.choices(string.ascii_lowercase, k=6))}_rl"
-    password = "wrongpass123!"
+    try:
+        scope.assert_in_scope(url)
+    except ScopeViolationError as exc:
+        return {
+            "target": url,
+            "findings": [],
+            "candidates": [],
+            "count": 0,
+            "error": str(exc),
+        }
 
-    async with TalismanHTTPClient(proxy=proxy, timeout=10) as client:
-        # -- 1. Auth endpoint rapid requests -----------------------------------------
-        console.print("  Testing auth endpoints...")
-        for auth_path in AUTH_ENDPOINTS:
-            result = await _test_single_endpoint(
-                url, auth_path, "POST", client,
-                {"username": username, "password": password},
-                burst_count=RAPID_REQUEST_COUNT,
-            )
-            if not result["has_rate_limiting"] and result["all_successful"]:
-                print_finding(f"No rate limiting on {auth_path} -- all {RAPID_REQUEST_COUNT} requests accepted", "high", url)
-                findings.append({"issue": "no_rate_limit_auth", "endpoint": auth_path, **result})
-                if session:
-                    await session.add_finding(
-                        target=url, module="rate_limit",
-                        vuln_type="no_rate_limit_auth",
-                        severity="high", confidence="confirmed",
-                        title=f"No rate limiting on auth endpoint {auth_path}",
-                        description=f"Sent {RAPID_REQUEST_COUNT} rapid login requests to {auth_path} and all were accepted. No rate limiting detected. Attackers can brute-force credentials without restriction.",
-                        evidence=f"Statuses: {result['unique_statuses']}",
-                        reproduction=f"Rapid {RAPID_REQUEST_COUNT} requests to {auth_path} -- no rate limit triggered.",
-                        remediation="1. Implement rate limiting on authentication endpoints. 2. Use account lockout after N failed attempts. 3. Consider CAPTCHA after threshold.",
-                        cvss_score=7.5, cwe="CWE-307",
-                    )
-            elif not result["has_rate_limiting"]:
-                # Mixed results - some succeeded, indicating rate limiting is incomplete
-                print_finding(f"Weak rate limiting on {auth_path} -- some requests still accepted", "medium", url)
-                findings.append({"issue": "weak_rate_limit_auth", "endpoint": auth_path, **result})
+    if not isinstance(test_fixture, dict):
+        return {
+            "target": url,
+            "findings": [],
+            "candidates": [],
+            "count": 0,
+            "skipped": True,
+            "reason": (
+                "Generic rate-limit bursts against guessed authentication, OTP and "
+                "password-reset endpoints are disabled. Supply test_fixture with "
+                "an in-scope endpoint, method, disposable test payload and 2-10 "
+                "attempts. Use an account that can safely tolerate failed attempts."
+            ),
+        }
 
-        # -- 2. Concurrent burst test -------------------------------------------------
-        console.print("  Testing concurrent burst resilience...")
-        for auth_path in AUTH_ENDPOINTS[:2]:
-            burst_result = await _test_concurrent_burst(
-                url, auth_path, "POST", client,
-                {"username": username, "password": password},
-                concurrency=CONCURRENT_BURST_COUNT,
-            )
-            if not burst_result["has_rate_limiting"] and burst_result["some_successful"]:
-                print_finding(f"Concurrent rate limit bypass on {auth_path} -- {CONCURRENT_BURST_COUNT} parallel requests accepted", "high", url)
-                findings.append({"issue": "concurrent_rate_limit_bypass", "endpoint": auth_path, **burst_result})
-                if session:
-                    await session.add_finding(
-                        target=url, module="rate_limit",
-                        vuln_type="concurrent_rate_limit_bypass",
-                        severity="high", confidence="confirmed",
-                        title=f"Concurrent rate limit bypass on {auth_path}",
-                        description=f"Sent {CONCURRENT_BURST_COUNT} concurrent requests to {auth_path} and {burst_result.get('rate_limited_count', 0)} were rate-limited. Attackers can use concurrent connections to bypass per-IP rate limits.",
-                        evidence=f"Statuses: {burst_result['unique_statuses']}",
-                        remediation="1. Use a sliding window rate limiter with atomic counters. 2. Rate limit by session or user ID in addition to IP. 3. Use global rate limits, not just per-IP.",
-                        cvss_score=7.5, cwe="CWE-307",
-                    )
+    endpoint = test_fixture.get("endpoint")
+    method = str(test_fixture.get("method", "POST")).upper()
+    payload = test_fixture.get("payload")
+    attempts = test_fixture.get("attempts", 5)
 
-        # -- 3. OTP endpoint testing -------------------------------------------------
-        console.print("  Testing OTP endpoints...")
-        for otp_path in OTP_ENDPOINTS:
-            otp_result = await _test_single_endpoint(
-                url, otp_path, "POST", client,
-                {"otp": "{i}", "user": username},
-                burst_count=15,
-            )
-            if not otp_result["has_rate_limiting"] and otp_result["all_successful"]:
-                print_finding(f"No rate limiting on OTP endpoint {otp_path}", "high", url)
-                findings.append({"issue": "no_rate_limit_otp", "endpoint": otp_path, **otp_result})
-                if session:
-                    await session.add_finding(
-                        target=url, module="rate_limit",
-                        vuln_type="no_rate_limit_otp",
-                        severity="high", confidence="confirmed",
-                        title=f"No rate limiting on OTP endpoint {otp_path}",
-                        description=f"Sent 15 rapid OTP verification requests to {otp_path} and all were accepted. OTP codes can be brute-forced without restriction.",
-                        evidence=f"Statuses: {otp_result['unique_statuses']}",
-                        remediation="1. Rate limit OTP verification per session. 2. Lockout after 3-5 failed attempts. 3. Use short-lived OTP codes (30-60 seconds).",
-                        cvss_score=8.2, cwe="CWE-307",
-                    )
+    if not isinstance(endpoint, str) or not endpoint.strip():
+        return {"target": url, "findings": [], "count": 0, "error": "test_fixture.endpoint_required"}
+    if method not in {"GET", "POST"}:
+        return {
+            "target": url,
+            "findings": [],
+            "count": 0,
+            "error": "test_fixture.method_must_be_GET_or_POST",
+        }
+    if not isinstance(payload, dict):
+        return {
+            "target": url,
+            "findings": [],
+            "count": 0,
+            "error": "test_fixture.payload_must_be_a_mapping",
+        }
+    if (
+        isinstance(attempts, bool)
+        or not isinstance(attempts, int)
+        or not 2 <= attempts <= MAX_FIXTURE_ATTEMPTS
+    ):
+        return {
+            "target": url,
+            "findings": [],
+            "count": 0,
+            "error": f"test_fixture.attempts_must_be_between_2_and_{MAX_FIXTURE_ATTEMPTS}",
+        }
 
-        # -- 4. Password reset endpoint testing ---------------------------------------
-        console.print("  Testing password reset endpoints...")
-        reset_email = f"test_{''.join(random.choices(string.ascii_lowercase, k=4))}@example.com"
-        for reset_path in PASSWORD_RESET_ENDPOINTS:
-            reset_result = await _test_single_endpoint(
-                url, reset_path, "POST", client,
-                {"email": reset_email},
-                burst_count=10,
-            )
-            if not reset_result["has_rate_limiting"] and reset_result["all_successful"]:
-                print_finding(f"No rate limiting on password reset {reset_path}", "medium", url)
-                findings.append({"issue": "no_rate_limit_reset", "endpoint": reset_path, **reset_result})
-                if session:
-                    await session.add_finding(
-                        target=url, module="rate_limit",
-                        vuln_type="no_rate_limit_password_reset",
-                        severity="medium", confidence="confirmed",
-                        title=f"No rate limiting on password reset endpoint {reset_path}",
-                        description=f"Sent 10 rapid password reset requests to {reset_path}. No rate limiting detected. Can be used for email bombing or enumeration.",
-                        evidence=f"Statuses: {reset_result['unique_statuses']}",
-                        remediation="1. Rate limit password reset requests per email and per IP. 2. Add CAPTCHA for password reset. 3. Implement cooldown period between requests.",
-                        cvss_score=5.3, cwe="CWE-307",
-                    )
+    test_url = urljoin(url.rstrip("/") + "/", endpoint.lstrip("/"))
+    try:
+        scope.assert_in_scope(test_url)
+        if method == "POST":
+            scope.assert_destructive_allowed(test_url, method)
+    except ScopeViolationError as exc:
+        return {
+            "target": url,
+            "findings": [],
+            "candidates": [],
+            "count": 0,
+            "skipped": True,
+            "reason": str(exc),
+        }
 
-    console.print(f"  Rate limit testing complete -- {len(findings)} issues")
-    return {"target": url, "findings": findings, "count": len(findings)}
+    statuses: list[int] = []
+    retry_after_values: list[str] = []
+    rate_limit_headers_seen: set[str] = set()
+    elapsed_seconds: list[float] = []
+
+    console.print(
+        f"\\n[module][+] Controlled Rate-Limit Assessment[/module] -> [target]{test_url}[/target]"
+    )
+    async with TalismanHTTPClient(
+        proxy=proxy,
+        timeout=10,
+        verify_ssl=True,
+        follow_redirects=False,
+        scope=scope,
+    ) as client:
+        for _ in range(attempts):
+            started = time.monotonic()
+            try:
+                if method == "GET":
+                    response = await client.get(test_url, params=payload, timeout=8)
+                else:
+                    response = await client.post(test_url, json=payload, timeout=8)
+                elapsed_seconds.append(round(time.monotonic() - started, 3))
+                statuses.append(response.status_code)
+                if response.headers.get("retry-after"):
+                    retry_after_values.append(response.headers["retry-after"][:80])
+                for header in (
+                    "ratelimit-limit",
+                    "ratelimit-remaining",
+                    "ratelimit-reset",
+                    "x-ratelimit-limit",
+                    "x-ratelimit-remaining",
+                    "x-ratelimit-reset",
+                ):
+                    if response.headers.get(header) is not None:
+                        rate_limit_headers_seen.add(header)
+            except Exception as exc:
+                elapsed_seconds.append(round(time.monotonic() - started, 3))
+                statuses.append(0)
+                log.debug("rate_limit_fixture_request_failed", error=type(exc).__name__)
+
+    throttled = any(status in {429, 503} for status in statuses)
+    candidate: list[dict[str, Any]] = []
+    observations = [{
+        "type": "bounded_rate_limit_test",
+        "endpoint": urlsplit(test_url).path,
+        "method": method,
+        "attempts": attempts,
+        "statuses": statuses,
+        "retry_after_observed": bool(retry_after_values),
+        "rate_limit_headers_observed": sorted(rate_limit_headers_seen),
+        "elapsed_seconds": elapsed_seconds,
+        "classification": "controlled_test_observation",
+        "note": (
+            "Requests were serial and capped by the assessment's shared rate "
+            "limiter. The result describes only this test window and account; "
+            "it does not prove system-wide absence or presence of rate limiting."
+        ),
+    }]
+
+    if not throttled and not retry_after_values and not rate_limit_headers_seen:
+        candidate.append({
+            "type": "rate_limit_not_observed_in_bounded_sample",
+            "confidence": "candidate",
+            "endpoint": urlsplit(test_url).path,
+            "method": method,
+            "attempts": attempts,
+            "statuses": statuses,
+            "requires_threshold_validation": True,
+            "verification_required": (
+                "Repeat on the disposable account across an authorized threshold "
+                "window, inspect account/IP/session counters and Retry-After "
+                "behavior, and ensure lockout or secondary controls were not "
+                "mistaken for the rate limiter."
+            ),
+        })
+
+    return {
+        "target": url,
+        "findings": [],
+        "candidates": candidate,
+        "observations": observations,
+        "count": 0,
+        "candidate_count": len(candidate),
+        "observation_count": len(observations),
+        "test_fixture_used": True,
+    }

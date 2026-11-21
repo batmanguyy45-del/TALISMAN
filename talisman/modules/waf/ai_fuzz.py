@@ -1,8 +1,9 @@
 """AI Fuzzer — Generates novel WAF bypass payloads using LLMs."""
 import os
 import json
-import httpx
 from typing import Any
+from talisman.engine.scope import ScopeConfig, ScopeEnforcer
+from talisman.utils.http_client import TalismanHTTPClient
 from talisman.utils.logger import get_logger, console
 
 log = get_logger(__name__)
@@ -23,7 +24,22 @@ async def run(target: str, param: str, waf_vendor: str = "Generic", proxy: str |
     console.print("  [dim]Contacting AI for payload generation...[/dim]")
     
     try:
-        async with httpx.AsyncClient() as client:
+        provider_scope = ScopeEnforcer(
+            ScopeConfig(
+                include=["api.openai.com"],
+                exclude=[],
+                service_allowlist=[],
+                allow_state_changing_requests=True,
+                avoid_writes=False,
+            )
+        )
+        async with TalismanHTTPClient(
+            proxy=proxy,
+            scope=provider_scope,
+            timeout=30,
+            verify_ssl=True,
+            follow_redirects=False,
+        ) as client:
             resp = await client.post(
                 "https://api.openai.com/v1/chat/completions",
                 headers={"Authorization": f"Bearer {api_key}"},

@@ -5,7 +5,7 @@ import json
 import re
 from typing import Any
 from talisman.utils.http_client import TalismanHTTPClient
-from talisman.utils.logger import get_logger, console, print_finding
+from talisman.utils.logger import get_logger, console
 
 log = get_logger(__name__)
 
@@ -150,7 +150,6 @@ def _extract_dependencies(content: str, pm_type: str) -> list[dict[str, Any]]:
             pass
 
     elif pm_type == "cargo":
-        import re
         for section_match in re.finditer(r'\[([^\]]+)\]', content):
             section = section_match.group(1)
             if section.startswith("dependencies"):
@@ -232,13 +231,13 @@ def _identify_confusion_candidates(deps: list[dict[str, Any]]) -> list[dict[str,
     return candidates
 
 
-async def _check_npm_registry(package_name: str) -> bool:
+async def _check_npm_registry(package_name: str, scope: Any) -> bool:
     """Check if a package exists on the public npm registry."""
-    import httpx as _httpx
     try:
-        async with _httpx.AsyncClient() as client:
-            r = await client.get(f"https://registry.npmjs.org/{package_name}", timeout=8)
-            return r.status_code == 200
+        url = f"https://registry.npmjs.org/{package_name}"
+        async with TalismanHTTPClient(timeout=8, scope=scope) as client:
+            response = await client.get(url)
+            return response.status_code == 200
     except Exception:
         return False
 
@@ -251,12 +250,57 @@ async def run(
     proxy: str | None = None,
     **kwargs: Any,
 ) -> dict[str, Any]:
-    url = target if "://" in target else f"https://{target}"
-    console.print(f"\n[module][+] Dependency Confusion Scanner[/module] -> [target]{url}[/target]")
-    findings: list[dict[str, Any]] = []
+    """Collect package-manifest observations and dependency-confusion candidates.
 
-    async with TalismanHTTPClient(proxy=proxy, timeout=10) as client:
-        console.print(f"  Checking {len(PACKAGE_FILES)} package file paths...")
+    A public package with a suspicious-looking name does not prove that the
+    dependency is private, that the build uses public-registry fallback, or
+    that an attacker can influence resolution. Public manifest availability is
+    also not, by itself, a security vulnerability.
+    """
+    from urllib.parse import urlsplit
+
+    url = target if "://" in target else f"https://{target}"
+    if scope is None:
+        return {
+            "target": url,
+            "findings": [],
+            "candidates": [],
+            "observations": [],
+            "count": 0,
+            "error": "scope_enforcer_required",
+        }
+
+    try:
+        scope.assert_in_scope(url)
+    except Exception as exc:
+        return {
+            "target": url,
+            "findings": [],
+            "candidates": [],
+            "observations": [],
+            "count": 0,
+            "error": str(exc),
+        }
+
+    if urlsplit(url).scheme not in {"http", "https"}:
+        return {
+            "target": url,
+            "findings": [],
+            "candidates": [],
+            "observations": [],
+            "count": 0,
+            "error": "invalid_target_scheme",
+        }
+
+    console.print(
+        f"\\n[module][+] Dependency Confusion Assessment[/module] -> [target]{url}[/target]"
+    )
+    candidates_out: list[dict[str, Any]] = []
+    observations: list[dict[str, Any]] = []
+    checked_registry_packages: set[str] = set()
+
+    async with TalismanHTTPClient(proxy=proxy, timeout=10, scope=scope) as client:
+        console.print(f"  Checking {len(PACKAGE_FILES)} common package manifest paths...")
         fetch_tasks = [_fetch_package_file(url, path, client) for path in PACKAGE_FILES]
         fetch_results = await asyncio.gather(*fetch_tasks, return_exceptions=True)
 
@@ -264,83 +308,82 @@ async def run(
             if not isinstance(fetch_result, dict):
                 continue
 
-            path = fetch_result.get("path", "")
-            pm_type = fetch_result.get("pm_type", "unknown")
+            path = str(fetch_result.get("path", ""))
+            pm_type = str(fetch_result.get("pm_type", "unknown"))
             content = fetch_result.get("content", "")
-
-            if not content:
+            if not isinstance(content, str) or not content:
                 continue
 
-            console.print(f"  Found: {path} ({pm_type})")
-
-            # Extract dependencies
             deps = _extract_dependencies(content, pm_type)
+            observation = {
+                "type": "public_dependency_manifest",
+                "path": path,
+                "package_manager": pm_type,
+                "dependency_count": len(deps),
+                "note": (
+                    "Manifest exposure is recorded as an observation only; "
+                    "public package manifests are often intentional and do not "
+                    "demonstrate a confidentiality or supply-chain vulnerability."
+                ),
+            }
+            observations.append(observation)
+            console.print(
+                f"  Observed {path}: {pm_type}, {len(deps)} dependencies "
+                "(not automatically reportable)"
+            )
+
             if not deps:
                 continue
 
-            console.print(f"    Found {len(deps)} dependencies")
+            for candidate in _identify_confusion_candidates(deps)[:10]:
+                package_name = candidate.get("name", "")
+                if not isinstance(package_name, str) or not package_name:
+                    continue
+                if pm_type != "npm" or package_name in checked_registry_packages:
+                    continue
+                checked_registry_packages.add(package_name)
 
-            # Identify confusion candidates
-            candidates = _identify_confusion_candidates(deps)
-            if not candidates:
-                continue
+                exists_public = await _check_npm_registry(package_name, scope)
+                if not exists_public:
+                    continue
 
-            console.print(f"    {len(candidates)} potential confusion candidates")
-
-            # Check top candidates against public registry
-            for candidate in candidates[:5]:
-                name = candidate["name"]
-                score = candidate["confidence_score"]
-                reasons = candidate.get("reasons", [])
-
-                if pm_type == "npm":
-                    exists_public = await _check_npm_registry(name)
-                    if exists_public:
-                        severity = "critical" if score >= 4 else "high"
-                        title = f"Dependency confusion risk: '{name}' (v{ candidate.get('version', '?') }) exists on public npm"
-                        print_finding(title, severity, url)
-                        findings.append({
-                            "package": name,
-                            "version": candidate.get("version"),
-                            "pm_type": pm_type,
-                            "score": score,
-                            "reasons": reasons,
-                            "exists_on_public": True,
-                            "source_file": path,
-                        })
-                        if session:
-                            await session.add_finding(
-                                target=url, module="dep_confusion",
-                                vuln_type="dependency_confusion",
-                                severity=severity, confidence="confirmed",
-                                title=title,
-                                description=f"Dependency '{name}' ({pm_type}) from {path} exists on the public registry. If this is an internal package, an attacker can publish a higher version to the public registry and have it resolved instead of the intended internal package.",
-                                evidence=f"Package: {name}@{candidate.get('version')}\nSource: {path}\nReasons: {'; '.join(reasons)}",
-                                remediation="1. Scope all internal packages (e.g., @org/package). 2. Pin private registry in package manager config. 3. Use lockfiles with integrity hashes. 4. Block public registry fallback for scoped packages. 5. Register placeholder names for internal packages on public registries.",
-                                cvss_score=9.1 if severity == "critical" else 7.5, cwe="CWE-1104",
-                            )
-                    else:
-                        console.print(f"    [dim]{name} not found on public npm — likely internal[/dim]")
-
-            # General finding: package file exposed
-            title = f"Package dependency file exposed: {path} ({pm_type}, {len(deps)} dependencies)"
-            print_finding(title, "medium", url)
-            findings.append({
-                "issue": "package_file_exposed",
-                "path": path,
-                "pm_type": pm_type,
-                "dep_count": len(deps),
-            })
-            if session:
-                await session.add_finding(
-                    target=url, module="dep_confusion",
-                    vuln_type="package_file_exposed",
-                    severity="medium", confidence="confirmed",
-                    title=title,
-                    description=f"Package management file {path} ({pm_type}) is publicly accessible. This reveals the application's dependency tree, which attackers can analyze for vulnerable and internal packages.",
-                    remediation="1. Block access to package management files via web server config. 2. Remove build artifacts from production servers. 3. Audit for exposed internal package names.",
-                    cvss_score=5.3, cwe="CWE-200",
+                candidate_record = {
+                    "type": "potential_dependency_namespace_collision",
+                    "package": package_name,
+                    "declared_version": candidate.get("version"),
+                    "package_manager": pm_type,
+                    "source_file": path,
+                    "heuristic_score": candidate.get("confidence_score", 0),
+                    "heuristic_reasons": candidate.get("reasons", []),
+                    "exists_on_public_registry": True,
+                    "confidence": "candidate",
+                    "requires_verification": [
+                        "Confirm the package name is reserved for or owned by the target organization.",
+                        "Inspect the actual build and package-manager registry configuration.",
+                        "Prove that dependency resolution can fall back to the public registry.",
+                        "Verify that lockfiles, namespace controls, and integrity pinning do not prevent substitution.",
+                    ],
+                    "safety_note": (
+                        "Do not publish or install a substitute package to test this. "
+                        "Establish the resolution path using configuration and an isolated local fixture."
+                    ),
+                }
+                candidates_out.append(candidate_record)
+                console.print(
+                    f"  Candidate only: {package_name} exists on the public npm registry; "
+                    "ownership and resolver behavior remain unproven"
                 )
 
-    console.print(f"  Dependency confusion scan complete -- {len(findings)} issues")
-    return {"target": url, "findings": findings, "count": len(findings)}
+    console.print(
+        f"  Assessment complete — {len(candidates_out)} dependency-confusion candidates, "
+        f"{len(observations)} public-manifest observations"
+    )
+    return {
+        "target": url,
+        "findings": [],
+        "candidates": candidates_out,
+        "observations": observations,
+        "count": 0,
+        "candidate_count": len(candidates_out),
+        "observation_count": len(observations),
+    }

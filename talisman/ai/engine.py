@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import os
 from typing import Any
+from talisman.engine.scope import ScopeConfig, ScopeEnforcer
+from talisman.utils.http_client import TalismanHTTPClient
 from talisman.utils.logger import get_logger, console
 
 log = get_logger(__name__)
@@ -39,8 +41,20 @@ class AIEngine:
   anonymize: bool = True,
  ):
   self.provider = provider
-  self.model = model
-  self.api_key = api_key or os.getenv("ANTHROPIC_API_KEY") or os.getenv("OPENAI_API_KEY")
+  if provider == "openai" and model.startswith("claude-"):
+   self.model = os.getenv("OPENAI_MODEL", "gpt-4")
+  elif provider == "ollama" and model.startswith("claude-"):
+   self.model = os.getenv("OLLAMA_MODEL", "llama3.1")
+  else:
+   self.model = model
+  if api_key:
+   self.api_key = api_key
+  elif provider == "openai":
+   self.api_key = os.getenv("OPENAI_API_KEY")
+  elif provider == "anthropic":
+   self.api_key = os.getenv("ANTHROPIC_API_KEY")
+  else:
+   self.api_key = None
   self.anonymize = anonymize
   self._available = bool(self.api_key)
 
@@ -59,12 +73,25 @@ class AIEngine:
 
  async def _call_anthropic(self, system: str, prompt: str) -> str:
   try:
-   import httpx
-   async with httpx.AsyncClient(timeout=60) as client:
-    r = await client.post(
+   provider_scope = ScopeEnforcer(
+    ScopeConfig(
+     include=["api.anthropic.com"],
+     exclude=[],
+     service_allowlist=[],
+     allow_state_changing_requests=True,
+     avoid_writes=False,
+    )
+   )
+   async with TalismanHTTPClient(
+    scope=provider_scope,
+    timeout=60,
+    verify_ssl=True,
+    follow_redirects=False,
+   ) as client:
+    response = await client.post(
      "https://api.anthropic.com/v1/messages",
      headers={
-      "x-api-key": self.api_key,
+      "x-api-key": self.api_key or "",
       "anthropic-version": "2023-06-01",
       "content-type": "application/json",
      },
@@ -75,17 +102,66 @@ class AIEngine:
       "messages": [{"role": "user", "content": prompt}],
      },
     )
-    if r.status_code == 200:
-     return r.json()["content"][0]["text"]
-    return f"AI API error: {r.status_code}"
-  except Exception as e:
-   return f"AI error: {e}"
+    if response.status_code == 200:
+     return response.json()["content"][0]["text"]
+    return f"AI API error: {response.status_code}"
+  except Exception as exc:
+   log.warning("anthropic_request_failed", error=type(exc).__name__)
+   return "AI provider request failed"
+
+ async def _call_openai(self, system: str, prompt: str) -> str:
+  try:
+   provider_scope = ScopeEnforcer(
+    ScopeConfig(
+     include=["api.openai.com"],
+     exclude=[],
+     service_allowlist=[],
+     allow_state_changing_requests=True,
+     avoid_writes=False,
+    )
+   )
+   async with TalismanHTTPClient(
+    scope=provider_scope,
+    timeout=60,
+    verify_ssl=True,
+    follow_redirects=False,
+   ) as client:
+    response = await client.post(
+     "https://api.openai.com/v1/chat/completions",
+     headers={"Authorization": f"Bearer {self.api_key or ''}"},
+     json={
+      "model": self.model,
+      "messages": [
+       {"role": "system", "content": system},
+       {"role": "user", "content": prompt},
+      ],
+     },
+    )
+    if response.status_code == 200:
+     return response.json()["choices"][0]["message"]["content"]
+    return f"AI API error: {response.status_code}"
+  except Exception as exc:
+   log.warning("openai_request_failed", error=type(exc).__name__)
+   return "AI provider request failed"
 
  async def _call_ollama(self, system: str, prompt: str) -> str:
   try:
-   import httpx
-   async with httpx.AsyncClient(timeout=120) as client:
-    r = await client.post(
+   provider_scope = ScopeEnforcer(
+    ScopeConfig(
+     include=["localhost", "127.0.0.1", "::1"],
+     exclude=[],
+     service_allowlist=[],
+     allow_state_changing_requests=True,
+     avoid_writes=False,
+    )
+   )
+   async with TalismanHTTPClient(
+    scope=provider_scope,
+    timeout=120,
+    verify_ssl=True,
+    follow_redirects=False,
+   ) as client:
+    response = await client.post(
      "http://localhost:11434/api/generate",
      json={
       "model": self.model,
@@ -93,17 +169,20 @@ class AIEngine:
       "stream": False,
      },
     )
-    if r.status_code == 200:
-     return r.json().get("response", "")
-    return f"Ollama error: {r.status_code}"
-  except Exception as e:
-   return f"Ollama error: {e}"
+    if response.status_code == 200:
+     return response.json().get("response", "")
+    return f"Ollama error: {response.status_code}"
+  except Exception as exc:
+   log.warning("ollama_request_failed", error=type(exc).__name__)
+   return "Ollama request failed"
 
  async def _call(self, system: str, prompt: str) -> str:
   if not self._available and self.provider != "ollama":
    return "AI not configured — set ANTHROPIC_API_KEY or OPENAI_API_KEY"
   if self.provider == "anthropic":
    return await self._call_anthropic(system, prompt)
+  if self.provider == "openai":
+   return await self._call_openai(system, prompt)
   if self.provider == "ollama":
    return await self._call_ollama(system, prompt)
   return "Provider not supported"
@@ -148,12 +227,20 @@ class AIEngine:
   """Auto-generate professional bug report for a finding."""
   console.print(f" [dim]AI report generation for: {finding.get('title','')[:50]}[/dim]")
   safe = self._anonymize_finding(finding) if self.anonymize else finding
+  if self.anonymize:
+   description = "[omitted in privacy mode]"
+   evidence = "[omitted in privacy mode]"
+   remediation = "[omitted in privacy mode]"
+  else:
+   description = finding.get("description", "")
+   evidence = finding.get("evidence", "")[:200]
+   remediation = finding.get("remediation", "")
   prompt = (
    f"Write a professional {platform} bug report for:\n"
    f"{json.dumps(safe, indent=2)}\n\n"
-   f"Description: {finding.get('description','')}\n"
-   f"Evidence: {finding.get('evidence','')[:200]}\n"
-   f"Remediation: {finding.get('remediation','')}"
+   f"Description: {description}\n"
+   f"Evidence: {evidence}\n"
+   f"Remediation: {remediation}"
   )
   return await self._call(SYSTEM_REPORT_WRITER, prompt)
 

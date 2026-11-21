@@ -2,6 +2,7 @@
 from __future__ import annotations
 import asyncio
 import importlib
+import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -15,6 +16,14 @@ from talisman.utils.logger import get_logger, console
 log = get_logger(__name__)
 CHAINS_DIR = Path(__file__).parent.parent.parent / "chains"
 
+_CHAIN_ID_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,63}$")
+_MODULE_NAME_RE = re.compile(
+    r"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$"
+)
+_MAX_CHAIN_STEPS = 100
+_MAX_CHAIN_FILE_BYTES = 1_000_000
+
+
 @dataclass
 class ChainStep:
  id: str
@@ -24,7 +33,8 @@ class ChainStep:
  parallel: bool = False
  condition: str | None = None
  output_key: str | None = None
- on_error: str = "stop" # stop | continue | warn
+ on_error: str = "stop"
+
 
 @dataclass
 class Chain:
@@ -38,31 +48,180 @@ class Chain:
 
  @classmethod
  def from_yaml(cls, path: Path) -> "Chain":
-  with open(path) as f:
-   data = yaml.safe_load(f)
-  steps = []
-  for s in data.get("steps", []):
-   if isinstance(s, str):
-    steps.append(ChainStep(id=s, module=s))
-   elif isinstance(s, dict):
-    steps.append(ChainStep(
-     id=s.get("id", s.get("module", "unknown")),
-     module=s.get("module", s.get("id", "")),
-     args=s.get("args", {}),
-     depends_on=s.get("depends_on", []),
-     parallel=s.get("parallel", False),
-     condition=s.get("condition"),
-     output_key=s.get("output", {}).get("key") if isinstance(s.get("output"), dict) else None,
-     on_error=s.get("on_error", "stop"),
-    ))
+  if path.is_symlink() or not path.is_file():
+   raise ValueError("Chain must be a regular, non-symlink YAML file")
+  if path.stat().st_size > _MAX_CHAIN_FILE_BYTES:
+   raise ValueError("Chain YAML exceeds the 1 MB size limit")
+
+  with path.open(encoding="utf-8") as handle:
+   data = yaml.safe_load(handle)
+
+  if not isinstance(data, dict):
+   raise ValueError("Chain YAML must contain a mapping")
+  allowed_fields = {
+   "name", "version", "description", "tags", "rate_profile",
+   "variables", "steps",
+  }
+  unknown_fields = set(data) - allowed_fields
+  if unknown_fields:
+   raise ValueError(
+    f"Unsupported chain fields: {', '.join(sorted(map(str, unknown_fields)))}"
+   )
+
+  name = data.get("name", path.stem)
+  version = data.get("version", "1.0")
+  description = data.get("description", "")
+  rate_profile = data.get("rate_profile", "normal")
+  variables = data.get("variables", {})
+  tags = data.get("tags", [])
+  raw_steps = data.get("steps")
+
+  if not isinstance(name, str) or not _CHAIN_ID_RE.fullmatch(name):
+   raise ValueError("Chain name must be a simple 1-64 character identifier")
+  if not isinstance(version, str) or len(version) > 32:
+   raise ValueError("Chain version must be a string of at most 32 characters")
+  if not isinstance(description, str) or len(description) > 2000:
+   raise ValueError("Chain description must be a string of at most 2000 characters")
+  if not isinstance(rate_profile, str) or rate_profile not in RATE_PROFILES:
+   raise ValueError(
+    f"Unknown rate_profile; choose one of: {', '.join(sorted(RATE_PROFILES))}"
+   )
+  if not isinstance(variables, dict) or any(
+   not isinstance(key, str) or len(key) > 128 for key in variables
+  ):
+   raise ValueError("Chain variables must be a mapping with string keys")
+  if not isinstance(tags, list) or len(tags) > 32 or any(
+   not isinstance(tag, str) or len(tag) > 64 for tag in tags
+  ):
+   raise ValueError("Chain tags must be a list of at most 32 short strings")
+  if not isinstance(raw_steps, list) or not raw_steps:
+   raise ValueError("Chain must define at least one step")
+  if len(raw_steps) > _MAX_CHAIN_STEPS:
+   raise ValueError(f"Chain cannot contain more than {_MAX_CHAIN_STEPS} steps")
+
+  steps: list[ChainStep] = []
+  seen_ids: set[str] = set()
+  allowed_step_fields = {
+   "id", "module", "args", "depends_on", "parallel",
+   "condition", "output", "on_error",
+  }
+
+  for index, raw_step in enumerate(raw_steps):
+   if isinstance(raw_step, str):
+    step_data: dict[str, Any] = {"id": raw_step, "module": raw_step}
+   elif isinstance(raw_step, dict):
+    step_data = raw_step
+    unexpected = set(step_data) - allowed_step_fields
+    if unexpected:
+     raise ValueError(
+      f"Step {index} has unsupported fields: "
+      f"{', '.join(sorted(map(str, unexpected)))}"
+     )
+   else:
+    raise ValueError(f"Step {index} must be a module string or mapping")
+
+   step_id = step_data.get("id", step_data.get("module"))
+   module = step_data.get("module", step_id)
+   args = step_data.get("args", {})
+   dependencies = step_data.get("depends_on", [])
+   parallel = step_data.get("parallel", False)
+   condition = step_data.get("condition")
+   output = step_data.get("output", {})
+   on_error = step_data.get("on_error", "stop")
+
+   if not isinstance(step_id, str) or not _CHAIN_ID_RE.fullmatch(step_id):
+    raise ValueError(f"Step {index} has an invalid id")
+   if step_id in seen_ids:
+    raise ValueError(f"Duplicate chain step id: {step_id}")
+   seen_ids.add(step_id)
+
+   if not isinstance(module, str) or not _MODULE_NAME_RE.fullmatch(module):
+    raise ValueError(f"Step '{step_id}' has an invalid module identifier")
+   if not isinstance(args, dict) or any(
+    not isinstance(key, str) or key in {
+     "target", "session", "scope", "rate_limiter", "proxy",
+    }
+    for key in args
+   ):
+    raise ValueError(
+     f"Step '{step_id}' args must be a mapping and cannot override "
+     "assessment-controlled arguments"
+    )
+   if not isinstance(dependencies, list) or any(
+    not isinstance(dep, str) or not _CHAIN_ID_RE.fullmatch(dep)
+    for dep in dependencies
+   ):
+    raise ValueError(f"Step '{step_id}' depends_on must be a list of step ids")
+   if len(dependencies) != len(set(dependencies)):
+    raise ValueError(f"Step '{step_id}' contains duplicate dependencies")
+   if not isinstance(parallel, bool):
+    raise ValueError(f"Step '{step_id}' parallel must be true or false")
+   if condition is not None:
+    raise ValueError(
+     f"Step '{step_id}' uses condition, which is not supported; remove it"
+    )
+   if on_error not in {"stop", "continue", "warn"}:
+    raise ValueError(
+     f"Step '{step_id}' on_error must be stop, continue or warn"
+    )
+   if not isinstance(output, dict) or set(output) - {"key"}:
+    raise ValueError(f"Step '{step_id}' output must contain only an optional key")
+   output_key = output.get("key")
+   if output_key is not None and (
+    not isinstance(output_key, str) or not _CHAIN_ID_RE.fullmatch(output_key)
+   ):
+    raise ValueError(f"Step '{step_id}' has an invalid output key")
+
+   steps.append(
+    ChainStep(
+     id=step_id,
+     module=module,
+     args=args,
+     depends_on=dependencies,
+     parallel=parallel,
+     condition=None,
+     output_key=output_key,
+     on_error=on_error,
+    )
+   )
+
+  step_ids = {step.id for step in steps}
+  for step in steps:
+   missing = set(step.depends_on) - step_ids
+   if missing:
+    raise ValueError(
+     f"Step '{step.id}' depends on unknown step(s): {', '.join(sorted(missing))}"
+    )
+   if step.id in step.depends_on:
+    raise ValueError(f"Step '{step.id}' cannot depend on itself")
+
+  # Kahn's algorithm rejects cyclic dependency graphs before any module runs.
+  dependencies_by_id = {
+   step.id: set(step.depends_on) for step in steps
+  }
+  ready = [
+   step_id for step_id, deps in dependencies_by_id.items() if not deps
+  ]
+  visited_count = 0
+  while ready:
+   current = ready.pop()
+   visited_count += 1
+   for step_id, deps in dependencies_by_id.items():
+    if current in deps:
+     deps.remove(current)
+     if not deps:
+      ready.append(step_id)
+  if visited_count != len(steps):
+   raise ValueError("Chain contains a dependency cycle")
+
   return cls(
-   name=data.get("name", path.stem),
-   description=data.get("description", ""),
+   name=name,
+   description=description,
    steps=steps,
-   rate_profile=data.get("rate_profile", "normal"),
-   variables=data.get("variables", {}),
-   version=data.get("version", "1.0"),
-   tags=data.get("tags", []),
+   rate_profile=rate_profile,
+   variables=variables,
+   version=version,
+   tags=tags,
   )
 
 class ModuleRegistry:
@@ -237,15 +396,32 @@ class ChainOrchestrator:
 
  @staticmethod
  def load_chain(name: str) -> Chain:
-  candidates = [
-   CHAINS_DIR / f"{name}.yaml",
-   CHAINS_DIR / f"{name}.yml",
-   Path(name) if Path(name).exists() else None,
-  ]
-  for path in candidates:
-   if path and path.exists():
-    return Chain.from_yaml(path)
-  raise FileNotFoundError(f"Chain '{name}' not found in {CHAINS_DIR}")
+  if not isinstance(name, str) or not name.strip():
+   raise ValueError("Chain name or path is required")
+
+  raw_path = Path(name).expanduser()
+  supported_suffix = raw_path.suffix.lower() in {".yaml", ".yml"}
+
+  # An existing explicit file path is treated as a custom chain.
+  if raw_path.exists() or raw_path.is_symlink():
+   if raw_path.is_symlink() or not raw_path.is_file():
+    raise FileNotFoundError("Custom chain path must be a regular, non-symlink file")
+   if not supported_suffix:
+    raise ValueError("Custom chain files must use a .yaml or .yml extension")
+   return Chain.from_yaml(raw_path.resolve())
+
+  # A bare built-in name, optionally suffixed with .yaml/.yml, may only
+  # resolve inside the repository's trusted chains directory.
+  if raw_path.parent == Path("."):
+   chain_name = raw_path.stem if supported_suffix else raw_path.name
+   if _CHAIN_ID_RE.fullmatch(chain_name):
+    for suffix in (".yaml", ".yml"):
+     candidate = CHAINS_DIR / f"{chain_name}{suffix}"
+     if candidate.is_file() and not candidate.is_symlink():
+      return Chain.from_yaml(candidate)
+    raise FileNotFoundError(f"Chain '{chain_name}' not found in {CHAINS_DIR}")
+
+  raise FileNotFoundError("Custom chain path must be an existing, non-symlink YAML file")
 
  @staticmethod
  def list_chains() -> list[dict[str, str]]:
@@ -274,6 +450,11 @@ class ChainOrchestrator:
  async def _execute_step(
   self, step: ChainStep, target: str, context: dict[str, Any]
  ) -> Any:
+  reserved_args = {"target", "session", "scope", "rate_limiter", "proxy"}
+  if reserved_args.intersection(step.args):
+   raise ValueError(
+    f"Step '{step.id}' cannot override assessment-controlled arguments"
+   )
   resolved_args = self._resolve_template(step.args, context)
   log.info("chain_step_start", step=step.id, module=step.module, target=target)
   if self.dry_run:
@@ -303,18 +484,21 @@ class ChainOrchestrator:
    return result or {}
   except Exception as e:
    elapsed = time.monotonic() - start
-   log.error("chain_step_error", step=step.id, error=str(e))
-   await self.session.complete_module_run(run_id, status="error", error=str(e))
+   log.error("chain_step_error", step=step.id, error=type(e).__name__)
+   await self.session.complete_module_run(run_id, status="error", error=type(e).__name__)
    if step.on_error == "stop":
     raise
    return {}
 
  async def run(self, chain: Chain, target: str) -> dict[str, Any]:
+  self.scope.assert_in_scope(target)
+  if len(chain.steps) > _MAX_CHAIN_STEPS:
+   raise ValueError(f"Chain cannot contain more than {_MAX_CHAIN_STEPS} steps")
   console.print(f"\n[chain]> Chain: {chain.name}[/chain] on [target]{target}[/target]\n")
   context: dict[str, Any] = {
+   **chain.variables,
    "target": target,
    "session": self.session.name,
-   **chain.variables,
   }
   completed: set[str] = set()
   self._step_outputs = {}
@@ -326,8 +510,11 @@ class ChainOrchestrator:
     if all(dep in completed for dep in s.depends_on)
    ]
    if not ready:
-    log.error("chain_deadlock", pending=[s.id for s in pending])
-    break
+    pending_ids = [step.id for step in pending]
+    log.error("chain_deadlock", pending=pending_ids)
+    raise ValueError(
+     f"Chain dependency graph is not executable; pending steps: {', '.join(pending_ids)}"
+    )
    parallel_steps = [s for s in ready if s.parallel]
    sequential_steps = [s for s in ready if not s.parallel]
    if parallel_steps:
@@ -338,7 +525,7 @@ class ChainOrchestrator:
     results = await asyncio.gather(*tasks, return_exceptions=True)
     for step, result in zip(parallel_steps, results):
      if isinstance(result, Exception):
-      log.error("parallel_step_failed", step=step.id, error=str(result))
+      log.error("parallel_step_failed", step=step.id, error=type(result).__name__)
       if step.on_error == "stop":
        raise result
      else:

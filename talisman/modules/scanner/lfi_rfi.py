@@ -21,6 +21,7 @@ import re
 import urllib.parse
 from typing import Any
 
+from talisman.engine.scope import ScopeViolationError
 from talisman.utils.http_client import TalismanHTTPClient
 from talisman.utils.logger import get_logger, console, print_finding
 
@@ -290,6 +291,22 @@ async def run(
  **kwargs: Any,
 ) -> dict[str, Any]:
  url = target if "://" in target else f"https://{target}"
+ if scope is None:
+  return {
+   "target": url,
+   "findings": [],
+   "count": 0,
+   "error": "scope_enforcer_required",
+  }
+ try:
+  scope.assert_in_scope(url)
+ except ScopeViolationError as exc:
+  return {
+   "target": url,
+   "findings": [],
+   "count": 0,
+   "error": str(exc),
+  }
  console.print(
   f"\n[module][+] LFI / Path Traversal Scanner[/module] -> [target]{url}[/target]"
  )
@@ -299,7 +316,7 @@ async def run(
  existing_params = list(dict(urllib.parse.parse_qsl(parsed.query)).keys())
  params = list(dict.fromkeys(existing_params + LFI_PARAMS))
 
- async with TalismanHTTPClient(proxy=proxy, timeout=15) as client:
+ async with TalismanHTTPClient(proxy=proxy, timeout=15, scope=scope) as client:
   tasks = [_test_lfi_param(url, p, client) for p in params]
   results = await asyncio.gather(*tasks, return_exceptions=True)
 

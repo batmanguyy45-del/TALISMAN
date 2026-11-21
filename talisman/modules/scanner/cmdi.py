@@ -22,7 +22,9 @@ import time
 import urllib.parse
 from typing import Any
 
+from talisman.engine.scope import ScopeViolationError
 from talisman.utils.http_client import TalismanHTTPClient
+from talisman.utils.oast import validate_public_oast_domain
 from talisman.utils.logger import get_logger, console, print_finding
 
 log = get_logger(__name__)
@@ -371,87 +373,86 @@ async def run(
  **kwargs: Any,
 ) -> dict[str, Any]:
  url = target if "://" in target else f"https://{target}"
- console.print(
-  f"\n[module][+] Command Injection Scanner[/module] -> [target]{url}[/target]"
- )
- findings: list[dict[str, Any]] = []
+ if scope is None:
+  return {
+   "target": url,
+   "findings": [],
+   "candidates": [],
+   "count": 0,
+   "error": "scope_enforcer_required",
+  }
+ try:
+  scope.assert_destructive_allowed(url, "POST")
+ except ScopeViolationError as exc:
+  return {
+   "target": url,
+   "findings": [],
+   "candidates": [],
+   "count": 0,
+   "skipped": True,
+   "reason": str(exc),
+  }
 
+ if oast_domain:
+  try:
+   oast_domain = await validate_public_oast_domain(oast_domain)
+  except ValueError as exc:
+   return {
+    "target": url,
+    "findings": [],
+    "candidates": [],
+    "count": 0,
+    "error": str(exc),
+   }
+
+ console.print(
+  f"\n[module][+] Command Injection Candidate Scanner[/module] -> [target]{url}[/target]"
+ )
  parsed = urllib.parse.urlparse(url)
  params = list(dict(urllib.parse.parse_qsl(parsed.query)).keys())
  if not params:
   params = DEFAULT_PARAMS
 
- if oast_domain:
-  console.print(
-   f" OAST domain: {oast_domain} "
-   f"(monitor for callbacks — OOB not auto-reported)"
-  )
-
- async with TalismanHTTPClient(proxy=proxy, timeout=20) as client:
-  # Test GET and POST for each param, but stop on first confirmed hit per param
-  seen_params: set[str] = set()
-  tasks = []
-  for param in params:
-   for method in ["GET", "POST"]:
-    tasks.append(
-     _scan_param(url, param, method, client, oast_domain, waf_bypass)
-    )
-
+ candidates: list[dict[str, Any]] = []
+ async with TalismanHTTPClient(
+  proxy=proxy,
+  timeout=20,
+  scope=scope,
+ ) as client:
+  tasks = [
+   _scan_param(url, param, method, client, oast_domain, waf_bypass)
+   for param in params
+   for method in ["GET", "POST"]
+  ]
   results = await asyncio.gather(*tasks, return_exceptions=True)
 
+  seen_params: set[str] = set()
   for result in results:
    if not isinstance(result, dict):
     continue
-   param_key = result["param"]
-   if param_key in seen_params:
+   param_key = result.get("param")
+   if not isinstance(param_key, str) or param_key in seen_params:
     continue
    seen_params.add(param_key)
 
-   severity = "critical"
-   title = (
-    f"Command Injection ({result['technique']}) — "
-    f"param '{result['param']}' via {result['method']}"
+   result["confidence"] = (
+    "likely" if result.get("technique") == "output_based" else "candidate"
    )
-   print_finding(title, severity, url)
-   findings.append(result)
-
-   if session:
-    await session.add_finding(
-     target=url,
-     module="cmdi",
-     vuln_type="command_injection",
-     severity=severity,
-     confidence="confirmed",
-     title=title,
-     description=(
-      f"OS command injection confirmed via "
-      f"{result['technique']} technique. "
-      f"Parameter '{result['param']}' executes injected "
-      f"shell commands. {result.get('description', '')}"
-     ),
-     request=result.get("request", ""),
-     evidence=result.get("evidence", ""),
-     reproduction=(
-      f"Send: {result['method']} {url}?"
-      f"{result['param']}="
-      f"{urllib.parse.quote(result.get('payload', ''))}"
-     ),
-     remediation=(
-      "1. Avoid passing user input to OS commands entirely.\n"
-      "2. If unavoidable, use allowlists to validate input strictly.\n"
-      "3. Use language-native APIs instead of shell commands "
-      "(e.g., Python's subprocess with list args).\n"
-      "4. Sanitize and escape all user input before use in "
-      "shell context."
-     ),
-     cvss_score=10.0,
-     cwe="CWE-78",
-     references=[
-      "https://owasp.org/www-community/attacks/Command_Injection"
-     ],
-    )
+   result["requires_manual_verification"] = True
+   result["verification_required"] = (
+    "Reproduce in an authorized disposable environment and verify the command "
+    "output or timing behavior independently. A single delay, reflected marker, "
+    "or OAST payload sent without a received callback is not proof of command execution."
+   )
+   candidates.append(result)
 
  console.print(
-  f" Found {len(findings)} confirmed command injection vulnerabilities"
+  f" Found {len(candidates)} command-injection candidates requiring independent verification"
  )
- return {"target": url, "findings": findings, "count": len(findings)}
+ return {
+  "target": url,
+  "findings": [],
+  "candidates": candidates,
+  "count": 0,
+  "candidate_count": len(candidates),
+ }

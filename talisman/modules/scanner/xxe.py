@@ -11,10 +11,14 @@ or Microsoft-related HTML snippets).
 from __future__ import annotations
 import asyncio
 import re
+from urllib.parse import urlsplit
 from typing import Any
+
+from talisman.engine.scope import ScopeViolationError
+from talisman.utils.oast import OASTClient, validate_public_oast_domain
 from talisman.utils.http_client import TalismanHTTPClient
-from talisman.utils.payload_engine import XXE_PAYLOADS
 from talisman.utils.logger import get_logger, console, print_finding
+from talisman.utils.redaction import redact_sensitive_text
 
 log = get_logger(__name__)
 
@@ -63,6 +67,7 @@ async def _test_xxe_endpoint(
  payload: str,
  content_type: str,
  client: TalismanHTTPClient,
+ baseline_text: str = "",
 ) -> dict[str, Any] | None:
  try:
   r = await client.post(
@@ -72,12 +77,14 @@ async def _test_xxe_endpoint(
    timeout=12,
   )
   matched = _matches_any_pattern(r.text)
-  if matched:
+  # Require a successful response and a file marker not already present in
+  # the ordinary page, preventing static documentation from becoming XXE proof.
+  if r.status_code == 200 and matched and not _matches_any_pattern(baseline_text):
    return {
     "url": url,
     "payload": payload[:200],
     "indicator": matched,
-    "evidence": r.text[:500],
+    "evidence": redact_sensitive_text(r.text[:1000]),
     "content_type": content_type,
    }
  except Exception:
@@ -95,16 +102,40 @@ async def run(
  **kwargs: Any,
 ) -> dict[str, Any]:
  url = target if "://" in target else f"https://{target}"
+ if scope is None:
+  return {"target": url, "findings": [], "count": 0, "error": "scope_enforcer_required"}
+ try:
+  scope.assert_destructive_allowed(url, "POST")
+ except ScopeViolationError as exc:
+  return {"target": url, "findings": [], "count": 0, "skipped": True, "reason": str(exc)}
+ if oast_domain:
+  try:
+   oast_domain = await validate_public_oast_domain(oast_domain)
+  except ValueError as exc:
+   return {"target": url, "findings": [], "count": 0, "error": str(exc)}
  console.print(f"\n[module][+] XXE Scanner[/module] -> [target]{url}[/target]")
  findings: list[dict[str, Any]] = []
+ candidates: list[dict[str, Any]] = []
 
+ oast_client: OASTClient | None = None
+ oast_token: str | None = None
  oob_payloads: list[tuple[str, str]] = []
  if oast_domain:
+  # Give this scan a unique callback label; never reuse a shared OAST token.
+  oast_client = OASTClient(server=oast_domain)
+  callback_url = oast_client.get_payload_url(prefix="xxe")
+  oast_token = urlsplit(callback_url).hostname
+  if not oast_token:
+   return {
+    "target": url,
+    "findings": [],
+    "candidates": [],
+    "count": 0,
+    "error": "could_not_generate_oast_token",
+   }
   oob_payloads = [
-   (
-    f'<?xml version="1.0"?><!DOCTYPE root [<!ENTITY % xxe SYSTEM "http://{oast_domain}/xxe"> %xxe;]><root/>',
-    "application/xml"
-   ),
+   (payload, "application/xml")
+   for payload in oast_client.get_xxe_payloads(oast_token)
   ]
 
  test_cases: list[tuple[str, str]] = []
@@ -115,13 +146,24 @@ async def run(
   test_cases.append((p, "application/xml"))
  test_cases.extend(oob_payloads)
 
- async with TalismanHTTPClient(proxy=proxy, timeout=15) as client:
-  tasks = [_test_xxe_endpoint(url, payload, ct, client) for payload, ct in test_cases]
+ async with TalismanHTTPClient(proxy=proxy, timeout=15, scope=scope) as client:
+  baseline_text = ""
+  try:
+   baseline_response = await client.get(url, timeout=10)
+   if baseline_response.status_code == 200:
+    baseline_text = baseline_response.text[:200_000]
+  except Exception as exc:
+   log.debug("xxe_baseline_request_failed", error=type(exc).__name__)
+
+  tasks = [
+   _test_xxe_endpoint(url, payload, ct, client, baseline_text=baseline_text)
+   for payload, ct in test_cases
+  ]
   results = await asyncio.gather(*tasks, return_exceptions=True)
 
   for result in results:
    if isinstance(result, dict):
-    severity = "critical"
+    severity = "high"
     title = f"XXE injection — {result['indicator']}"
     print_finding(title, severity, url)
     findings.append(result)
@@ -145,10 +187,59 @@ async def run(
        "3. In PHP: libxml_disable_entity_loader(true)\n"
        "4. Use JSON instead of XML where possible."
       ),
-      cvss_score=9.1, cwe="CWE-611",
+      cwe="CWE-611",
       references=["https://owasp.org/www-community/vulnerabilities/XML_External_Entity_(XXE)_Processing"],
      )
     break
 
- console.print(f" Found {len(findings)} XXE vulnerabilities")
- return {"target": url, "findings": findings, "count": len(findings)}
+ oast_hits: list[dict[str, Any]] = []
+ if oast_client is not None and oast_token is not None:
+  try:
+   oast_hits = await oast_client.poll(oast_token, timeout=10)
+  except Exception as exc:
+   log.warning("xxe_oast_poll_failed", error=type(exc).__name__)
+
+  if oast_hits:
+   # A matching callback proves the XML parser initiated an outbound entity
+   # lookup. It does not, on its own, prove local file disclosure or data
+   # exfiltration, so record this as a distinct confirmed-interaction candidate
+   # that needs application-specific impact assessment.
+   callback = {
+    "indicator": "oast_callback",
+    "callback_count": len(oast_hits),
+    "callbacks": [
+     {
+      "type": str(hit.get("type", "unknown"))[:40],
+      "source_ip": str(hit.get("source_ip", ""))[:64],
+      "timestamp": str(hit.get("timestamp", ""))[:64],
+      "raw_preview": str(hit.get("raw", ""))[:300],
+     }
+     for hit in oast_hits[:5]
+    ],
+    "confidence": "confirmed_interaction",
+    "requires_impact_validation": True,
+    "verification_required": (
+     "Confirm the callback corresponds to this unique per-scan token and "
+     "determine whether the parser can disclose local files or reach other "
+     "internal resources. A callback alone is not proof of data exfiltration."
+    ),
+   }
+   candidates.append(callback)
+   console.print(
+    "  [dim]Unique OAST callback received: external entity resolution "
+    "observed; impact remains unverified[/dim]"
+   )
+
+ console.print(
+  f" Found {len(findings)} XXE indicators "
+  f"({sum(1 for item in findings if item.get('indicator') == 'oast_callback')} OAST callbacks)"
+ )
+ return {
+  "target": url,
+  "findings": findings,
+  "candidates": candidates,
+  "count": len(findings),
+  "candidate_count": len(candidates),
+  "oast_callbacks": len(oast_hits),
+  "oast_verification_performed": oast_client is not None,
+ }

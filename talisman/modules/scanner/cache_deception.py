@@ -4,7 +4,9 @@ import asyncio
 import random
 import string
 from typing import Any
+from talisman.engine.scope import ScopeViolationError
 from talisman.utils.http_client import TalismanHTTPClient
+from talisman.utils.redaction import redact_sensitive_text
 from talisman.utils.logger import get_logger, console, print_finding
 
 log = get_logger(__name__)
@@ -143,55 +145,85 @@ async def run(
     **kwargs: Any,
 ) -> dict[str, Any]:
     url = target if "://" in target else f"https://{target}"
-    console.print(f"\n[module][+] Web Cache Deception Scanner[/module] -> [target]{url}[/target]")
-    findings: list[dict[str, Any]] = []
+    if scope is None:
+        return {
+            "target": url,
+            "findings": [],
+            "candidates": [],
+            "count": 0,
+            "error": "scope_enforcer_required",
+        }
+    try:
+        scope.assert_in_scope(url)
+        # These requests deliberately vary cache paths and may populate a
+        # shared cache, so they are not part of the default read-only profile.
+        scope.assert_destructive_allowed(url, "GET")
+    except ScopeViolationError as exc:
+        return {
+            "target": url,
+            "findings": [],
+            "candidates": [],
+            "count": 0,
+            "skipped": True,
+            "reason": str(exc),
+        }
 
-    async with TalismanHTTPClient(proxy=proxy, timeout=12) as client:
-        # -- 1. Static extension path confusion --------------------------------------
-        console.print("  Testing path confusion (static extension appending)...")
-        deception_findings = await _test_cache_deception(url, client)
-        for df in deception_findings:
-            issue_type = df.get("issue", "")
-            deceptive_path = df.get("path", "unknown")
+    candidates: list[dict[str, Any]] = []
+    observations: list[dict[str, Any]] = []
+    console.print(
+        f"\\n[module][+] Web Cache Deception Assessment[/module] -> [target]{url}[/target]"
+    )
 
-            if issue_type == "path_confusion":
-                title = f"Web cache deception via path confusion at {deceptive_path}"
-                print_finding(title, "high", url)
-                findings.append(df)
-                if session:
-                    await session.add_finding(
-                        target=url, module="cache_deception",
-                        vuln_type="web_cache_deception",
-                        severity="high", confidence="confirmed",
-                        title=title,
-                        description=f"Dynamic path {deceptive_path} returns identical content when accessed with a static extension ({df.get('extension')}). A CDN may cache this as static content, exposing it to other users.",
-                        evidence=df.get("evidence", f"Path {deceptive_path} returns status {df.get('status')} with content-type {df.get('content_type')}"),
-                        remediation="1. Never serve dynamic content via CDN. 2. Set Cache-Control: no-store on authenticated pages. 3. Use Vary: Cookie, Authorization headers.",
-                        cvss_score=7.4, cwe="CWE-525",
-                    )
+    async with TalismanHTTPClient(
+        proxy=proxy,
+        timeout=12,
+        verify_ssl=True,
+        follow_redirects=False,
+        scope=scope,
+    ) as client:
+        deception_results = await _test_cache_deception(url, client)
+        key_results = await _test_cache_key_confusion(url, client)
 
-            elif issue_type == "cacheable_dynamic_response":
-                title = f"Cacheable dynamic response at {deceptive_path}"
-                print_finding(title, "medium", url)
-                findings.append(df)
-                if session:
-                    await session.add_finding(
-                        target=url, module="cache_deception",
-                        vuln_type="cacheable_dynamic_response",
-                        severity="medium", confidence="confirmed",
-                        title=title,
-                        description=f"Dynamic endpoint {deceptive_path} is cacheable (Cache-Control: {df.get('cache_control')}). If this page contains user-specific data, it may be served to other users from cache.",
-                        remediation="1. Set Cache-Control: no-store on all authenticated responses. 2. Use Vary headers appropriately. 3. Review CDN caching rules.",
-                        cvss_score=5.3, cwe="CWE-525",
-                    )
+    for result in deception_results:
+        safe_result = dict(result)
+        if isinstance(safe_result.get("response_preview"), str):
+            safe_result["response_preview"] = redact_sensitive_text(
+                safe_result["response_preview"]
+            )
+        candidates.append({
+            **safe_result,
+            "confidence": "candidate",
+            "requires_cross_user_cache_validation": True,
+            "verification_required": (
+                "Confirm the response contains non-public data from an authenticated "
+                "test account, that a cache actually stored it, and that a second "
+                "independent unauthenticated or different-user client receives it. "
+                "Identical status/body or a cache-control header alone does not "
+                "prove cache deception."
+            ),
+        })
 
-        # -- 2. Cache key confusion ---------------------------------------------------
-        console.print("  Testing cache key confusion...")
-        key_findings = await _test_cache_key_confusion(url, client)
-        for kf in key_findings:
-            title = f"Cache key confusion: {kf.get('description', 'unknown')}"
-            print_finding(title, "low", url)
-            findings.append(kf)
+    for result in key_results:
+        observations.append({
+            **result,
+            "classification": "cache_behavior_observation",
+            "note": (
+                "Identical responses for URLs with and without a parameter may be "
+                "normal application behavior and do not prove a shared cache key."
+            ),
+        })
 
-    console.print(f"  Cache deception scan complete -- {len(findings)} issues")
-    return {"target": url, "findings": findings, "count": len(findings)}
+    console.print(
+        f" Cache deception assessment complete — {len(candidates)} cross-user "
+        f"exposure candidates, {len(observations)} cache behavior observations"
+    )
+    return {
+        "target": url,
+        "findings": [],
+        "candidates": candidates,
+        "observations": observations,
+        "count": 0,
+        "candidate_count": len(candidates),
+        "observation_count": len(observations),
+        "destructive_probe_opt_in_required": True,
+    }

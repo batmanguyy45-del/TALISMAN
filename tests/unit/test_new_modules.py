@@ -5,6 +5,40 @@ import json
 import pytest
 import httpx
 import respx
+from talisman.engine.scope import ScopeConfig, ScopeEnforcer
+
+
+def _test_scope():
+    scope = ScopeEnforcer(
+        ScopeConfig(
+            include=["test.com"],
+            service_allowlist=[],
+            allow_state_changing_requests=True,
+            avoid_writes=False,
+            avoid_destructive=False,
+        )
+    )
+
+    async def allow_mock_destination(url, method="GET"):
+        import ipaddress
+
+        scope.assert_request_allowed(url, method)
+        return (ipaddress.ip_address("93.184.216.34"),)
+
+    scope.resolve_network_destination = allow_mock_destination
+    return scope
+
+
+@pytest.fixture(autouse=True)
+def _activate_scope_for_http_tests():
+    from talisman.engine.scope import reset_active_scope, set_active_scope
+
+    scope = _test_scope()
+    token = set_active_scope(scope)
+    try:
+        yield scope
+    finally:
+        reset_active_scope(token)
 
 
 def _is_coroutine(mod):
@@ -14,36 +48,21 @@ def _is_coroutine(mod):
 # ── nosqli ────────────────────────────────────────────────────────────────────
 
 class TestNosqli:
-    def test_import(self):
+    def test_import_and_async_entry_point(self):
         import talisman.modules.scanner.nosqli as m
-        assert hasattr(m, "NOSQLI_JSON_PAYLOADS") and hasattr(m, "ENDPOINTS")
-
-    def test_run_is_coroutine(self):
-        import talisman.modules.scanner.nosqli as m
-        assert _is_coroutine(m)
+        assert inspect.iscoroutinefunction(m.run)
 
     @pytest.mark.asyncio
-    async def test_detects_json_nosqli(self):
+    async def test_generic_nosqli_scanner_is_disabled(self):
         import talisman.modules.scanner.nosqli as m
-        from talisman.utils.http_client import TalismanHTTPClient
-        async with respx.mock:
-            respx.post("http://test.com/").respond(200, text='{"login":"success","token":"abc"}')
-            async with TalismanHTTPClient() as c:
-                r = await m._test_json_nosqli("http://test.com/", m.NOSQLI_JSON_PAYLOADS[0], c)
-            assert r is not None, "should detect NoSQLi when login succeeds"
-            assert r["issue"] == "nosql_injection_json"
-
-    @pytest.mark.asyncio
-    async def test_no_false_positive_on_403(self):
-        import talisman.modules.scanner.nosqli as m
-        async with respx.mock:
-            respx.post("/").respond(403)
-            from talisman.utils.http_client import TalismanHTTPClient
-            with pytest.MonkeyPatch.context() as mp:
-                mp.setattr("talisman.modules.scanner.nosqli.ENDPOINTS", [""])
-                async with TalismanHTTPClient() as c:
-                    r = await m._test_json_nosqli("http://test.com/", m.NOSQLI_JSON_PAYLOADS[0], c)
-                assert r is None, "should not report on 403"
+        result = await m.run(
+            target="http://test.com/",
+            scope=_test_scope(),
+        )
+        assert result["skipped"] is True
+        assert result["findings"] == []
+        assert result["count"] == 0
+        assert "disposable endpoint" in result["reason"]
 
 
 # ── git_exposure ──────────────────────────────────────────────────────────────
@@ -59,7 +78,7 @@ class TestGitExposure:
         async with respx.mock:
             respx.get("http://test.com/.git/config").respond(200, text="[core]\n\tbare = false")
             from talisman.utils.http_client import TalismanHTTPClient
-            async with TalismanHTTPClient() as c:
+            async with TalismanHTTPClient(scope=_test_scope()) as c:
                 r = await m._test_path("http://test.com", "/.git/config", c)
             assert r is not None
             assert r["type"] == "git_exposure"
@@ -70,7 +89,7 @@ class TestGitExposure:
         async with respx.mock:
             respx.get("http://test.com/.git/config").respond(404)
             from talisman.utils.http_client import TalismanHTTPClient
-            async with TalismanHTTPClient() as c:
+            async with TalismanHTTPClient(scope=_test_scope()) as c:
                 r = await m._test_path("http://test.com", "/.git/config", c)
             assert r is None
 
@@ -84,20 +103,17 @@ class TestSspp:
         assert len(m.JSON_ENDPOINTS) >= 3
 
     @pytest.mark.asyncio
-    async def test_detects_json_spaces_gadget(self):
+    async def test_generic_sspp_scanner_is_disabled(self):
         import talisman.modules.scanner.sspp as m
-        async with respx.mock:
-            get_route = respx.get("http://test.com/api/user")
-            # Side effect returns compact JSON first, then indented JSON (simulating SSPP)
-            get_route.side_effect = [
-                httpx.Response(200, text='{"key":"value"}', headers={"Content-Type": "application/json"}),
-                httpx.Response(200, text='{\n        "key": "value"\n}', headers={"Content-Type": "application/json"}),
-            ]
-            respx.post("http://test.com/api/user").respond(200)
-            from talisman.utils.http_client import TalismanHTTPClient
-            async with TalismanHTTPClient() as c:
-                r = await m._detect_via_json_spaces("http://test.com/api/user", c)
-            assert r is not None
+
+        result = await m.run(
+            target="http://test.com/",
+            scope=_test_scope(),
+        )
+
+        assert result["skipped"] is True
+        assert result["findings"] == []
+        assert result["count"] == 0
 
 
 # ── crlf ──────────────────────────────────────────────────────────────────────
@@ -117,7 +133,7 @@ class TestCrlf:
                 200, text="ok",
                 headers={"X-TALISMAN-CRLF": "injected"},
             )
-            async with TalismanHTTPClient() as c:
+            async with TalismanHTTPClient(scope=_test_scope()) as c:
                 r = await m._test_param_crlf("http://test.com/", c)
             assert len(r) >= 0
 
@@ -134,24 +150,45 @@ class TestHostHeader:
         import talisman.modules.scanner.host_header as m
         async with respx.mock:
             respx.get("http://test.com/").respond(200, text="<html></html>")
-            r = await m.run(target="http://test.com/")
+            r = await m.run(target="http://test.com/", scope=_test_scope())
         assert isinstance(r, dict) and "findings" in r
 
 
 # ── csrf ──────────────────────────────────────────────────────────────────────
 
 class TestCsrf:
-    def test_constants(self):
+    def test_generic_mutation_probe_code_is_removed(self):
         import talisman.modules.scanner.csrf as m
-        assert len(m.STATE_CHANGING_ENDPOINTS) >= 2
+        assert not hasattr(m, "_test_csrf_token_handling")
+        assert not hasattr(m, "STATE_CHANGING_ENDPOINTS")
+        assert not hasattr(m, "METHOD_OVERRIDE_VARIANTS")
 
     @pytest.mark.asyncio
     async def test_run_returns_dict(self):
         import talisman.modules.scanner.csrf as m
         async with respx.mock:
             respx.get("http://test.com/").respond(200, text="<html><form><input name='csrf'/></form></html>")
-            r = await m.run(target="http://test.com/")
+            r = await m.run(target="http://test.com/", scope=_test_scope())
         assert isinstance(r, dict)
+        assert r["findings"] == []
+        assert r["state_changing_probes_sent"] == 0
+
+    @pytest.mark.asyncio
+    async def test_run_never_sends_state_changing_requests(self):
+        import talisman.modules.scanner.csrf as m
+        async with respx.mock:
+            respx.get("http://test.com/").respond(
+                200,
+                headers={"Set-Cookie": "sessionid=abc123; Path=/"},
+            )
+            respx.post("http://test.com/").mock(
+                side_effect=AssertionError("CSRF assessment must not POST")
+            )
+            r = await m.run(target="http://test.com/", scope=_test_scope())
+
+        assert r["findings"] == []
+        assert r["observation_count"] >= 1
+        assert r["state_changing_probes_sent"] == 0
 
 
 # ── cache_deception ───────────────────────────────────────────────────────────
@@ -374,31 +411,30 @@ class TestUnicodeAttacks:
 # ── websocket ─────────────────────────────────────────────────────────────────
 
 class TestWebsocket:
-    def test_constants(self):
-        import talisman.modules.scanner.websocket as m
-        assert len(m.WS_PATHS) >= 3
-
     @pytest.mark.asyncio
-    async def test_run_returns_dict(self):
+    async def test_websocket_probes_are_disabled_without_scoped_transport(self):
         import talisman.modules.scanner.websocket as m
-        r = await m.run(target="http://test.com/")
-        assert isinstance(r, dict)
+        r = await m.run(target="http://test.com/", scope=_test_scope())
+        assert r["skipped"] is True
+        assert r["findings"] == []
+        assert r["count"] == 0
+        assert "pinned HTTP transport" in r["reason"]
 
 
 # ── deserialization ───────────────────────────────────────────────────────────
 
 class TestDeserialization:
-    def test_constants(self):
-        import talisman.modules.scanner.deserialization as m
-        assert len(m.DESERIALIZATION_PROBES) >= 3
-
     @pytest.mark.asyncio
-    async def test_run_returns_dict(self):
+    async def test_generic_deserialization_probes_are_disabled(self):
         import talisman.modules.scanner.deserialization as m
-        async with respx.mock:
-            respx.post("/").respond(200)
-            r = await m.run(target="http://test.com/")
-        assert isinstance(r, dict)
+        result = await m.run(
+            target="http://test.com/",
+            scope=_test_scope(),
+        )
+        assert result["skipped"] is True
+        assert result["findings"] == []
+        assert result["count"] == 0
+        assert "disposable fixture" in result["reason"]
 
 
 # ── dep_confusion ─────────────────────────────────────────────────────────────
@@ -488,3 +524,48 @@ class TestMassAssignment:
             respx.put("/").respond(200, text='{"role":"admin"}')
             r = await m.run(target="http://test.com/")
         assert isinstance(r, dict)
+
+
+class TestDatabaseExposureRedisProbe:
+    @pytest.mark.asyncio
+    async def test_redis_probe_sends_a_real_crlf_terminated_info_command(self, monkeypatch):
+        import talisman.modules.misconfiguration.database_exposure as module
+
+        sent = []
+
+        class FakeSocket:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, traceback):
+                return False
+
+            def settimeout(self, timeout):
+                pass
+
+            def sendall(self, payload):
+                sent.append(payload)
+
+            def recv(self, size):
+                return b"# Server\nredis_version:7.2.0\n"
+
+        monkeypatch.setattr(
+            module.socket,
+            "create_connection",
+            lambda address, timeout: FakeSocket(),
+        )
+
+        async def immediate_to_thread(function, *args, **kwargs):
+            return function(*args, **kwargs)
+
+        async def no_wait_for_rate_slot():
+            return None
+
+        monkeypatch.setattr(module.asyncio, "to_thread", immediate_to_thread)
+        scope = _test_scope()
+        monkeypatch.setattr(scope, "acquire_request_slot", no_wait_for_rate_slot)
+
+        result = await module._test_redis("test.com", 6379, scope)
+
+        assert result is not None
+        assert sent == [b"INFO server\r\n"]

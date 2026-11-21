@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import re
 from typing import Any
+
+from talisman.engine.scope import ScopeViolationError
 from talisman.utils.http_client import TalismanHTTPClient
 from talisman.utils.logger import get_logger, console, print_finding
 
@@ -59,7 +61,7 @@ async def _check_takeover(
  for scheme in ("https", "http"):
   url = f"{scheme}://{subdomain}/"
   try:
-   r = await client.get(url, timeout=10, allow_redirects=True)
+   r = await client.get(url, timeout=10, allow_redirects=False)
    body = r.text.lower()
    headers_str = str(r.headers).lower()
 
@@ -91,43 +93,69 @@ async def run(
  subdomains: list[str] | None = None,
  **kwargs: Any,
 ) -> dict[str, Any]:
- targets = subdomains or [target]
- console.print(f"\n[module][+] Subdomain Takeover Check[/module] — {len(targets)} targets")
- vulnerable: list[dict[str, Any]] = []
+ if scope is None:
+  return {
+   "target": target,
+   "candidates": [],
+   "count": 0,
+   "error": "scope_enforcer_required",
+  }
 
- async with TalismanHTTPClient(proxy=proxy, timeout=12) as client:
-  sem = asyncio.Semaphore(20)
+ try:
+  scope.assert_in_scope(target)
+ except ScopeViolationError as exc:
+  return {
+   "target": target,
+   "candidates": [],
+   "count": 0,
+   "error": str(exc),
+  }
 
-  async def _check(sub: str) -> None:
+ targets = list(dict.fromkeys(subdomains or [target]))
+ targets = [
+  subdomain for subdomain in targets
+  if isinstance(subdomain, str) and scope.is_in_scope(subdomain)
+  ][:200]
+ console.print(
+  f"\n[module][+] Subdomain Takeover Candidate Check[/module] — "
+  f"{len(targets)} in-scope targets"
+ )
+ candidates: list[dict[str, Any]] = []
+
+ async with TalismanHTTPClient(
+  proxy=proxy,
+  timeout=12,
+  verify_ssl=True,
+  follow_redirects=False,
+  scope=scope,
+ ) as client:
+  sem = asyncio.Semaphore(5)
+
+  async def check_one(subdomain: str) -> None:
    async with sem:
-    result = await _check_takeover(sub, client)
+    result = await _check_takeover(subdomain, client)
     if result:
-     severity = "critical"
-     title = f"Subdomain takeover — {sub} -> {result['provider']}"
-     print_finding(title, severity, sub)
-     vulnerable.append(result)
-     if session:
-      await session.add_finding(
-       target=sub, module="takeover",
-       vuln_type="subdomain_takeover",
-       severity=severity, confidence="confirmed",
-       title=title,
-       description=(
-        f"Subdomain '{sub}' points to {result['provider']} "
-        f"but the service/resource is unclaimed. "
-        f"An attacker can register the resource and serve content on this subdomain."
-       ),
-       evidence=f"Fingerprint: {result['fingerprint']}",
-       reproduction=f"Register the {result['provider']} resource for: {sub}",
-       remediation=(
-        "1. Remove the dangling DNS record immediately.\n"
-        "2. If the service is still needed, reclaim the resource on the provider.\n"
-        "3. Implement a process to audit DNS records when services are decommissioned."
-       ),
-       cvss_score=9.3, cwe="CWE-350",
-      )
+     result["confidence"] = "candidate"
+     result["requires_dns_confirmation"] = True
+     result["verification_required"] = (
+      "Verify the current CNAME chain points to the provider and confirm "
+      "the provider resource is actually unclaimed. An HTTP fingerprint "
+      "alone is not proof of takeover."
+     )
+     candidates.append(result)
 
-  await asyncio.gather(*[_check(t) for t in targets], return_exceptions=True)
+  await asyncio.gather(
+   *(check_one(subdomain) for subdomain in targets),
+   return_exceptions=True,
+  )
 
- console.print(f" Found {len(vulnerable)} takeover candidates")
- return {"vulnerable": vulnerable, "count": len(vulnerable)}
+ console.print(
+  f" Found {len(candidates)} takeover candidates requiring DNS confirmation"
+ )
+ return {
+  "target": target,
+  "candidates": candidates,
+  "findings": [],
+  "count": 0,
+  "candidate_count": len(candidates),
+ }

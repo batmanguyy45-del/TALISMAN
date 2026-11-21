@@ -25,6 +25,7 @@ import json
 import re
 import urllib.parse
 import uuid
+from talisman.engine.scope import ScopeViolationError
 from typing import Any
 
 from talisman.utils.http_client import TalismanHTTPClient
@@ -147,7 +148,9 @@ def _structures_match(resp1_text: str, resp2_text: str) -> bool:
  l2 = _get_landmarks(resp2_text)
 
  if not l1 or not l2:
-  return True # Can't determine, allow continuation
+  # A missing structural signal is uncertainty, not evidence of equivalent
+  # resources. Fail closed to avoid promoting arbitrary text differences.
+  return False
 
  # Must share at least 70% of landmark structure
  s1, s2 = set(l1), set(l2)
@@ -327,30 +330,41 @@ async def run(
  **kwargs: Any,
 ) -> dict[str, Any]:
  url = target if "://" in target else f"https://{target}"
+ if scope is None:
+  return {"target": url, "findings": [], "candidates": [], "count": 0, "error": "scope_enforcer_required"}
+ try:
+  scope.assert_in_scope(url)
+ except ScopeViolationError as exc:
+  return {"target": url, "findings": [], "candidates": [], "count": 0, "error": str(exc)}
+ if not auth_token:
+  return {
+   "target": url, "findings": [], "candidates": [], "count": 0, "skipped": True,
+   "reason": "Provide an authorized test-account bearer token. Anonymous differences do not establish BOLA."
+  }
  console.print(
-  f"\n[module][+] IDOR Scanner[/module] -> [target]{url}[/target]"
+  f"\n[module][+] IDOR Candidate Check[/module] -> [target]{url}[/target]"
  )
- findings: list[dict[str, Any]] = []
+ candidates: list[dict[str, Any]] = []
 
- auth_headers: dict[str, str] = {}
- if auth_token:
-  auth_headers["Authorization"] = f"Bearer {auth_token}"
+ auth_headers: dict[str, str] = {"Authorization": f"Bearer {auth_token}"}
 
  parsed = urllib.parse.urlparse(url)
  existing_params = dict(urllib.parse.parse_qsl(parsed.query))
 
- # Only test params that look like identifiers
+ # Only test identifiers explicitly present in the supplied endpoint. Guessing
+ # generic IDs against an arbitrary root URL creates noise and unnecessary reads.
  params_to_test = {
   k: v
   for k, v in existing_params.items()
   if any(ip in k.lower() for ip in ID_PARAMS)
  }
-
  if not params_to_test:
-  # Try with likely default values if no ID params found
-  params_to_test = {p: "1" for p in ID_PARAMS[:4]}
+  return {
+   "target": url, "findings": [], "candidates": [], "count": 0, "skipped": True,
+   "reason": "No explicit identifier query parameter was supplied; pass a concrete endpoint such as /api/items?id=123."
+  }
 
- async with TalismanHTTPClient(proxy=proxy, timeout=15) as client:
+ async with TalismanHTTPClient(proxy=proxy, timeout=15, scope=scope) as client:
   for param, baseline_id in params_to_test.items():
    # Build a smart list of test IDs
    test_ids: list[str] = []
@@ -386,52 +400,18 @@ async def run(
    )
 
    if result:
-    severity = "high"
-    title = (
-     f"IDOR — parameter '{param}' allows access to ID "
-     f"{result['accessed_id']}"
-    )
-    print_finding(title, severity, url)
-    findings.append(result)
-
-    if session:
-     await session.add_finding(
-      target=url,
-      module="idor",
-      vuln_type="idor",
-      severity=severity,
-      confidence="confirmed",
-      title=title,
-      description=(
-       f"Insecure Direct Object Reference in parameter "
-       f"'{param}'. Changing ID from '{baseline_id}' to "
-       f"'{result['accessed_id']}' returned a different "
-       f"resource with distinct data.\n"
-       f"Evidence: {result['evidence']}"
-      ),
-      request=result["request"],
-      evidence=result["evidence"],
-      reproduction=(
-       f"Change {param}={baseline_id} to "
-       f"{param}={result['accessed_id']}"
-      ),
-      remediation=(
-       "1. Implement object-level authorization checks "
-       "on every resource access.\n"
-       "2. Use indirect references (UUIDs or opaque tokens) "
-       "instead of sequential IDs.\n"
-       "3. Validate that the authenticated user owns or has "
-       "permission for the requested resource."
-      ),
-      cvss_score=8.1,
-      cwe="CWE-639",
-      references=[
-       "https://owasp.org/API-Security/editions/2023/en/"
-       "0xa3-broken-object-property-level-authorization/"
-      ],
-     )
+    result["requires_two_account_confirmation"] = True
+    result["candidate_only"] = True
+    candidates.append(result)
 
  console.print(
-  f" Found {len(findings)} confirmed IDOR vulnerabilities"
+  f" Found {len(candidates)} potential cross-object access candidates; no BOLA finding is asserted without an independent second-account check"
  )
- return {"target": url, "findings": findings, "count": len(findings)}
+ return {
+  "target": url,
+  "findings": [],
+  "candidates": candidates,
+  "count": 0,
+  "candidate_count": len(candidates),
+  "verification_required": "Repeat with a second account that owns the accessed object; demonstrate Account A can read or modify Account B's private object."
+ }

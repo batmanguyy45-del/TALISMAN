@@ -14,6 +14,7 @@ import asyncio
 import random
 import string
 from typing import Any
+from talisman.engine.scope import ScopeViolationError
 from talisman.utils.http_client import TalismanHTTPClient
 from talisman.utils.logger import get_logger, console, print_finding
 
@@ -101,66 +102,72 @@ async def run(
     **kwargs: Any,
 ) -> dict[str, Any]:
     url = target if "://" in target else f"https://{target}"
-    console.print(f"\n[module][+] CRLF Injection Scanner[/module] -> [target]{url}[/target]")
-    findings: list[dict[str, Any]] = []
+    if scope is None:
+        return {
+            "target": url,
+            "findings": [],
+            "candidates": [],
+            "count": 0,
+            "error": "scope_enforcer_required",
+        }
+    try:
+        scope.assert_in_scope(url)
+    except ScopeViolationError as exc:
+        return {
+            "target": url,
+            "findings": [],
+            "candidates": [],
+            "count": 0,
+            "error": str(exc),
+        }
 
-    async with TalismanHTTPClient(proxy=proxy, timeout=12) as client:
+    console.print(
+        f"\\n[module][+] CRLF Injection Candidate Assessment[/module] -> [target]{url}[/target]"
+    )
+    candidates: list[dict[str, Any]] = []
+
+    async with TalismanHTTPClient(
+        proxy=proxy,
+        timeout=12,
+        verify_ssl=True,
+        follow_redirects=False,
+        scope=scope,
+    ) as client:
         param_results = await _test_param_crlf(url, client)
-        for r in param_results:
-            title = f"CRLF injection via parameter '{r['param']}'"
-            print_finding(title, "high", url)
-            findings.append(r)
-            if session:
-                await session.add_finding(
-                    target=url, module="crlf",
-                    vuln_type="crlf_injection",
-                    severity="high", confidence="confirmed",
-                    title=title,
-                    description=(
-                        f"CRLF injection detected in parameter '{r['param']}' "
-                        f"using payload: {r['description']}. "
-                        f"Injected header '{r['header_injected']}' appeared in response."
-                    ),
-                    request=f"GET {r.get('url', url)} HTTP/1.1",
-                    evidence=r.get("header_injected", ""),
-                    reproduction=(
-                        f"Send request with {r['param']}=PAYLOAD where PAYLOAD is a CRLF sequence "
-                        f"followed by a malicious header."
-                    ),
-                    remediation=(
-                        "1. Encode or strip CR (%0d / \\r) and LF (%0a / \\n) characters from user input.\n"
-                        "2. Use parameterized URL building instead of string concatenation.\n"
-                        "3. Sanitize all input placed into HTTP headers."
-                    ),
-                    cvss_score=7.5, cwe="CWE-93",
-                )
-
         header_results = await _test_header_crlf(url, client)
-        for r in header_results:
-            title = f"CRLF injection via header '{r['header']}'"
-            print_finding(title, "high", url)
-            findings.append(r)
-            if session:
-                await session.add_finding(
-                    target=url, module="crlf",
-                    vuln_type="crlf_injection",
-                    severity="high", confidence="confirmed",
-                    title=title,
-                    description=(
-                        f"CRLF injection detected via header '{r['header']}'. "
-                        f"The injected CRLF sequence caused header '{r['header_injected']}' "
-                        f"to appear in the response."
-                    ),
-                    request=f"GET {url} HTTP/1.1\n{r['header']}: {r.get('payload', '')[:100]}",
-                    evidence=r.get("header_injected", ""),
-                    reproduction=f"Send request with {r['header']} containing CRLF + injected header.",
-                    remediation=(
-                        "1. Strip or encode CRLF sequences from all header values at the proxy/load balancer.\n"
-                        "2. Use allowlists for header values instead of direct user input.\n"
-                        "3. Validate and sanitize all input that ends up in response headers."
-                    ),
-                    cvss_score=7.5, cwe="CWE-93",
-                )
 
-    console.print(f"  CRLF injection scanning complete -- {len(findings)} issues")
-    return {"target": url, "findings": findings, "count": len(findings)}
+    for result in param_results:
+        candidates.append({
+            **result,
+            "confidence": "candidate",
+            "requires_raw_response_validation": True,
+            "verification_required": (
+                "Verify the CRLF sequence created a distinct response header or "
+                "separate HTTP response at the wire level. A canary appearing in "
+                "a normalized response header can also be ordinary reflection."
+            ),
+        })
+
+    for result in header_results:
+        candidates.append({
+            **result,
+            "confidence": "candidate",
+            "requires_raw_response_validation": True,
+            "verification_required": (
+                "Confirm whether the client-supplied header value was parsed as "
+                "a new response header or merely reflected by the application. "
+                "Validate with a raw HTTP capture before reporting."
+            ),
+        })
+
+    console.print(
+        f" CRLF assessment complete — {len(candidates)} response-header candidates; "
+        "no vulnerability asserted"
+    )
+    return {
+        "target": url,
+        "findings": [],
+        "candidates": candidates,
+        "count": 0,
+        "candidate_count": len(candidates),
+    }

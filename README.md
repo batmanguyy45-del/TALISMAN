@@ -500,6 +500,11 @@ export TALISMAN_EXTRA_HEADERS='{"X-Custom":"val"}'  # JSON or Key:Value pairs
 export GITHUB_TOKEN=ghp_xxx
 export SHODAN_API_KEY=xxx
 export DISCORD_WEBHOOK=https://...
+
+# Optional, high-risk exception: Nuclei's separate resolver is not IP-pinned by TALISMAN.
+# Only enable when you explicitly accept that residual boundary risk and have
+# separately authorized state-changing template requests in your scope file.
+# export TALISMAN_ALLOW_UNPINNED_NUCLEI=1
 ```
 
 ---

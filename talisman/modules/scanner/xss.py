@@ -26,7 +26,10 @@ import string
 import urllib.parse
 from typing import Any
 
+from talisman.engine.scope import ScopeViolationError
+
 from bs4 import BeautifulSoup
+from talisman.engine.scope import ScopeViolationError
 from talisman.utils.http_client import TalismanHTTPClient
 from talisman.utils.logger import get_logger, console, print_finding
 
@@ -268,21 +271,51 @@ async def run(
  **kwargs: Any,
 ) -> dict[str, Any]:
  url = target if "://" in target else f"https://{target}"
- console.print(
-  f"\n[module][+] XSS Scanner[/module] -> [target]{url}[/target]"
- )
- all_findings: list[dict[str, Any]] = []
+ if scope is None:
+  return {
+   "target": url,
+   "findings": [],
+   "candidates": [],
+   "count": 0,
+   "error": "scope_enforcer_required",
+  }
+ try:
+  scope.assert_in_scope(url)
+ except ScopeViolationError as exc:
+  return {
+   "target": url,
+   "findings": [],
+   "candidates": [],
+   "count": 0,
+   "error": str(exc),
+  }
 
+ console.print(
+  f"\n[module][+] Reflected XSS Candidate Scanner[/module] -> [target]{url}[/target]"
+ )
  parsed = urllib.parse.urlparse(url)
  params = list(dict(urllib.parse.parse_qsl(parsed.query)).keys())
  if not params:
   params = DEFAULT_PARAMS
 
- async with TalismanHTTPClient(proxy=proxy, timeout=20) as client:
+ methods = ["GET"]
+ skipped_methods: list[str] = []
+ try:
+  scope.assert_destructive_allowed(url, "POST")
+  methods.append("POST")
+ except ScopeViolationError:
+  skipped_methods.append("POST")
+
+ candidates: list[dict[str, Any]] = []
+ async with TalismanHTTPClient(
+  proxy=proxy,
+  timeout=20,
+  scope=scope,
+ ) as client:
   tasks = [
    _test_param(url, param, method, client, waf_bypass)
    for param in params
-   for method in ["GET", "POST"]
+   for method in methods
   ]
   results = await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -290,53 +323,28 @@ async def run(
   for result in results:
    if not isinstance(result, dict):
     continue
-   key = result["param"]
-   if key in seen_params:
+   key = result.get("param")
+   if not isinstance(key, str) or key in seen_params:
     continue
    seen_params.add(key)
 
-   severity = "high"
-   print_finding(
-    f"Reflected XSS in param '{result['param']}' "
-    f"({result['context']} context)",
-    severity,
-    url,
+   result["confidence"] = "candidate"
+   result["requires_browser_verification"] = True
+   result["verification_required"] = (
+    "Confirm that the payload executes in a real browser in the affected "
+    "user context. Unencoded reflection alone does not prove script execution; "
+    "check the final DOM, CSP, sanitization and the actual execution context."
    )
-   all_findings.append(result)
-
-   if session:
-    await session.add_finding(
-     target=url,
-     module="xss",
-     vuln_type="reflected_xss",
-     severity=severity,
-     confidence="confirmed",
-     title=(
-      f"Reflected XSS — parameter '{result['param']}' "
-      f"({result['context']} context)"
-     ),
-     description=(
-      f"Reflected XSS confirmed in {result['method']} parameter "
-      f"'{result['param']}'. Payload rendered unencoded in "
-      f"{result['context']} context. Unique marker "
-      f"'{result['marker']}' verified unencoded in DOM."
-     ),
-     request=result["request"],
-     evidence=result["evidence"],
-     reproduction=(
-      f"Navigate to: {url}?"
-      f"{result['param']}={urllib.parse.quote(result['payload'])}"
-     ),
-     remediation=(
-      "Encode all user-supplied data in the appropriate context. "
-      "Implement a strict Content-Security-Policy."
-     ),
-     cvss_score=6.1,
-     cwe="CWE-79",
-     references=["https://owasp.org/www-community/attacks/xss/"],
-    )
+   candidates.append(result)
 
  console.print(
-  f" Found {len(all_findings)} confirmed XSS vulnerabilities"
+  f" Found {len(candidates)} reflected XSS candidates requiring browser verification"
  )
- return {"target": url, "findings": all_findings, "count": len(all_findings)}
+ return {
+  "target": url,
+  "findings": [],
+  "candidates": candidates,
+  "count": 0,
+  "candidate_count": len(candidates),
+  "skipped_methods": skipped_methods,
+ }

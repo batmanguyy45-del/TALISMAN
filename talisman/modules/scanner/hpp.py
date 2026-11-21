@@ -1,11 +1,11 @@
 """HTTP Parameter Pollution scanner — framework-aware duplicate parameter handling, WAF bypass, POST body pollution."""
 from __future__ import annotations
-import asyncio
 import random
 import string
 from typing import Any
+from talisman.engine.scope import ScopeViolationError
 from talisman.utils.http_client import TalismanHTTPClient
-from talisman.utils.logger import get_logger, console, print_finding
+from talisman.utils.logger import get_logger, console
 
 log = get_logger(__name__)
 
@@ -98,12 +98,12 @@ async def _test_body_hpp(
 
     # JSON array parameter test
     try:
-        payload = {
-            "email": "test@test.com",
-            "role": ["user"],
-            "role": canary,
-        }
-        r = await client.post(test_url, json=payload,
+        # Send raw JSON text: a Python dict cannot represent duplicate keys.
+        payload = (
+            '{"email":"test@example.invalid","role":"user",'
+            f'"role":"{canary}"' + '}'
+        )
+        r = await client.post(test_url, data=payload,
             headers={"Content-Type": "application/json"}, timeout=8)
         if canary.lower() in r.text.lower()[:500]:
             findings.append({
@@ -143,34 +143,8 @@ async def _test_body_hpp(
 async def _test_header_hpp(
     url: str, endpoint: str, client: TalismanHTTPClient,
 ) -> list[dict[str, Any]]:
-    """Test HPP via duplicate headers."""
-    findings: list[dict[str, Any]] = []
-    test_url = url.rstrip("/") + endpoint
-    canary = f"{HPP_CANARY_PREFIX}{''.join(random.choices(string.ascii_uppercase + string.digits, k=8))}"
-
-    # Duplicate X-Forwarded-For to test IP-based auth bypass
-    try:
-        r = await client.get(test_url,
-            headers={
-                "X-Forwarded-For": "127.0.0.1",
-                "X-Forwarded-For": canary,
-            },
-            timeout=8,
-        )
-        if r.status_code != 403 and r.status_code != 401:
-            resp_text = r.text.lower()
-            if canary.lower() in resp_text:
-                findings.append({
-                    "type": "header_hpp",
-                    "endpoint": endpoint,
-                    "header": "X-Forwarded-For",
-                    "canary": canary,
-                    "evidence": f"Duplicate X-Forwarded-For header processed, value reflected",
-                })
-    except Exception:
-        pass
-
-    return findings
+    """Duplicate headers are not testable through the mapping-based client API."""
+    return []
 
 
 async def _test_mixed_param_sources(
@@ -216,89 +190,93 @@ async def run(
     proxy: str | None = None,
     **kwargs: Any,
 ) -> dict[str, Any]:
+    """Return HPP candidates only; reflection is not proof of parser confusion."""
     url = target if "://" in target else f"https://{target}"
-    console.print(f"\n[module][+] HTTP Parameter Pollution Scanner[/module] -> [target]{url}[/target]")
-    findings: list[dict[str, Any]] = []
+    if scope is None:
+        return {
+            "target": url, "findings": [], "candidates": [], "count": 0,
+            "candidate_count": 0, "error": "scope_enforcer_required",
+        }
+    scope.assert_in_scope(url)
 
-    async with TalismanHTTPClient(proxy=proxy, timeout=10) as client:
-        console.print(f"  Testing {len(HPP_ENDPOINTS)} endpoints across 4 HPP vectors...")
+    allow_post_probes = False
+    try:
+        scope.assert_destructive_allowed(url, "POST")
+        allow_post_probes = True
+    except ScopeViolationError:
+        pass
 
+    console.print(
+        f"\n[module][+] HTTP Parameter Pollution Candidate Scanner[/module] -> [target]{url}[/target]"
+    )
+    candidates: list[dict[str, Any]] = []
+    skipped_vectors: list[str] = []
+
+    async with TalismanHTTPClient(proxy=proxy, timeout=10, scope=scope) as client:
         for endpoint in HPP_ENDPOINTS:
-            # -- 1. Query string HPP ---------------------------------------------------
-            q_findings = await _test_query_hpp(url, endpoint, client)
-            for f in q_findings:
-                param = f.get("parameter", "unknown")
-                title = f"HPP in query string at {endpoint}: duplicate '{{param}}' produces different result".replace("{param}", param)
-                print_finding(title, "high", url)
-                findings.append(f)
-                if session:
-                    await session.add_finding(
-                        target=url, module="hpp",
-                        vuln_type="query_hpp",
-                        severity="high", confidence="confirmed",
-                        title=title,
-                        description=f"HTTP Parameter Pollution detected at {endpoint}. Duplicate '{param}' parameter in query string with different values caused the server to process unexpected value. This can bypass WAF rules and input validation.",
-                        evidence=f.get("evidence", ""),
-                        remediation=f"1. Reject requests with duplicate '{param}' parameter. 2. Add input validation middleware that flags duplicates. 3. Use schema validation that only accepts single-value parameters. 4. Test all security-sensitive parameters for HPP.",
-                        cvss_score=7.5, cwe="CWE-235",
-                    )
+            # Duplicate query parameters are read-only probes, but reflection
+            # alone remains a candidate until semantic behavior is verified.
+            for candidate in await _test_query_hpp(url, endpoint, client):
+                candidates.append({
+                    **candidate,
+                    "confidence": "candidate",
+                    "requires_semantic_verification": True,
+                    "verification_required": (
+                        "Compare the application's effective parameter value "
+                        "against a single-value baseline and demonstrate an "
+                        "authorization, validation, routing, or business-logic "
+                        "difference. Canary reflection alone is insufficient."
+                    ),
+                })
 
-            # -- 2. POST body HPP (form-encoded + JSON) --------------------------------
-            b_findings = await _test_body_hpp(url, endpoint, client)
-            for f in b_findings:
-                ftype = f.get("type", "body_hpp")
-                title = f"HPP in POST body at {endpoint}: {'JSON array' if 'json' in ftype else 'form-encoded'} duplicate parameter"
-                print_finding(title, "medium", url)
-                findings.append(f)
-                if session:
-                    await session.add_finding(
-                        target=url, module="hpp",
-                        vuln_type=ftype,
-                        severity="medium", confidence="confirmed",
-                        title=title,
-                        description=f"Duplicate parameter accepted in POST body at {endpoint}. {'JSON body with array-type parameter' if 'json' in ftype else 'Form-encoded body with duplicate keys'} resulted in unexpected parameter resolution.",
-                        evidence=f.get("evidence", ""),
-                        remediation="1. Reject requests with duplicate body parameters. 2. Use JSON schema validation. 3. Normalize body parameters at middleware layer.",
-                        cvss_score=5.3, cwe="CWE-235",
-                    )
+            if not allow_post_probes:
+                continue
 
-            # -- 3. Header HPP ---------------------------------------------------------
-            h_findings = await _test_header_hpp(url, endpoint, client)
-            for f in h_findings:
-                header = f.get("header", "X-Forwarded-For")
-                title = f"HPP via duplicate {header} header at {endpoint}"
-                print_finding(title, "medium", url)
-                findings.append(f)
-                if session:
-                    await session.add_finding(
-                        target=url, module="hpp",
-                        vuln_type="header_hpp",
-                        severity="medium", confidence="confirmed",
-                        title=title,
-                        description=f"Duplicate '{header}' header accepted at {endpoint}. Headers with multiple values can be misinterpreted by different proxy/application layers.",
-                        evidence=f.get("evidence", ""),
-                        remediation=f"1. Use comma-separated header format instead of duplicate headers. 2. Normalize {header} header at gateway. 3. Validate header parsing behavior.",
-                        cvss_score=5.3, cwe="CWE-235",
-                    )
+            for candidate in await _test_body_hpp(url, endpoint, client):
+                candidates.append({
+                    **candidate,
+                    "confidence": "candidate",
+                    "requires_semantic_verification": True,
+                    "verification_required": (
+                        "Confirm the server's duplicate-key resolution and "
+                        "demonstrate security-relevant impact using a disposable "
+                        "test account and resource."
+                    ),
+                })
 
-            # -- 4. Mixed source HPP (query + body) ------------------------------------
-            m_findings = await _test_mixed_param_sources(url, endpoint, client)
-            for f in m_findings:
-                param = f.get("parameter", "unknown")
-                title = f"HPP across query+body at {endpoint}: '{{param}}' in both sources".replace("{param}", param)
-                print_finding(title, "high", url)
-                findings.append(f)
-                if session:
-                    await session.add_finding(
-                        target=url, module="hpp",
-                        vuln_type="mixed_source_hpp",
-                        severity="high", confidence="confirmed",
-                        title=title,
-                        description=f"Parameter '{param}' sent in BOTH query string and POST body at {endpoint}. The value from the query string was processed even though a body parameter with the same name existed. This can bypass input validation that only checks one source.",
-                        evidence=f.get("evidence", ""),
-                        remediation="1. Use a single parameter source (query string or body, not both). 2. Implement middleware that raises errors on ambiguous parameter sources. 3. Validate across all parameter sources.",
-                        cvss_score=7.5, cwe="CWE-235",
-                    )
+            for candidate in await _test_mixed_param_sources(url, endpoint, client):
+                candidates.append({
+                    **candidate,
+                    "confidence": "candidate",
+                    "requires_semantic_verification": True,
+                    "verification_required": (
+                        "Demonstrate that query/body precedence changes a "
+                        "security decision, not merely that one value is echoed."
+                    ),
+                })
 
-    console.print(f"  HPP scan complete -- {len(findings)} issues")
-    return {"target": url, "findings": findings, "count": len(findings)}
+    # Duplicate headers cannot be represented by a dict: the previous test's
+    # duplicate X-Forwarded-For keys collapsed to one value before transmission.
+    skipped_vectors.append(
+        "Duplicate-header HPP is not attempted: the current client header API "
+        "uses mappings and cannot faithfully construct duplicate field lines."
+    )
+    if not allow_post_probes:
+        skipped_vectors.append(
+            "POST-body and mixed-source probes were skipped because explicit "
+            "destructive-probe permission was not granted."
+        )
+
+    console.print(
+        f"  HPP scan complete -- {len(candidates)} candidates; "
+        "no confirmed vulnerabilities inferred from reflection"
+    )
+    return {
+        "target": url,
+        "findings": [],
+        "candidates": candidates,
+        "count": 0,
+        "candidate_count": len(candidates),
+        "post_probes_enabled": allow_post_probes,
+        "skipped_vectors": skipped_vectors,
+    }
