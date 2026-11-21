@@ -474,3 +474,32 @@ async def test_http_client_bounds_scope_dns_resolution_time():
             await client.get("https://example.com/", timeout=0.005)
 
     assert calls == []
+
+
+
+@pytest.mark.asyncio
+async def test_cross_origin_redirect_drops_safe_method_request_body():
+    seen_bodies = []
+
+    async def handler(request):
+        seen_bodies.append(request.content)
+        if request.url.host == "example.com":
+            return httpx.Response(
+                302,
+                headers={"Location": "https://docs.example.net/next"},
+                request=request,
+            )
+        return httpx.Response(200, request=request)
+
+    scope = ScopeEnforcer(ScopeConfig(
+        include=["example.com"],
+        service_allowlist=["docs.example.net"],
+    ))
+    async with _mock_client(scope, handler, follow_redirects=True) as client:
+        response = await client.get(
+            "https://example.com/start",
+            content=b"confidential request body",
+        )
+
+    assert response.status_code == 200
+    assert seen_bodies == [b"confidential request body", b""]
