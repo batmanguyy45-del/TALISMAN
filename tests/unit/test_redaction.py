@@ -93,3 +93,23 @@ def test_redacts_quoted_json_secrets_with_spaces_and_signed_url_params():
     assert "opaque-refresh-token" not in safe
     assert "opaque-signed-secret" not in safe
     assert "[REDACTED]" in safe
+
+
+def test_redacts_prefixed_secret_field_names():
+    structured = redact_sensitive_value({
+        "db_password": "opaque-db-password",
+        "aws_secret_access_key": "opaque-aws-secret",
+        "oauth_access_token": "opaque-oauth-token",
+        "safe_password_policy": "minimum 14 characters",
+    })
+    serialized = redact_sensitive_text(
+        '{"db_password": "opaque-json-db-password", '
+        '"aws_secret_access_key": "opaque-json-aws-secret"}'
+    )
+
+    assert structured["db_password"] == "[REDACTED]"
+    assert structured["aws_secret_access_key"] == "[REDACTED]"
+    assert structured["oauth_access_token"] == "[REDACTED]"
+    assert structured["safe_password_policy"] == "minimum 14 characters"
+    assert "opaque-json-db-password" not in serialized
+    assert "opaque-json-aws-secret" not in serialized
