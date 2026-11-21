@@ -24,7 +24,7 @@ from typing import Any
 
 from talisman.engine.scope import ScopeViolationError
 from talisman.utils.http_client import TalismanHTTPClient
-from talisman.utils.oast import normalize_oast_domain
+from talisman.utils.oast import validate_public_oast_domain
 from talisman.utils.logger import get_logger, console, print_finding
 
 log = get_logger(__name__)
@@ -395,7 +395,7 @@ async def run(
 
  if oast_domain:
   try:
-   oast_domain = normalize_oast_domain(oast_domain)
+   oast_domain = await validate_public_oast_domain(oast_domain)
   except ValueError as exc:
    return {
     "target": url,
