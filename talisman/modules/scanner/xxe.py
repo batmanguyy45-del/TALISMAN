@@ -18,6 +18,7 @@ from talisman.engine.scope import ScopeViolationError
 from talisman.utils.oast import OASTClient, validate_public_oast_domain
 from talisman.utils.http_client import TalismanHTTPClient
 from talisman.utils.logger import get_logger, console, print_finding
+from talisman.utils.redaction import redact_sensitive_text
 
 log = get_logger(__name__)
 
@@ -66,6 +67,7 @@ async def _test_xxe_endpoint(
  payload: str,
  content_type: str,
  client: TalismanHTTPClient,
+ baseline_text: str = "",
 ) -> dict[str, Any] | None:
  try:
   r = await client.post(
@@ -75,12 +77,14 @@ async def _test_xxe_endpoint(
    timeout=12,
   )
   matched = _matches_any_pattern(r.text)
-  if matched:
+  # Require a successful response and a file marker not already present in
+  # the ordinary page, preventing static documentation from becoming XXE proof.
+  if r.status_code == 200 and matched and not _matches_any_pattern(baseline_text):
    return {
     "url": url,
     "payload": payload[:200],
     "indicator": matched,
-    "evidence": r.text[:500],
+    "evidence": redact_sensitive_text(r.text[:1000]),
     "content_type": content_type,
    }
  except Exception:
@@ -143,7 +147,18 @@ async def run(
  test_cases.extend(oob_payloads)
 
  async with TalismanHTTPClient(proxy=proxy, timeout=15, scope=scope) as client:
-  tasks = [_test_xxe_endpoint(url, payload, ct, client) for payload, ct in test_cases]
+  baseline_text = ""
+  try:
+   baseline_response = await client.get(url, timeout=10)
+   if baseline_response.status_code == 200:
+    baseline_text = baseline_response.text[:200_000]
+  except Exception as exc:
+   log.debug("xxe_baseline_request_failed", error=type(exc).__name__)
+
+  tasks = [
+   _test_xxe_endpoint(url, payload, ct, client, baseline_text=baseline_text)
+   for payload, ct in test_cases
+  ]
   results = await asyncio.gather(*tasks, return_exceptions=True)
 
   for result in results:
