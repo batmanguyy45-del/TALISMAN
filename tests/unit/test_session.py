@@ -222,3 +222,66 @@ async def test_add_finding_redacts_credentials_before_persistence(tmp_path):
     assert raw_cookie not in serialized
     assert "raw-reset-token" not in serialized
     assert "[GITHUB_TOKEN_REDACTED]" in serialized or "[REDACTED]" in serialized
+
+
+@pytest.mark.asyncio
+async def test_target_and_module_run_metadata_are_redacted_before_persistence(tmp_path):
+    sess = Session("metadata-redaction", tmp_path)
+    target_token = "opaque-target-token-91"
+    tech_secret = "opaque-tech-secret-92"
+    note_password = "opaque-note-password-93"
+    run_token = "opaque-run-token-94"
+    error_password = "opaque-error-password-95"
+    summary_token = "opaque-summary-token-96"
+
+    async with sess:
+        await sess.add_target(
+            f"https://example.com/?access_token={target_token}",
+            tech_stack=[{"api_key": tech_secret}],
+            notes=f'{{"password": "{note_password}"}}',
+        )
+        run_id = await sess.start_module_run(
+            "scanner.test",
+            f"https://example.com/?token={run_token}",
+        )
+        await sess.complete_module_run(
+            run_id,
+            status="error",
+            error=f'{{"password": "{error_password}"}}',
+            summary=f'{{"access_token": "{summary_token}"}}',
+        )
+
+        async with sess.db.execute(
+            "SELECT host, tech_stack, notes FROM targets WHERE session_id=?",
+            (sess.id,),
+        ) as cursor:
+            target_row = await cursor.fetchone()
+        async with sess.db.execute(
+            "SELECT target, error, output_summary FROM module_runs WHERE session_id=?",
+            (sess.id,),
+        ) as cursor:
+            run_row = await cursor.fetchone()
+
+    persisted = str(dict(target_row)) + str(dict(run_row))
+    for secret in (
+        target_token,
+        tech_secret,
+        note_password,
+        run_token,
+        error_password,
+        summary_token,
+    ):
+        assert secret not in persisted
+    assert "[REDACTED]" in persisted
+
+
+@pytest.mark.asyncio
+async def test_session_notes_redact_serialized_credentials(tmp_path):
+    sess = Session("note-redaction", tmp_path)
+    note_secret = "opaque-note-json-secret-97"
+    async with sess:
+        await sess.add_note(f'{{"client_secret": "{note_secret}"}}')
+        notes = await sess.get_notes()
+
+    assert note_secret not in str(notes)
+    assert "[REDACTED]" in str(notes)
