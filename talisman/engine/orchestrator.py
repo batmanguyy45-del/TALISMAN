@@ -400,21 +400,28 @@ class ChainOrchestrator:
    raise ValueError("Chain name or path is required")
 
   raw_path = Path(name).expanduser()
-  if raw_path.name == name and _CHAIN_ID_RE.fullmatch(name):
-   candidates = [
-    CHAINS_DIR / f"{name}.yaml",
-    CHAINS_DIR / f"{name}.yml",
-   ]
-   for candidate in candidates:
-    if candidate.is_file() and not candidate.is_symlink():
-     return Chain.from_yaml(candidate)
-   raise FileNotFoundError(f"Chain '{name}' not found in {CHAINS_DIR}")
+  supported_suffix = raw_path.suffix.lower() in {".yaml", ".yml"}
 
-  if raw_path.is_symlink() or not raw_path.is_file():
-   raise FileNotFoundError("Custom chain path must be an existing, non-symlink file")
-  if raw_path.suffix.lower() not in {".yaml", ".yml"}:
-   raise ValueError("Custom chain files must use a .yaml or .yml extension")
-  return Chain.from_yaml(raw_path.resolve())
+  # An existing explicit file path is treated as a custom chain.
+  if raw_path.exists() or raw_path.is_symlink():
+   if raw_path.is_symlink() or not raw_path.is_file():
+    raise FileNotFoundError("Custom chain path must be a regular, non-symlink file")
+   if not supported_suffix:
+    raise ValueError("Custom chain files must use a .yaml or .yml extension")
+   return Chain.from_yaml(raw_path.resolve())
+
+  # A bare built-in name, optionally suffixed with .yaml/.yml, may only
+  # resolve inside the repository's trusted chains directory.
+  if raw_path.parent == Path("."):
+   chain_name = raw_path.stem if supported_suffix else raw_path.name
+   if _CHAIN_ID_RE.fullmatch(chain_name):
+    for suffix in (".yaml", ".yml"):
+     candidate = CHAINS_DIR / f"{chain_name}{suffix}"
+     if candidate.is_file() and not candidate.is_symlink():
+      return Chain.from_yaml(candidate)
+    raise FileNotFoundError(f"Chain '{chain_name}' not found in {CHAINS_DIR}")
+
+  raise FileNotFoundError("Custom chain path must be an existing, non-symlink YAML file")
 
  @staticmethod
  def list_chains() -> list[dict[str, str]]:
