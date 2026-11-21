@@ -267,7 +267,7 @@ async def test_public_dns_addresses_are_allowed(monkeypatch):
 @pytest.mark.asyncio
 async def test_private_literal_requires_explicit_ip_scope():
     scope = _make_scope(["example.com"])
-    with pytest.raises(ScopeViolationError, match="non-public address"):
+    with pytest.raises(ScopeViolationError, match="neither in target scope"):
         await scope.assert_network_destination_allowed("http://127.0.0.1/")
 
 
