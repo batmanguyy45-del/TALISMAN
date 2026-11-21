@@ -74,6 +74,17 @@ async def run(
 ) -> dict[str, Any]:
     if scope is None:
         return {"target": target, "open_ports": [], "count": 0, "error": "scope_enforcer_required"}
+    if proxy:
+        return {
+            "target": target,
+            "open_ports": [],
+            "count": 0,
+            "skipped": True,
+            "reason": (
+                "Raw TCP port scanning cannot honor the configured HTTP proxy; "
+                "the scan was stopped rather than connecting directly."
+            ),
+        }
 
     raw_target = target if "://" in target else f"https://{target}"
     try:
