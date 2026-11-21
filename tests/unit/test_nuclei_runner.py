@@ -88,6 +88,7 @@ async def test_nuclei_receives_safe_flags_and_discards_out_of_scope_results(monk
     assert "dos,intrusive,fuzz,bruteforce" in args
     assert "-retries" in args and "0" in args
     assert "-rate-limit" in args and "2" in args
+    assert "-concurrency" in args and "4" in args
     assert result["count"] == 1
     assert result["out_of_scope_results_discarded"] == 1
 
@@ -163,3 +164,26 @@ async def test_nuclei_output_is_bounded_and_process_is_killed_on_limit(monkeypat
     assert result["error"] == "output_limit"
     assert result["findings"] == []
     assert process.killed is True
+
+
+@pytest.mark.asyncio
+async def test_nuclei_skips_when_configured_rate_is_below_its_minimum(monkeypatch):
+    scope = ScopeEnforcer(
+        ScopeConfig(
+            include=["example.com"],
+            service_allowlist=[],
+            max_requests_per_second=0.5,
+        )
+    )
+
+    def should_not_lookup_binary(*args, **kwargs):
+        raise AssertionError("Nuclei cannot honor a sub-1 request/second limit")
+
+    monkeypatch.setattr(nuclei_runner.shutil, "which", should_not_lookup_binary)
+    result = await nuclei_runner.run(
+        target="https://example.com",
+        scope=scope,
+    )
+
+    assert result["skipped"] is True
+    assert "below 1 request/second" in result["reason"]
