@@ -172,9 +172,11 @@ class TestHostHeader:
 # ── csrf ──────────────────────────────────────────────────────────────────────
 
 class TestCsrf:
-    def test_constants(self):
+    def test_generic_mutation_probe_code_is_removed(self):
         import talisman.modules.scanner.csrf as m
-        assert len(m.STATE_CHANGING_ENDPOINTS) >= 2
+        assert not hasattr(m, "_test_csrf_token_handling")
+        assert not hasattr(m, "STATE_CHANGING_ENDPOINTS")
+        assert not hasattr(m, "METHOD_OVERRIDE_VARIANTS")
 
     @pytest.mark.asyncio
     async def test_run_returns_dict(self):
@@ -183,6 +185,25 @@ class TestCsrf:
             respx.get("http://test.com/").respond(200, text="<html><form><input name='csrf'/></form></html>")
             r = await m.run(target="http://test.com/", scope=_test_scope())
         assert isinstance(r, dict)
+        assert r["findings"] == []
+        assert r["state_changing_probes_sent"] == 0
+
+    @pytest.mark.asyncio
+    async def test_run_never_sends_state_changing_requests(self):
+        import talisman.modules.scanner.csrf as m
+        async with respx.mock:
+            respx.get("http://test.com/").respond(
+                200,
+                headers={"Set-Cookie": "sessionid=abc123; Path=/"},
+            )
+            respx.post("http://test.com/").mock(
+                side_effect=AssertionError("CSRF assessment must not POST")
+            )
+            r = await m.run(target="http://test.com/", scope=_test_scope())
+
+        assert r["findings"] == []
+        assert r["observation_count"] >= 1
+        assert r["state_changing_probes_sent"] == 0
 
 
 # ── cache_deception ───────────────────────────────────────────────────────────
