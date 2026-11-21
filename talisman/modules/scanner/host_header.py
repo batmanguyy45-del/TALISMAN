@@ -84,19 +84,25 @@ async def run(
         return {
             "target": url,
             "findings": [],
+            "candidates": [],
             "count": 0,
             "error": "scope_enforcer_required",
         }
     try:
         scope.assert_in_scope(url)
     except ScopeViolationError as exc:
-        return {"target": url, "findings": [], "count": 0, "error": str(exc)}
+        return {
+            "target": url,
+            "findings": [],
+            "candidates": [],
+            "count": 0,
+            "error": str(exc),
+        }
 
     console.print(
-        f"\n[module][+] Host Header Trust Check[/module] -> [target]{url}[/target]"
+        f"\\n[module][+] Host Header Trust Assessment[/module] -> [target]{url}[/target]"
     )
-    findings: list[dict[str, Any]] = []
-
+    candidates: list[dict[str, Any]] = []
     async with TalismanHTTPClient(
         proxy=proxy,
         timeout=10,
@@ -110,43 +116,31 @@ async def run(
             for header_name in FORWARDED_HOST_HEADERS:
                 probes.append(_probe_header(url, client, header_name, host_value))
 
-        # Bounded concurrency keeps this a small, predictable passive check.
         results = await asyncio.gather(*probes, return_exceptions=True)
         for result in results:
             if not isinstance(result, dict):
                 continue
-            findings.append(result)
-            title = (
-                f"Host-derived external redirect via {result['header']} "
-                f"({result['value']})"
-            )
-            print_finding(title, "medium", url)
-            if session:
-                await session.add_finding(
-                    target=url,
-                    module="host_header",
-                    vuln_type="host_header_external_redirect",
-                    severity="medium",
-                    confidence="confirmed",
-                    title=title,
-                    description=(
-                        f"The server returned a redirect whose parsed destination "
-                        f"uses the supplied host canary after setting "
-                        f"{result['header']}. Header reflection alone is not "
-                        f"considered a finding."
-                    ),
-                    evidence=result["evidence"],
-                    reproduction=(
-                        f"Send GET {url} with {result['header']}: {result['value']} "
-                        f"and inspect the Location response header."
-                    ),
-                    remediation=(
-                        "Validate the Host header against an explicit server-name "
-                        "allowlist. Trust forwarding headers only from configured "
-                        "reverse proxies and construct canonical URLs from trusted configuration."
-                    ),
-                    cwe="CWE-644",
-                )
+            candidates.append({
+                **result,
+                "confidence": "candidate",
+                "requires_sensitive_flow_validation": True,
+                "verification_required": (
+                    "The redirect target changes when an untrusted Host/forwarded "
+                    "header is supplied. This does not prove password-reset "
+                    "poisoning or account impact. Validate a real security-sensitive "
+                    "absolute-URL flow with a controlled test account and verify "
+                    "that the generated link uses the untrusted authority."
+                ),
+            })
 
-    console.print(f"  Host header check complete — {len(findings)} verified redirects")
-    return {"target": url, "findings": findings, "count": len(findings)}
+    console.print(
+        f"  Host header assessment complete — {len(candidates)} redirect candidates; "
+        "no account or password-reset flow was triggered"
+    )
+    return {
+        "target": url,
+        "findings": [],
+        "candidates": candidates,
+        "count": 0,
+        "candidate_count": len(candidates),
+    }
