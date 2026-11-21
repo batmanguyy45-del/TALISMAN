@@ -34,6 +34,7 @@ async def run(target: str, param: str, waf_vendor: str = "Generic", proxy: str |
             )
         )
         async with TalismanHTTPClient(
+            proxy=proxy,
             scope=provider_scope,
             timeout=30,
             verify_ssl=True,
