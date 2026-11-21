@@ -127,3 +127,19 @@ def test_only_explicit_service_hosts_are_allowed():
     assert not scope.is_service_allowed("https://attacker.test/")
     with pytest.raises(ScopeViolationError):
         scope.assert_request_allowed("https://attacker.test/")
+
+
+
+def test_encoded_path_traversal_cannot_bypass_exclusion():
+    scope = _make_scope(
+        ["example.com"],
+        ["example.com/private/*"],
+    )
+    assert not scope.is_in_scope("https://example.com/public/%252e%252e/private/account")
+    assert not scope.is_in_scope("https://example.com/public%252f..%252fprivate/account")
+
+
+def test_control_characters_and_backslashes_are_rejected():
+    scope = _make_scope(["example.com"])
+    assert not scope.is_in_scope("https://example.com/\n.evil.test/")
+    assert not scope.is_in_scope("https://example.com\\@evil.test/")
