@@ -126,6 +126,7 @@ class Session:
   self.exports_dir.mkdir(exist_ok=True, mode=0o700)
   os.chmod(self.exports_dir, 0o700)
   self._db: aiosqlite.Connection | None = None
+  self._scope_token: Any = None
 
  async def open(self) -> "Session":
   self._db = await aiosqlite.connect(str(self.db_path))
@@ -145,6 +146,10 @@ class Session:
   if self._db:
    await self._db.close()
    self._db = None
+  if self._scope_token is not None:
+   from talisman.engine.scope import reset_active_scope
+   reset_active_scope(self._scope_token)
+   self._scope_token = None
 
  async def __aenter__(self) -> "Session":
   return await self.open()
