@@ -287,3 +287,31 @@ def test_explicit_exclusion_cannot_be_bypassed_by_service_allowlist():
     assert not scope.is_in_scope("https://example.com/private/admin")
     with pytest.raises(ScopeViolationError, match="explicit scope exclusion"):
         scope.assert_request_allowed("https://example.com/private/admin", "GET")
+
+
+
+def test_internal_ssrf_probes_are_disabled_by_default():
+    scope = _make_scope(["example.com"])
+    assert scope.config.allow_internal_ssrf_probes is False
+
+
+def test_internal_ssrf_probes_require_explicit_boolean_scope_setting(tmp_path):
+    scope_file = tmp_path / "scope.yaml"
+    scope_file.write_text(
+        "include:\n  - example.com\n"
+        "restrictions:\n  allow_internal_ssrf_probes: true\n",
+        encoding="utf-8",
+    )
+    config = ScopeConfig.from_file(scope_file)
+    assert config.allow_internal_ssrf_probes is True
+
+
+def test_internal_ssrf_probe_setting_rejects_string_boolean(tmp_path):
+    scope_file = tmp_path / "scope.yaml"
+    scope_file.write_text(
+        "include:\n  - example.com\n"
+        "restrictions:\n  allow_internal_ssrf_probes: 'true'\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="must be true or false"):
+        ScopeConfig.from_file(scope_file)
