@@ -186,10 +186,16 @@ async def run(
     **kwargs: Any,
 ) -> dict[str, Any]:
     url = target if "://" in target else f"https://{target}"
+    if scope is None:
+        return {"target": url, "findings": [], "count": 0, "error": "scope_enforcer_required"}
+    try:
+        scope.assert_destructive_allowed(url, "POST")
+    except Exception as exc:
+        return {"target": url, "findings": [], "count": 0, "skipped": True, "reason": str(exc)}
     console.print(f"\n[module][+] Mass Assignment Scanner[/module] -> [target]{url}[/target]")
     findings: list[dict[str, Any]] = []
 
-    async with TalismanHTTPClient(proxy=proxy, timeout=12) as client:
+    async with TalismanHTTPClient(proxy=proxy, timeout=12, scope=scope) as client:
         console.print(f"  Testing {len(API_UPDATE_ENDPOINTS)} endpoints for mass assignment...")
         for endpoint in API_UPDATE_ENDPOINTS:
             endpoint_findings = await _test_mass_assignment(url, endpoint, client, auth)
