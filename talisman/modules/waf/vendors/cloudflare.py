@@ -70,7 +70,7 @@ async def _crtsh_ips(domain: str, client: TalismanHTTPClient) -> list[str]:
  ips: list[str] = []
  try:
   r = await client.get(
-   f"https://crt.sh/?q={domain}&output=json", timeout=20
+   f"https://crt.sh/?q={domain}&output=json", timeout=20, scope_exempt=True
   )
   if r.status_code == 200:
    ip_re = re.compile(r'\b(?:\d{1,3}\.){3}\d{1,3}\b')
@@ -86,7 +86,7 @@ async def _shodan_ips(domain: str, api_key: str, client: TalismanHTTPClient) -> 
   return ips
  try:
   r = await client.get(
-   f"https://api.shodan.io/dns/domain/{domain}?key={api_key}", timeout=15
+   f"https://api.shodan.io/dns/domain/{domain}?key={api_key}", timeout=15, scope_exempt=True
   )
   if r.status_code == 200:
    data = r.json()
