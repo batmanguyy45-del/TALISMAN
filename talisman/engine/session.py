@@ -2,10 +2,9 @@
 from __future__ import annotations
 import json
 import uuid
-from pathlib import PurePath
 from datetime import datetime, timezone
-from pathlib import Path
-from typing import Any, Optional
+from pathlib import Path, PurePath
+from typing import Any
 import aiosqlite
 from talisman.utils.logger import get_logger
 
