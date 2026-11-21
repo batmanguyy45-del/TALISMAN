@@ -53,7 +53,7 @@ chain_app  = typer.Typer(help="Chain orchestrator — YAML workflows: full_recon
 session_app = typer.Typer(help="Session management — list, findings, summary, notes, delete", no_args_is_help=True)
 report_app = typer.Typer(help="Reports — HTML (dark theme), Markdown (HackerOne/Bugcrowd), JSON", no_args_is_help=True)
 cms_app  = typer.Typer(help="CMS — WordPress deep audit (version, plugins, users, XML-RPC, REST API)", no_args_is_help=True)
-ad_app  = typer.Typer(help="Active Directory — LDAP enum, Kerberoasting, SMB, password spray, AD CS", no_args_is_help=True)
+ad_app  = typer.Typer(help="Active Directory — safe transports only; generic LDAP, SMB, Kerberos, spraying and AD CS paths are disabled pending scope-pinned transports", no_args_is_help=True)
 intel_app  = typer.Typer(help="Intelligence — CVE lookup, CVSS scoring, knowledge base", no_args_is_help=True)
 plugin_app = typer.Typer(help="Plugin management — list, search, install, uninstall community scanners", no_args_is_help=True)
 
@@ -1345,12 +1345,11 @@ def ad_spray(
  debug: bool = typer.Option(False, "--debug"),
 ):
  """
- AD Password Spray — lockout-safe, smart password list, configurable delay.
+ AD Password Spray — disabled pending pinned LDAP transport and safe lockout/credential handling.
 
  \b
- Examples:
-  talisman ad spray -t 192.168.1.10 --domain corp.local --dc-ip 192.168.1.10 \\
-  --users users.txt --passwords 'Password1,Welcome1!' -s internal
+ This command currently performs no network requests. The legacy implementation
+ did not honor its advertised lockout delay and could expose passwords in output.
  """
  setup_logging("DEBUG" if debug else "INFO"); print_banner()
  async def _r():
@@ -1374,18 +1373,12 @@ def ad_cs_cmd(
  debug: bool = typer.Option(False, "--debug"),
 ):
  """
- AD Certificate Services — ESC1-ESC8 vulnerability detection.
+ AD Certificate Services — disabled pending pinned, encrypted LDAP transport and safe credential handling.
 
  \b
- ESC1: SAN + Client Auth = forge admin certs
- ESC2: Any Purpose EKU
- ESC4: Template ACL misconfiguration
- ESC8: NTLM relay to ADCS HTTP endpoint -> DCSync
-
- \b
- Examples:
-  talisman ad adcs -t 192.168.1.10 --domain corp.local --dc-ip 192.168.1.10 \\
-  --user jsmith --password Password1 -s internal
+ This command currently performs no network requests. The legacy implementation
+ used unpinned LDAP connections and could persist the supplied password in
+ finding reproduction text.
  """
  setup_logging("DEBUG" if debug else "INFO"); print_banner()
  async def _r():
