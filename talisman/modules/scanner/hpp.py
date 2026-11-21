@@ -1,12 +1,11 @@
 """HTTP Parameter Pollution scanner — framework-aware duplicate parameter handling, WAF bypass, POST body pollution."""
 from __future__ import annotations
-import asyncio
 import random
 import string
 from typing import Any
 from talisman.engine.scope import ScopeViolationError
 from talisman.utils.http_client import TalismanHTTPClient
-from talisman.utils.logger import get_logger, console, print_finding
+from talisman.utils.logger import get_logger, console
 
 log = get_logger(__name__)
 
@@ -144,34 +143,8 @@ async def _test_body_hpp(
 async def _test_header_hpp(
     url: str, endpoint: str, client: TalismanHTTPClient,
 ) -> list[dict[str, Any]]:
-    """Test HPP via duplicate headers."""
-    findings: list[dict[str, Any]] = []
-    test_url = url.rstrip("/") + endpoint
-    canary = f"{HPP_CANARY_PREFIX}{''.join(random.choices(string.ascii_uppercase + string.digits, k=8))}"
-
-    # Duplicate X-Forwarded-For to test IP-based auth bypass
-    try:
-        r = await client.get(test_url,
-            headers={
-                "X-Forwarded-For": "127.0.0.1",
-                "X-Forwarded-For": canary,
-            },
-            timeout=8,
-        )
-        if r.status_code != 403 and r.status_code != 401:
-            resp_text = r.text.lower()
-            if canary.lower() in resp_text:
-                findings.append({
-                    "type": "header_hpp",
-                    "endpoint": endpoint,
-                    "header": "X-Forwarded-For",
-                    "canary": canary,
-                    "evidence": f"Duplicate X-Forwarded-For header processed, value reflected",
-                })
-    except Exception:
-        pass
-
-    return findings
+    """Duplicate headers are not testable through the mapping-based client API."""
+    return []
 
 
 async def _test_mixed_param_sources(
