@@ -425,17 +425,17 @@ class TestWebsocket:
 # ── deserialization ───────────────────────────────────────────────────────────
 
 class TestDeserialization:
-    def test_constants(self):
-        import talisman.modules.scanner.deserialization as m
-        assert len(m.DESERIALIZATION_PROBES) >= 3
-
     @pytest.mark.asyncio
-    async def test_run_returns_dict(self):
+    async def test_generic_deserialization_probes_are_disabled(self):
         import talisman.modules.scanner.deserialization as m
-        async with respx.mock:
-            respx.post("/").respond(200)
-            r = await m.run(target="http://test.com/")
-        assert isinstance(r, dict)
+        result = await m.run(
+            target="http://test.com/",
+            scope=_test_scope(),
+        )
+        assert result["skipped"] is True
+        assert result["findings"] == []
+        assert result["count"] == 0
+        assert "disposable fixture" in result["reason"]
 
 
 # ── dep_confusion ─────────────────────────────────────────────────────────────
