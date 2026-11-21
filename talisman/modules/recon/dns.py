@@ -3,10 +3,8 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 import aiodns
-import dns.resolver
 import dns.zone
 import dns.query
-import dns.exception
 from urllib.parse import urlsplit
 
 from talisman.engine.scope import ScopeViolationError
@@ -49,19 +47,6 @@ async def _query_record(
   return [str(r) for r in result]
  except Exception:
   return []
-
-async def _zone_transfer(domain: str, nameserver: str) -> list[str] | None:
- try:
-  z = dns.zone.from_xfr(dns.query.xfr(nameserver, domain, timeout=10))
-  records: list[str] = []
-  for name, node in z.nodes.items():
-   rdatasets = node.rdatasets
-   for rdataset in rdatasets:
-    for rdata in rdataset:
-     records.append(f"{name}.{domain} {rdataset.rdtype} {rdata}")
-  return records
- except Exception:
-  return None
 
 async def _check_spf(domain: str, resolver: aiodns.DNSResolver, scope: Any) -> dict[str, Any]:
  txt_records = await _query_record(domain, "TXT", resolver, scope, domain)
