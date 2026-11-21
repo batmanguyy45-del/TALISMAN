@@ -404,6 +404,9 @@ class TalismanHTTPClient:
 
         current_url = url
         current_params = params
+        current_data = data
+        current_json = json
+        current_content = content
         for redirect_index in range(self.max_redirects + 1):
             scope_for_slot = self.scope or get_active_scope()
             if scope_for_slot is None:
@@ -440,9 +443,9 @@ class TalismanHTTPClient:
                                 url=current_url,
                                 headers=request_headers,
                                 params=current_params,
-                                data=data,
-                                json_body=json,
-                                content=content,
+                                data=current_data,
+                                json_body=current_json,
+                                content=current_content,
                                 timeout=request_timeout,
                             )
                         self._request_count += 1
@@ -499,6 +502,11 @@ class TalismanHTTPClient:
                         key: value for key, value in request_headers.items()
                         if key.lower() in {"accept", "accept-encoding", "accept-language", "user-agent"}
                     }
+                    # A request body is caller-supplied data, not a generic
+                    # negotiation header. Never forward it to another origin.
+                    current_data = None
+                    current_json = None
+                    current_content = None
                 current_url = next_url
                 current_params = None
 
