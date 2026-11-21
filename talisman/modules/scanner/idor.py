@@ -148,7 +148,9 @@ def _structures_match(resp1_text: str, resp2_text: str) -> bool:
  l2 = _get_landmarks(resp2_text)
 
  if not l1 or not l2:
-  return True # Can't determine, allow continuation
+  # A missing structural signal is uncertainty, not evidence of equivalent
+  # resources. Fail closed to avoid promoting arbitrary text differences.
+  return False
 
  # Must share at least 70% of landmark structure
  s1, s2 = set(l1), set(l2)
